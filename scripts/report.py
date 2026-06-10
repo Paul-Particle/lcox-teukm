@@ -118,10 +118,15 @@ def plot_lcot_vs_dmax(p: Params, out_dir: str) -> list:
     fig.update_layout(
         template=fca_template,
         # &#36; (literal "$") rather than "$" so static export does not treat
-        # the dollar signs as LaTeX/MathJax math delimiters.
-        title=("Levelized cost of transport vs inter-swap distance<br>"
-               f"<sub>base case, battery &#36;{p.battery_usd_per_kwh:.0f}/kWh, "
-               f"elec &#36;{p.elec_usd_per_kwh}/kWh</sub>"),
+        # the dollar signs as LaTeX/MathJax math delimiters. Alignment, title
+        # weight, and subtitle font come from the fca template.
+        title=dict(
+            text="Levelized cost of transport vs inter-swap distance",
+            subtitle=dict(
+                text=(f"base case, battery &#36;{p.battery_usd_per_kwh:.0f}/kWh, "
+                      f"elec &#36;{p.elec_usd_per_kwh}/kWh"),
+            ),
+        ),
         xaxis_title="D_max  —  longest hop between swap ports (km, log scale)",
         yaxis_title="LCOT (US cents per TEU·km)",
         hovermode="x unified",
