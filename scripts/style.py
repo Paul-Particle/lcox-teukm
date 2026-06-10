@@ -54,36 +54,12 @@ fca_template = go.layout.Template(
     layout=go.Layout(
         title=dict(
             xanchor="left",
-            # Pin the title's top at 7% from the figure top so its vertical
-            # position is deterministic (the leading dot aligns to it) and it
-            # keeps clear headroom from the figure edge.
             yanchor="top",
-            y=0.93,
-            # Ideally the title's left edge lines up with the y-axis tick
-            # labels. That x is a paper fraction = (margin.l - tick-label width
-            # - ticklabelstandoff) / figure-width-in-px, so it depends on the
-            # figure's width and margin; Plotly has no "anchor title to tick
-            # labels" option, so it can't be a fixed template value once a
-            # figure overrides the width. 0.0 is a plain left-aligned fallback;
-            # figures that set their own width should compute x (see report.py).
-            x=0.0,
-            # SemiBold gives the title a heavier weight than the body/subtitle;
-            # size 22 is ~20% above the size-18 body/subtitle (rounded up).
+            y=0.93,    # pinned top so the leading dot can align to it
+            x=0.0,     # left-aligned fallback; figures recompute x (see report.py)
             font=dict(family="Titillium Web SemiBold", size=22, color=blue_black),
-            # Subtitle matches the axis-title font (Titillium Web, size 18).
-            subtitle=dict(
-                font=dict(family="Titillium Web", size=18, color=blue_black),
-            ),
         ),
         font=dict(family="Titillium Web", size=18, color=blue_black),
-        # House accent: a highlight-blue dot in the top-right corner, with a
-        # diameter ~75% of the title height, its right edge on the plot's right
-        # edge and its top aligned with the title top. It's added per figure
-        # (see report.py) because the exact placement is in px and depends on
-        # the figure's height and margins.
-        # Deterministic margins so the title-x alignment (see title comment) is
-        # predictable: l leaves room for short y tick labels (no rotated y
-        # title in this style), t for the title + subtitle.
         margin=dict(l=60, r=40, t=96, b=64),
         xaxis=dict(
             title=dict(
@@ -94,12 +70,7 @@ fca_template = go.layout.Template(
             showline=True,
             linewidth=2,
             linecolor=blue_black,
-            # Log-axis convention: label the 1/2/5 ticks plus the range
-            # endpoints (e.g. 30, 50, 100, 200, 500, 1000, ...) via
-            # tickmode="array" + tickvals/ticktext. Clearer than dtick="D2"'s
-            # bare leading digits, and avoids the "9" crowding the next decade.
-            # The exact values depend on the data range, so they're set per
-            # figure rather than here (see report.py).
+            # Log ticks are set per figure (data-range dependent) — see report.py.
         ),
         yaxis=dict(
             title_font=dict(family="Titillium Web", size=18, color=blue_black),
@@ -126,15 +97,10 @@ _LOGO_PATH = Path(__file__).parent / "assets" / "fca_logo.png"
 
 
 def fca_logo():
-    """The FCA monogram as an embeddable image, or None if the asset is absent.
+    """The FCA monogram as a self-contained image dict, or None if absent.
 
-    Returns ``{"source": <base64 PNG data URI>, "aspect": width / height}``.
-    Self-contained so it survives static export and offline HTML. Placement and
-    pixel size are per-figure (they depend on the figure's dimensions), so add
-    it via ``fig.add_layout_image(...)`` in the figure script — see report.py.
-    The asset (scripts/assets/fca_logo.png) is rasterised from the monogram
-    vector (scripts/assets/fca_logo.svg) — letters in fca_blue, dot in
-    highlight_blue. Regenerate with:
+    Returns ``{"source": <base64 PNG data URI>, "aspect": width / height}`` for
+    ``fig.add_layout_image(...)``. fca_logo.png is rasterised from fca_logo.svg:
         magick -background none -density 600 scripts/assets/fca_logo.svg \\
             -resize x300 -depth 8 -strip scripts/assets/fca_logo.png
     """

@@ -14,8 +14,3 @@ results/
 .DS_Store
 .idea/
 .vscode/
-
-# Logo source files; only the rasterised monogram (scripts/assets/fca_logo.png)
-# and its vector source (scripts/assets/fca_logo.svg) are tracked.
-*.eps
-/FCA monotgram.*
