@@ -24,7 +24,7 @@ The script reports:
   hop lengths.
 - The **crossover `D_max`** below which electric is cheaper.
 - A sensitivity table of crossover `D_max` vs. battery cost and electricity price.
-- A plot of LCOT vs. `D_max` saved to `results/lcot_vs_dmax.png`.
+- An interactive Plotly plot of LCOT vs. `D_max` saved to `results/lcot_vs_dmax.html`.
 
 ## Project layout
 
@@ -41,7 +41,7 @@ The script reports:
 │   ├── analysis.py       # speed optimization + crossover distance
 │   └── report.py         # console tables + plotting
 ├── results/              # generated plots (gitignored)
-├── pyproject.toml        # project + dependencies (numpy, matplotlib, pyyaml)
+├── pyproject.toml        # project + dependencies (numpy, plotly, pyyaml)
 └── uv.lock               # pinned dependency versions
 ```
 
@@ -63,7 +63,8 @@ uv sync
 uv run scripts/lcox-teukm.py
 ```
 
-Results print to stdout; the figure is written to `results/lcot_vs_dmax.png`.
+Results print to stdout; the interactive figure is written to
+`results/lcot_vs_dmax.html` (a self-contained file — open it in any browser).
 
 ## Assumptions & key parameters
 

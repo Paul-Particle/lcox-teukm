@@ -51,9 +51,9 @@ def main():
     print_crossover(p, d_grid)
     print_sensitivity(p, d_grid)
 
-    out_path = plot_lcot_vs_dmax(p, RESULTS_DIR)
-    if out_path:
-        print(f"\nSaved plot: {os.path.relpath(out_path, REPO_ROOT)}")
+    saved = plot_lcot_vs_dmax(p, RESULTS_DIR)
+    for path in saved:
+        print(f"Saved plot: {os.path.relpath(path, REPO_ROOT)}")
 
 
 if __name__ == "__main__":

@@ -86,34 +86,59 @@ def print_sensitivity(p: Params, d_grid) -> None:
         print(row)
 
 
-def plot_lcot_vs_dmax(p: Params, out_dir: str) -> str:
-    """Plot base-case LCOT vs D_max for both ships; return the saved path
-    (or "" if matplotlib is unavailable)."""
+def plot_lcot_vs_dmax(p: Params, out_dir: str) -> list:
+    """Plot base-case LCOT vs D_max for both ships with Plotly; write an
+    interactive HTML and a static PNG, and return the list of saved paths
+    (empty if Plotly is unavailable).
+
+    The electric curve is clipped at 50 c/TEU·km so the long-haul blow-up does
+    not flatten the region where the two ships are actually competitive (the
+    viewer can still zoom freely)."""
     try:
-        import matplotlib
-        matplotlib.use("Agg")
-        import matplotlib.pyplot as plt
+        import plotly.graph_objects as go
     except Exception as e:
         print("plot skipped:", e)
-        return ""
+        return []
 
     dd = np.linspace(100, 6000, 120)
     lf = [optimize_speed(lcot_fossil, p, d)["lcot"] * CENTS_PER_USD for d in dd]
     le = [min(optimize_speed(lcot_elec, p, d)["lcot"] * CENTS_PER_USD, 50) for d in dd]
-    fig, ax = plt.subplots(figsize=(8, 5))
-    ax.plot(dd, lf, label="fossil", lw=2.2, color="#444")
-    ax.plot(dd, le, label="battery-electric", lw=2.2, color="#1f77b4")
-    ax.set_xlabel("D_max  —  longest hop between swap ports (km)")
-    ax.set_ylabel("LCOT (US cents per TEU·km)")
-    ax.set_title("Levelized cost of transport vs inter-swap distance\n"
-                 f"(base case, no carbon price, battery ${p.battery_usd_per_kwh}/kWh, "
-                 f"elec ${p.elec_usd_per_kwh}/kWh)")
-    ax.set_ylim(0, max(max(lf), 8) * 1.3)
-    ax.grid(alpha=0.3)
-    ax.legend()
-    fig.tight_layout()
+
+    hover = "D_max %{x:.0f} km<br>LCOT %{y:.3f} c/TEU·km<extra>%{fullData.name}</extra>"
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=dd, y=lf, mode="lines", name="fossil",
+                             line=dict(color="#444", width=2.2), hovertemplate=hover))
+    fig.add_trace(go.Scatter(x=dd, y=le, mode="lines", name="battery-electric",
+                             line=dict(color="#1f77b4", width=2.2), hovertemplate=hover))
+    fig.update_layout(
+        template="plotly_white",
+        # &#36; (literal "$") rather than "$" so static export does not treat
+        # the dollar signs as LaTeX/MathJax math delimiters.
+        title=("Levelized cost of transport vs inter-swap distance<br>"
+               f"<sub>base case, no carbon price, battery &#36;{p.battery_usd_per_kwh:.0f}/kWh, "
+               f"elec &#36;{p.elec_usd_per_kwh}/kWh</sub>"),
+        xaxis_title="D_max  —  longest hop between swap ports (km)",
+        yaxis_title="LCOT (US cents per TEU·km)",
+        hovermode="x unified",
+        legend=dict(yanchor="top", y=0.98, xanchor="left", x=0.02),
+        width=820, height=520,
+    )
+    fig.update_yaxes(range=[0, max(max(lf), 8) * 1.3])
 
     os.makedirs(out_dir, exist_ok=True)
-    out_path = os.path.join(out_dir, "lcot_vs_dmax.png")
-    fig.savefig(out_path, dpi=130)
-    return out_path
+    saved = []
+
+    # Interactive HTML. include_plotlyjs=True -> self-contained, renders offline.
+    html_path = os.path.join(out_dir, "lcot_vs_dmax.html")
+    fig.write_html(html_path, include_plotlyjs=True)
+    saved.append(html_path)
+
+    # Static PNG for slides/papers (requires the kaleido engine).
+    png_path = os.path.join(out_dir, "lcot_vs_dmax.png")
+    try:
+        fig.write_image(png_path, scale=2)
+        saved.append(png_path)
+    except Exception as e:
+        print("PNG export skipped (kaleido unavailable?):", e)
+
+    return saved
