@@ -123,7 +123,8 @@ def plot_lcot_vs_dmax(p: Params, out_dir: str) -> list:
     margin_l = fca_template.layout.margin.l
     margin_r = fca_template.layout.margin.r
     margin_t = fca_template.layout.margin.t
-    margin_b = 140  # override the template bottom margin: room for footnote + logo
+    margin_b = 124  # override the template bottom margin: room for the footnote
+    # (bump this when the bottom-right logo is restored — see fca_logo below)
     title_size = fca_template.layout.title.font.size
     # Header left edge (where the dot's left edge sits), lined up with the y
     # tick labels: they end ~ticklabelstandoff (10px) left of the axis at
