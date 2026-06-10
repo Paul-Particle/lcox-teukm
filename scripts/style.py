@@ -1,9 +1,7 @@
 """FCA house plotting style for Plotly: a layout template and a colormap.
 
-Ported from the `lcox-steel` repo (workflow/scripts/viz/_helpers.py), keeping
-only the visual style — the FCA color palette, the discrete `colorway`, the
-`fca_template` layout, and the continuous `fca_colormap`. The save/timestamp
-and dark-mode helpers from that file were intentionally left behind.
+Provides the FCA color palette, the discrete `colorway`, the `fca_template`
+layout, and the continuous `fca_colormap`.
 
 Usage:
     from style import fca_template, fca_colormap, fca_colorway
@@ -83,9 +81,7 @@ pio.templates["fca"] = fca_template
 
 
 # ---- Continuous colormap -------------------------------------------------
-# Source data are RGB triples in 0-1. (The lcox-steel original emitted
-# "rgb(0.19,...)" strings, which CSS clamps to near-black; here we scale to the
-# 0-255 integers Plotly expects so the scale renders as intended.)
+# RGB triples in 0-1, scaled to 0-255 for Plotly's rgb() strings below.
 _CM_DATA = [
     [0.19336174, 0.26378673, 0.3025569],
     [0.19364304, 0.26610583, 0.30703146],
