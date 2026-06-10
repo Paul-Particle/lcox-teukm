@@ -14,6 +14,7 @@ from params import Params
 from lcot import lcot_fossil, lcot_elec
 from analysis import optimize_speed, crossover_dmax
 from units import CENTS_PER_USD, PERCENT_PER_FRACTION, KWH_PER_MWH, KG_PER_TONNE
+from style import fca_template, fca_blue, blue_black
 
 # Sample hop lengths (km) shown in the per-ship breakdown table.
 SAMPLE_HOPS_KM = [200, 500, 1000, 2000, 4000]
@@ -111,11 +112,11 @@ def plot_lcot_vs_dmax(p: Params, out_dir: str) -> list:
     hover = "D_max %{x:.0f} km<br>LCOT %{y:.3f} c/TEU·km<extra>%{fullData.name}</extra>"
     fig = go.Figure()
     fig.add_trace(go.Scatter(x=dd, y=lf, mode="lines", name="fossil",
-                             line=dict(color="#444", width=2.2), hovertemplate=hover))
+                             line=dict(color=blue_black, width=2.2), hovertemplate=hover))
     fig.add_trace(go.Scatter(x=dd, y=le, mode="lines", name="battery-electric",
-                             line=dict(color="#1f77b4", width=2.2), hovertemplate=hover))
+                             line=dict(color=fca_blue, width=2.2), hovertemplate=hover))
     fig.update_layout(
-        template="plotly_white",
+        template=fca_template,
         # &#36; (literal "$") rather than "$" so static export does not treat
         # the dollar signs as LaTeX/MathJax math delimiters.
         title=("Levelized cost of transport vs inter-swap distance<br>"
