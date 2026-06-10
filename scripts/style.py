@@ -132,8 +132,11 @@ def fca_logo():
     Self-contained so it survives static export and offline HTML. Placement and
     pixel size are per-figure (they depend on the figure's dimensions), so add
     it via ``fig.add_layout_image(...)`` in the figure script — see report.py.
-    The asset (scripts/assets/fca_logo.png) is the EPS logo's "FCA" monogram,
-    rasterised once with the letters in fca_blue and the dot in highlight_blue.
+    The asset (scripts/assets/fca_logo.png) is rasterised from the monogram
+    vector (scripts/assets/fca_logo.svg) — letters in fca_blue, dot in
+    highlight_blue. Regenerate with:
+        magick -background none -density 600 scripts/assets/fca_logo.svg \\
+            -resize x300 -depth 8 -strip scripts/assets/fca_logo.png
     """
     if not _LOGO_PATH.exists():
         return None
