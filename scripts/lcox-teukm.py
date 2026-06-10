@@ -1,5 +1,5 @@
 """
-Levelized cost of transport (LCOT) for a container ship:
+lcox-teukm — levelized cost of transport (LCOT, US$/TEU·km) for a container ship:
 fossil vs battery-electric with containerized battery swapping.
 
 Comparison axis: D_max = the longest hop between swap-capable ports (km).
@@ -261,7 +261,7 @@ def main():
         ax.grid(alpha=0.3); ax.legend()
         fig.tight_layout()
         repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        out_dir = os.path.join(repo_root, "outputs")
+        out_dir = os.path.join(repo_root, "results")
         os.makedirs(out_dir, exist_ok=True)
         out_path = os.path.join(out_dir, "lcot_vs_dmax.png")
         fig.savefig(out_path, dpi=130)
