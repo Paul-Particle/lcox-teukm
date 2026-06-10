@@ -14,3 +14,7 @@ results/
 .DS_Store
 .idea/
 .vscode/
+
+# Source logo (6 MB EPS); the small rasterised monogram in scripts/assets/ is
+# committed and used by the plots. Keep the EPS itself out of the repo.
+*.eps
