@@ -23,7 +23,8 @@ import os
 from dataclasses import dataclass, field
 import numpy as np
 
-KNOT_KMH = 1.852  # 1 knot = 1.852 km/h
+from units import (KMH_PER_KNOT, KG_PER_TONNE, KWH_PER_MWH, HOURS_PER_YEAR,
+                   CENTS_PER_USD, PERCENT_PER_FRACTION)
 
 
 def crf(rate: float, years: float) -> float:
@@ -86,14 +87,14 @@ def prop_power_kw(p: Params, v_kn: float) -> float:
 
 
 def leg_useful_energy_kwh(p: Params, v_kn: float, d_km: float) -> float:
-    sail_h = d_km / (v_kn * KNOT_KMH)
+    sail_h = d_km / (v_kn * KMH_PER_KNOT)
     return (prop_power_kw(p, v_kn) + p.p_hotel_kw) * sail_h
 
 
 def cycles_per_year(p: Params, v_kn: float, d_km: float) -> float:
-    sail_h = d_km / (v_kn * KNOT_KMH)
+    sail_h = d_km / (v_kn * KMH_PER_KNOT)
     cycle_h = sail_h + p.port_hours_per_call
-    return 8760.0 * p.availability / cycle_h
+    return HOURS_PER_YEAR * p.availability / cycle_h
 
 
 def lcot_fossil(p: Params, v_kn: float, d_km: float) -> dict:
@@ -101,7 +102,7 @@ def lcot_fossil(p: Params, v_kn: float, d_km: float) -> dict:
     cyc = cycles_per_year(p, v_kn, d_km)
 
     fuel_chem_kwh = E_use / p.eta_fossil
-    fuel_cost_per_kwh_chem = p.fuel_usd_per_t / 1000.0 / p.fuel_lhv_kwh_per_kg
+    fuel_cost_per_kwh_chem = p.fuel_usd_per_t / KG_PER_TONNE / p.fuel_lhv_kwh_per_kg
     energy_cost_leg = fuel_chem_kwh * fuel_cost_per_kwh_chem
 
     engine_capex = p.engine_usd_per_kw * prop_power_kw(p, p.v_design_max_kn)
@@ -198,7 +199,7 @@ def main():
     print("=" * 72)
 
     # useful-energy cost per kWh, head to head
-    fuel_useful = (p.fuel_usd_per_t/1000/p.fuel_lhv_kwh_per_kg)/p.eta_fossil
+    fuel_useful = (p.fuel_usd_per_t/KG_PER_TONNE/p.fuel_lhv_kwh_per_kg)/p.eta_fossil
     elec_useful = p.elec_usd_per_kwh/p.eta_charge/p.eta_elec
     print(f"\nEnergy cost per USEFUL kWh:  fossil ${fuel_useful:.3f}   "
           f"electric ${elec_useful:.3f}   "
@@ -215,10 +216,10 @@ def main():
             fixed_share = r["annual_fixed"] / (r["annual_fixed"] + r["annual_energy"]) if np.isfinite(r["lcot"]) else float('nan')
             energy_share = 1 - fixed_share if np.isfinite(r["lcot"]) else float('nan')
             print(f"{d:>7.0f} {name:>8} {r['v']:>6.1f} "
-                  f"{r['lcot']*100:>8.3f}c "
-                  f"{fixed_share*100:>7.0f}% {energy_share*100:>7.0f}% "
+                  f"{r['lcot']*CENTS_PER_USD:>8.3f}c "
+                  f"{fixed_share*PERCENT_PER_FRACTION:>7.0f}% {energy_share*PERCENT_PER_FRACTION:>7.0f}% "
                   f"{r['cargo_cap']:>6.0f} {r['battery_slots']:>9.0f} "
-                  f"{r['battery_kwh']/1000:>9.0f} {r['battery_life']:>7.1f}")
+                  f"{r['battery_kwh']/KWH_PER_MWH:>9.0f} {r['battery_life']:>7.1f}")
 
     co = crossover_dmax(p, d_grid)
     print("\nCrossover D_max (electric cheaper below this):",
@@ -247,8 +248,8 @@ def main():
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
         dd = np.linspace(100, 6000, 120)
-        lf = [optimize_speed(lcot_fossil, p, d)["lcot"] * 100 for d in dd]
-        le = [min(optimize_speed(lcot_elec, p, d)["lcot"] * 100, 50) for d in dd]
+        lf = [optimize_speed(lcot_fossil, p, d)["lcot"] * CENTS_PER_USD for d in dd]
+        le = [min(optimize_speed(lcot_elec, p, d)["lcot"] * CENTS_PER_USD, 50) for d in dd]
         fig, ax = plt.subplots(figsize=(8, 5))
         ax.plot(dd, lf, label="fossil", lw=2.2, color="#444")
         ax.plot(dd, le, label="battery-electric", lw=2.2, color="#1f77b4")
