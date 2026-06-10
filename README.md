@@ -42,7 +42,8 @@ The script reports:
 │   └── report.py         # console tables + plotting
 ├── results/              # generated plots (gitignored)
 ├── pyproject.toml        # project + dependencies (numpy, plotly, pyyaml)
-└── uv.lock               # pinned dependency versions
+├── uv.lock               # pinned dependency versions
+└── LICENSE               # MIT
 ```
 
 The model is split along its natural seams: parameters, units, physics,
@@ -52,19 +53,38 @@ to one file.
 
 ## Setup & running
 
-This project uses [uv](https://docs.astral.sh/uv/). Dependencies are declared in
-`pyproject.toml` and pinned in `uv.lock`.
+This project uses [uv](https://docs.astral.sh/uv/) to manage Python and
+dependencies. Dependencies are declared in `pyproject.toml` and pinned in
+`uv.lock`; uv also provisions the right Python version (3.11+), so no separate
+Python install is required.
 
 ```bash
-# Install dependencies into a local .venv (first run only)
+# 1. Install uv (skip if you already have it)
+#    macOS / Linux:
+curl -LsSf https://astral.sh/uv/install.sh | sh
+#    or with Homebrew: brew install uv
+#    Windows (PowerShell): irm https://astral.sh/uv/install.ps1 | iex
+
+# 2. Clone the repo
+git clone https://github.com/Paul-Particle/lcox-teukm.git
+cd lcox-teukm
+
+# 3. Install dependencies into a local .venv (first run only)
 uv sync
 
-# Run the model
+# 4. Run the model
 uv run scripts/run.py
 ```
 
+That's the whole setup — `uv sync` creates an isolated `.venv` with the pinned
+dependencies, and `uv run` executes against it without you needing to activate
+anything.
+
 Results print to stdout; the interactive figure is written to
-`results/lcot_vs_dmax.html` (a self-contained file — open it in any browser).
+`results/lcot_vs_dmax.html` (a self-contained file — open it in any browser),
+alongside a static `results/lcot_vs_dmax.png` for slides/papers. The `results/`
+directory is generated on each run and is gitignored, so a fresh clone has none
+until you run the model.
 
 ## Assumptions & key parameters
 
@@ -76,3 +96,7 @@ kW, time in hours, distance in km, speed in knots, mass in kg, money in US$.
 
 > Note: this is a first-draft Tier-1 cut intended for order-of-magnitude comparison, not a
 > detailed naval-architecture or financial model.
+
+## License
+
+Released under the [MIT License](LICENSE).
