@@ -30,12 +30,25 @@ The script reports:
 
 ```
 .
+├── config.yaml           # all model inputs — edit here to run scenarios
 ├── scripts/
-│   └── lcox-teukm.py     # the model (run this)
+│   ├── lcox-teukm.py     # entry point (run this): loads config, orchestrates
+│   ├── units.py          # unit conversions — single source of truth
+│   ├── params.py         # Params schema + load_params(config.yaml)
+│   ├── finance.py        # capital recovery factor
+│   ├── energy.py         # ship physics: power, leg energy, cycles/year
+│   ├── lcot.py           # the two cost models (fossil, electric)
+│   ├── analysis.py       # speed optimization + crossover distance
+│   └── report.py         # console tables + plotting
 ├── results/              # generated plots (gitignored)
-├── pyproject.toml        # project + dependencies (numpy, matplotlib)
+├── pyproject.toml        # project + dependencies (numpy, matplotlib, pyyaml)
 └── uv.lock               # pinned dependency versions
 ```
+
+The model is split along its natural seams: parameters, units, physics,
+finance, the cost models, analysis, and reporting each live in their own
+module, so a change to (say) battery sizing or output formatting is localized
+to one file.
 
 ## Setup & running
 
@@ -54,10 +67,11 @@ Results print to stdout; the figure is written to `results/lcot_vs_dmax.png`.
 
 ## Assumptions & key parameters
 
-All assumptions live in the `Params` dataclass in `scripts/lcox-teukm.py` — hull size, load
-factor, CAPEX, efficiencies, energy prices, and battery characteristics. Edit there to
-explore scenarios. Units: energy in kWh, power in kW, time in hours, distance in km, speed
-in knots.
+All model inputs live in **`config.yaml`** — hull size, load factor, CAPEX, efficiencies,
+energy prices, and battery characteristics. Edit that file to explore scenarios; values are
+validated on load against the `Params` schema in `scripts/params.py` (an unknown or
+non-numeric key is rejected rather than silently ignored). Units: energy in kWh, power in
+kW, time in hours, distance in km, speed in knots, mass in kg, money in US$.
 
 > Note: this is a first-draft Tier-1 cut intended for order-of-magnitude comparison, not a
 > detailed naval-architecture or financial model.

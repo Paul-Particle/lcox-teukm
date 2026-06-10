@@ -1,0 +1,52 @@
+# config.yaml — canonical model inputs for lcox-teukm (base case, no carbon price).
+#
+# Each key maps to a field of Params (see scripts/params.py). Unknown keys are
+# rejected on load, so a typo here is an error rather than a silent default.
+# All values are in the model's base units: energy kWh, power kW, time hours,
+# distance km, speed knots, mass kg, money US$.
+
+# ---- shared hull / route -------------------------------------------------
+gross_slots: 3000.0          # nominal hull container capacity (TEU)
+load_factor: 0.80            # avg fraction of available slots filled
+hull_capex_usd: 45.0e+6      # newbuild hull excl. propulsion
+discount_rate: 0.08
+hull_life_yr: 25.0
+port_hours_per_call: 18.0    # cargo + (for electric) battery swap; assumed equal
+availability: 0.95           # fraction of the year the ship is in service
+
+# ---- powertrain sizing reference (admiralty-style P ~ v^3) ---------------
+p_ref_kw: 20000.0            # propulsion power at v_ref
+v_ref_kn: 18.0
+p_hotel_kw: 1500.0           # constant hotel/reefer load
+v_design_max_kn: 22.0        # sizes the installed motor/engine
+v_min_kn: 9.0
+v_max_kn: 22.0
+
+# ---- conversion efficiencies ---------------------------------------------
+eta_fossil: 0.48             # fuel chemical -> useful (good 2-stroke)
+eta_elec: 0.88               # battery pack -> useful (drivetrain)
+eta_charge: 0.95             # grid -> battery pack
+
+# ---- energy prices -------------------------------------------------------
+fuel_usd_per_t: 550.0        # VLSFO
+fuel_lhv_kwh_per_kg: 11.1    # ~40 MJ/kg
+elec_usd_per_kwh: 0.09       # delivered industrial / shore power
+
+# ---- fossil powertrain ---------------------------------------------------
+engine_usd_per_kw: 400.0
+engine_life_yr: 25.0
+om_fossil_usd_yr: 3.5e+6     # crew, insurance, repairs, lube (ex-fuel)
+fossil_overhead_slots: 120.0 # engine room + bunkers, in slot-equivalents
+
+# ---- electric powertrain -------------------------------------------------
+motor_usd_per_kw: 120.0
+motor_life_yr: 25.0
+om_elec_usd_yr: 3.0e+6       # fewer moving parts, no fuel system
+elec_fixed_overhead_slots: 30.0  # compact motors only (no big engine/tanks)
+battery_usd_per_kwh: 250.0   # installed, marinized system level
+battery_kwh_per_teu: 3000.0  # energy per battery container (3 MWh/TEU)
+battery_pack_wh_per_kg: 160.0  # for the deadweight sanity check
+battery_dod: 0.90            # usable depth of discharge
+battery_reserve: 0.20        # weather/safety margin on top of leg energy
+battery_cycle_life: 4000.0
+battery_calendar_life_yr: 12.0
