@@ -121,16 +121,19 @@ def plot_lcot_vs_dmax(p: Params, out_dir: str) -> list:
     # anchor, and margins all come from the fca template.
     fig_width = 820
     margin_l = fca_template.layout.margin.l
-    # Tick labels end ~ticklabelstandoff (10px) left of the axis at margin_l and
-    # the widest ("40") is ~20px, so their left edge is ~30px in; convert that
-    # px offset to the paper fraction Plotly wants for title.x. Width-dependent,
-    # hence computed here rather than in the template (see style.py).
-    title_x = (margin_l - 30) / fig_width
+    # Left edge of the header, lined up with the y tick labels: they end
+    # ~ticklabelstandoff (10px) left of the axis at margin_l, and the widest
+    # ("40") is ~20px, so their left edge sits ~30px in from margin_l.
+    tick_label_inset_px = 30
+    header_left_px = margin_l - tick_label_inset_px
+    # title.x is a fraction of the *figure* width (width-dependent, hence
+    # computed here, not in the template — see style.py).
+    title_x = header_left_px / fig_width
     fig.update_layout(
         template=fca_template,
         title=dict(
             text="Levelized cost of transport vs inter-swap distance",
-            subtitle=dict(text="LCOT, US cents per TEU·km"),
+            subtitle=dict(text="US cents per TEU·km"),
             x=title_x,
         ),
         xaxis_title="D_max  —  longest hop between swap ports (km, log scale)",
@@ -140,7 +143,9 @@ def plot_lcot_vs_dmax(p: Params, out_dir: str) -> list:
         margin=dict(b=124),
         width=fig_width, height=520,
     )
-    fig.update_xaxes(type="log")
+    # dtick="D2" labels only the 1/2/5 minor ticks on the log axis; the default
+    # (all of 1-9) crowds the "9" right up against the next decade ("100"/"1000").
+    fig.update_xaxes(type="log", dtick="D2")
     fig.update_yaxes(range=[0, max(max(lf), 8) * 1.3])
 
     # Economist-style source line: scenario parameters as a small grey footnote
@@ -149,7 +154,10 @@ def plot_lcot_vs_dmax(p: Params, out_dir: str) -> list:
     fig.add_annotation(
         text=(f"Base case: battery &#36;{p.battery_usd_per_kwh:.0f}/kWh, "
               f"electricity &#36;{p.elec_usd_per_kwh}/kWh"),
-        xref="paper", yref="paper", x=title_x, xanchor="left",
+        # An annotation's xref="paper" x is a fraction of the *plot area* (not
+        # the whole figure like title.x), so anchor to the plot's left edge and
+        # shift left by tick_label_inset_px to match the title's left edge.
+        xref="paper", yref="paper", x=0, xanchor="left", xshift=-tick_label_inset_px,
         y=0, yanchor="top", yshift=-98, showarrow=False,
         font=dict(family="Titillium Web", size=12, color=dark_gray),
     )
