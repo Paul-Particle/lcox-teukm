@@ -25,7 +25,7 @@ SENS_ELEC_USD_PER_KWH = [0.09, 0.06, 0.03]
 
 def print_base_header(p: Params) -> None:
     print("=" * 72)
-    print("BASE CASE  (no carbon price)")
+    print("BASE CASE")
     print(f"  fuel ${p.fuel_usd_per_t}/t  |  elec ${p.elec_usd_per_kwh}/kWh  "
           f"|  battery ${p.battery_usd_per_kwh}/kWh  |  hull {p.gross_slots:.0f} TEU")
     print("=" * 72)
@@ -115,7 +115,7 @@ def plot_lcot_vs_dmax(p: Params, out_dir: str) -> list:
         # &#36; (literal "$") rather than "$" so static export does not treat
         # the dollar signs as LaTeX/MathJax math delimiters.
         title=("Levelized cost of transport vs inter-swap distance<br>"
-               f"<sub>base case, no carbon price, battery &#36;{p.battery_usd_per_kwh:.0f}/kWh, "
+               f"<sub>base case, battery &#36;{p.battery_usd_per_kwh:.0f}/kWh, "
                f"elec &#36;{p.elec_usd_per_kwh}/kWh</sub>"),
         xaxis_title="D_max  —  longest hop between swap ports (km)",
         yaxis_title="LCOT (US cents per TEU·km)",

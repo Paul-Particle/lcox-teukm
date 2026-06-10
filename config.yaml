@@ -1,4 +1,4 @@
-# config.yaml — canonical model inputs for lcox-teukm (base case, no carbon price).
+# config.yaml — canonical model inputs for lcox-teukm (base case).
 #
 # Each key maps to a field of Params (see scripts/params.py). Unknown keys are
 # rejected on load, so a typo here is an error rather than a silent default.

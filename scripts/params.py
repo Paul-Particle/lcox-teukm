@@ -37,7 +37,7 @@ class Params:
     eta_elec: float = 0.88             # battery pack -> useful (drivetrain)
     eta_charge: float = 0.95           # grid -> battery pack
 
-    # ---- energy prices (no carbon price in base case)
+    # ---- energy prices
     fuel_usd_per_t: float = 550.0      # VLSFO
     fuel_lhv_kwh_per_kg: float = 11.1  # ~40 MJ/kg
     elec_usd_per_kwh: float = 0.09     # delivered industrial / shore power
