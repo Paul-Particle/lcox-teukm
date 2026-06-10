@@ -47,7 +47,15 @@ fca_colorway = [
 fca_template = go.layout.Template(
     layout=go.Layout(
         title=dict(
+            # Left-align; the subtitle inherits this anchor and sits beneath.
+            x=0,
+            xanchor="left",
+            # SemiBold gives the title a heavier weight than the body/subtitle.
             font=dict(family="Titillium Web SemiBold", size=18, color=blue_black),
+            # Subtitle matches the axis-title font (Titillium Web, size 18).
+            subtitle=dict(
+                font=dict(family="Titillium Web", size=18, color=blue_black),
+            ),
         ),
         font=dict(family="Titillium Web", size=18, color=blue_black),
         xaxis=dict(
