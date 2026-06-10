@@ -115,98 +115,72 @@ def plot_lcot_vs_dmax(p: Params, out_dir: str) -> list:
                              line=dict(color=blue_black, width=2.2), hovertemplate=hover))
     fig.add_trace(go.Scatter(x=dd, y=le, mode="lines", name="battery-electric",
                              line=dict(color=fca_blue, width=2.2), hovertemplate=hover))
-    # Economist-style header: the y-axis metric becomes a left-aligned subtitle
-    # (so the y axis carries no rotated title), with the title left edge lined
-    # up against the y tick labels. The title weight, subtitle font, left
-    # anchor, and margins all come from the fca template.
+    # Header geometry: the dot, subtitle, and footnote share a left edge aligned
+    # with the y tick labels (~30px in from margin_l); the title sits right of the dot.
     fig_width, fig_height = 820, 520
     margin_l = fca_template.layout.margin.l
     margin_r = fca_template.layout.margin.r
     margin_t = fca_template.layout.margin.t
-    margin_b = 140  # override the template bottom margin: room for footnote + logo
+    margin_b = 140  # room for footnote + logo
     title_size = fca_template.layout.title.font.size
-    # Header left edge (where the dot's left edge sits), lined up with the y
-    # tick labels: they end ~ticklabelstandoff (10px) left of the axis at
-    # margin_l and the widest ("40") is ~20px, so ~30px in from margin_l.
-    tick_label_inset_px = 30
-    header_left_px = margin_l - tick_label_inset_px
-    # A dot leads the title (diameter 50% of the title size); the title sits a
-    # quarter-title-size to its right. title.x is a figure-width fraction
-    # (width-dependent, hence computed here, not in the template — see style.py).
-    dot_d = 0.5 * title_size
-    title_gap = title_size / 4
-    title_x = (header_left_px + dot_d + title_gap) / fig_width
+    header_left_px = margin_l - 30
+    header_x_shift = header_left_px - margin_l   # plot-left -> header-left, in px
+    dot_d = 0.25 * title_size                    # leading-dot diameter
+    title_x = (header_left_px + dot_d + title_size / 4) / fig_width
     fig.update_layout(
         template=fca_template,
-        title=dict(
-            text="Levelized cost of transport vs inter-swap distance",
-            subtitle=dict(text="US cents per TEU·km"),
-            x=title_x,
-        ),
+        title=dict(text="Levelized cost of transport vs inter-swap distance", x=title_x),
         xaxis_title="D_max  —  longest hop between swap ports (km, log scale)",
         hovermode="x unified",
         legend=dict(yanchor="top", y=0.98, xanchor="left", x=0.02),
-        # Extra bottom room (override the template) for the scenario footnote.
         margin=dict(b=margin_b),
         width=fig_width, height=fig_height,
     )
-    # Explicit 1/2/5 log ticks plus the range start (30); see the xaxis note in
-    # style.py for why these live here rather than in the template.
-    xticks = [30, 50, 100, 200, 500, 1000, 2000, 5000]
+    xticks = [30, 50, 100, 200, 500, 1000, 2000, 5000]  # explicit 1/2/5 log ticks
     fig.update_xaxes(type="log", tickmode="array", tickvals=xticks,
                      ticktext=[f"{v}" for v in xticks])
     fig.update_yaxes(range=[0, max(max(lf), 8) * 1.3])
 
-    # Economist-style source line: scenario parameters as a small grey footnote
-    # at the bottom-left, sharing the title's left edge. &#36; (literal "$")
-    # avoids static export reading the price as a LaTeX/MathJax delimiter.
+    # Subtitle (the y-axis metric), left-aligned with the dot, above the plot.
+    fig.add_annotation(
+        text="US cents per TEU·km", xref="paper", yref="paper",
+        x=0, xanchor="left", xshift=header_x_shift,
+        y=1, yanchor="bottom", yshift=12, showarrow=False,
+        font=dict(family="Titillium Web", size=18, color=blue_black),
+    )
+    # Scenario footnote, bottom-left. &#36; is a literal "$" (avoids MathJax).
     fig.add_annotation(
         text=(f"Base case: battery &#36;{p.battery_usd_per_kwh:.0f}/kWh, "
               f"electricity &#36;{p.elec_usd_per_kwh}/kWh"),
-        # An annotation's xref="paper" x is a fraction of the *plot area* (not
-        # the whole figure like title.x), so anchor to the plot's left edge and
-        # shift left by tick_label_inset_px to match the title's left edge.
-        xref="paper", yref="paper", x=0, xanchor="left", xshift=-tick_label_inset_px,
+        xref="paper", yref="paper", x=0, xanchor="left", xshift=header_x_shift,
         y=0, yanchor="top", yshift=-98, showarrow=False,
         font=dict(family="Titillium Web", size=12, color=dark_gray),
     )
 
-    # House accent (see style.py): highlight-blue dot leading the title. Left
-    # edge on the header left edge, vertically centred on the title line.
-    # Sized/anchored in px from the plot area's top-left corner (paper 0,1):
-    # x grows right, y grows up (so above the plot top is positive).
-    title_top_px = (1 - fca_template.layout.title.y) * fig_height
-    title_mid_px = title_top_px + 0.5 * title_size   # ~centre of the title line
-    dot_left_off = header_left_px - margin_l          # from plot left (negative)
-    dot_mid_up = fca_template.layout.margin.t - title_mid_px  # above plot top
+    # Leading dot, centred on the title line, left edge on the header edge.
+    title_mid_px = (1 - fca_template.layout.title.y) * fig_height + 0.5 * title_size
+    dot_up = margin_t - title_mid_px
     fig.add_shape(
         type="circle", xref="paper", yref="paper",
         xsizemode="pixel", ysizemode="pixel", xanchor=0, yanchor=1,
-        x0=dot_left_off, x1=dot_left_off + dot_d,
-        y0=dot_mid_up - dot_d / 2, y1=dot_mid_up + dot_d / 2,
+        x0=header_x_shift, x1=header_x_shift + dot_d,
+        y0=dot_up - dot_d / 2, y1=dot_up + dot_d / 2,
         fillcolor=highlight_blue, line_width=0, layer="above",
     )
 
-    # Brand logo (see style.py fca_logo): FCA monogram in the bottom-right, ~22px
-    # tall, sitting in the bottom margin and right-aligned to the plot edge, to
-    # mirror the bottom-left footnote. Image sizes/positions are paper fractions
-    # (plot-area relative), so target px is converted via the plot dimensions.
-    # Keep a clear gap from the figure's bottom edge: too close and viewers that
-    # trim the last few px clip the logo (the footnote's ~12px gap rendered, the
-    # logo's earlier ~6px did not).
+    # Brand logo, bottom-right, mirroring the footnote (gap from the edge so
+    # viewers that trim a few px don't clip it).
     logo = fca_logo()
     if logo:
         plot_w_px = fig_width - margin_l - margin_r
         plot_h_px = fig_height - margin_t - margin_b
         logo_h_px = 22
-        logo_bottom_px = margin_b - 28  # gap from the figure's bottom edge
         fig.add_layout_image(
-            source=logo["source"],
-            xref="paper", yref="paper", xanchor="right", yanchor="bottom",
-            x=1, y=-logo_bottom_px / plot_h_px,
+            source=logo["source"], xref="paper", yref="paper",
+            xanchor="right", yanchor="bottom",
+            x=1, y=-(margin_b - 28) / plot_h_px,
             sizex=logo_h_px * logo["aspect"] / plot_w_px,
-            sizey=logo_h_px / plot_h_px,
-            sizing="contain", layer="above",
+            sizey=logo_h_px / plot_h_px, sizing="contain", layer="above",
         )
 
     os.makedirs(out_dir, exist_ok=True)
