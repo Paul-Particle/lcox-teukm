@@ -123,7 +123,7 @@ def plot_lcot_vs_dmax(p: Params, out_dir: str) -> list:
     margin_l = fca_template.layout.margin.l
     margin_r = fca_template.layout.margin.r
     margin_t = fca_template.layout.margin.t
-    margin_b = 124  # override the template bottom margin: room for the footnote
+    margin_b = 140  # override the template bottom margin: room for footnote + logo
     title_size = fca_template.layout.title.font.size
     # Header left edge (where the dot's left edge sits), lined up with the y
     # tick labels: they end ~ticklabelstandoff (10px) left of the axis at
@@ -189,17 +189,21 @@ def plot_lcot_vs_dmax(p: Params, out_dir: str) -> list:
 
     # Brand logo (see style.py fca_logo): FCA monogram in the bottom-right, ~22px
     # tall, sitting in the bottom margin and right-aligned to the plot edge, to
-    # mirror the bottom-left footnote. Image sizes are paper fractions (plot-area
-    # relative), so the target px is converted via the plot dimensions.
+    # mirror the bottom-left footnote. Image sizes/positions are paper fractions
+    # (plot-area relative), so target px is converted via the plot dimensions.
+    # Keep a clear gap from the figure's bottom edge: too close and viewers that
+    # trim the last few px clip the logo (the footnote's ~12px gap rendered, the
+    # logo's earlier ~6px did not).
     logo = fca_logo()
     if logo:
         plot_w_px = fig_width - margin_l - margin_r
         plot_h_px = fig_height - margin_t - margin_b
         logo_h_px = 22
+        logo_bottom_px = margin_b - 28  # gap from the figure's bottom edge
         fig.add_layout_image(
             source=logo["source"],
             xref="paper", yref="paper", xanchor="right", yanchor="bottom",
-            x=1, y=-(margin_b - 6) / plot_h_px,
+            x=1, y=-logo_bottom_px / plot_h_px,
             sizex=logo_h_px * logo["aspect"] / plot_w_px,
             sizey=logo_h_px / plot_h_px,
             sizing="contain", layer="above",
