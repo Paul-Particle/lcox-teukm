@@ -61,8 +61,8 @@ fca_template = go.layout.Template(
             # figures that set their own width should compute x (see report.py).
             x=0.0,
             # SemiBold gives the title a heavier weight than the body/subtitle;
-            # size 21.6 is 20% above the size-18 body/subtitle.
-            font=dict(family="Titillium Web SemiBold", size=21.6, color=blue_black),
+            # size 22 is ~20% above the size-18 body/subtitle (rounded up).
+            font=dict(family="Titillium Web SemiBold", size=22, color=blue_black),
             # Subtitle matches the axis-title font (Titillium Web, size 18).
             subtitle=dict(
                 font=dict(family="Titillium Web", size=18, color=blue_black),
