@@ -100,7 +100,11 @@ def plot_lcot_vs_dmax(p: Params, out_dir: str) -> list:
         print("plot skipped:", e)
         return []
 
-    dd = np.linspace(100, 6000, 120)
+    # Log-spaced grid + log x-axis: the electric ship is cheaper only at short
+    # hops (crossover ~120 km), so a linear 100-6000 km axis crushes that whole
+    # advantage region into a sliver. Geometric spacing from 30 km gives the
+    # short-haul regime the room it needs to be read.
+    dd = np.geomspace(30, 6000, 160)
     lf = [optimize_speed(lcot_fossil, p, d)["lcot"] * CENTS_PER_USD for d in dd]
     le = [min(optimize_speed(lcot_elec, p, d)["lcot"] * CENTS_PER_USD, 50) for d in dd]
 
@@ -117,12 +121,13 @@ def plot_lcot_vs_dmax(p: Params, out_dir: str) -> list:
         title=("Levelized cost of transport vs inter-swap distance<br>"
                f"<sub>base case, battery &#36;{p.battery_usd_per_kwh:.0f}/kWh, "
                f"elec &#36;{p.elec_usd_per_kwh}/kWh</sub>"),
-        xaxis_title="D_max  —  longest hop between swap ports (km)",
+        xaxis_title="D_max  —  longest hop between swap ports (km, log scale)",
         yaxis_title="LCOT (US cents per TEU·km)",
         hovermode="x unified",
         legend=dict(yanchor="top", y=0.98, xanchor="left", x=0.02),
         width=820, height=520,
     )
+    fig.update_xaxes(type="log")
     fig.update_yaxes(range=[0, max(max(lf), 8) * 1.3])
 
     os.makedirs(out_dir, exist_ok=True)
