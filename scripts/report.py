@@ -143,9 +143,11 @@ def plot_lcot_vs_dmax(p: Params, out_dir: str) -> list:
         margin=dict(b=124),
         width=fig_width, height=520,
     )
-    # dtick="D2" labels only the 1/2/5 minor ticks on the log axis; the default
-    # (all of 1-9) crowds the "9" right up against the next decade ("100"/"1000").
-    fig.update_xaxes(type="log", dtick="D2")
+    # Explicit 1/2/5 log ticks plus the range start (30); see the xaxis note in
+    # style.py for why these live here rather than in the template.
+    xticks = [30, 50, 100, 200, 500, 1000, 2000, 5000]
+    fig.update_xaxes(type="log", tickmode="array", tickvals=xticks,
+                     ticktext=[f"{v}" for v in xticks])
     fig.update_yaxes(range=[0, max(max(lf), 8) * 1.3])
 
     # Economist-style source line: scenario parameters as a small grey footnote
