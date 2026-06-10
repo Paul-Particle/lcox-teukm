@@ -48,6 +48,10 @@ fca_template = go.layout.Template(
     layout=go.Layout(
         title=dict(
             xanchor="left",
+            # Pin the title's top at 5% from the figure top so its vertical
+            # position is deterministic (the corner brand dot aligns to it).
+            yanchor="top",
+            y=0.95,
             # Ideally the title's left edge lines up with the y-axis tick
             # labels. That x is a paper fraction = (margin.l - tick-label width
             # - ticklabelstandoff) / figure-width-in-px, so it depends on the
@@ -65,6 +69,16 @@ fca_template = go.layout.Template(
             ),
         ),
         font=dict(family="Titillium Web", size=18, color=blue_black),
+        # Light-grey surround, white plot area: the margins (title, subtitle,
+        # axis labels, footnote) sit on the lightest palette grey; the data
+        # area stays white.
+        paper_bgcolor=light_gray,
+        plot_bgcolor="white",
+        # House accent: a highlight-blue dot in the top-right corner, with a
+        # diameter ~75% of the title height, its right edge on the plot's right
+        # edge and its top aligned with the title top. It's added per figure
+        # (see report.py) because the exact placement is in px and depends on
+        # the figure's height and margins.
         # Deterministic margins so the title-x alignment (see title comment) is
         # predictable: l leaves room for short y tick labels (no rotated y
         # title in this style), t for the title + subtitle.

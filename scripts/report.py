@@ -14,7 +14,7 @@ from params import Params
 from lcot import lcot_fossil, lcot_elec
 from analysis import optimize_speed, crossover_dmax
 from units import CENTS_PER_USD, PERCENT_PER_FRACTION, KWH_PER_MWH, KG_PER_TONNE
-from style import fca_template, fca_blue, blue_black, dark_gray
+from style import fca_template, fca_blue, blue_black, dark_gray, highlight_blue
 
 # Sample hop lengths (km) shown in the per-ship breakdown table.
 SAMPLE_HOPS_KM = [200, 500, 1000, 2000, 4000]
@@ -119,7 +119,7 @@ def plot_lcot_vs_dmax(p: Params, out_dir: str) -> list:
     # (so the y axis carries no rotated title), with the title left edge lined
     # up against the y tick labels. The title weight, subtitle font, left
     # anchor, and margins all come from the fca template.
-    fig_width = 820
+    fig_width, fig_height = 820, 520
     margin_l = fca_template.layout.margin.l
     # Left edge of the header, lined up with the y tick labels: they end
     # ~ticklabelstandoff (10px) left of the axis at margin_l, and the widest
@@ -141,7 +141,7 @@ def plot_lcot_vs_dmax(p: Params, out_dir: str) -> list:
         legend=dict(yanchor="top", y=0.98, xanchor="left", x=0.02),
         # Extra bottom room (override the template) for the scenario footnote.
         margin=dict(b=124),
-        width=fig_width, height=520,
+        width=fig_width, height=fig_height,
     )
     # Explicit 1/2/5 log ticks plus the range start (30); see the xaxis note in
     # style.py for why these live here rather than in the template.
@@ -162,6 +162,21 @@ def plot_lcot_vs_dmax(p: Params, out_dir: str) -> list:
         xref="paper", yref="paper", x=0, xanchor="left", xshift=-tick_label_inset_px,
         y=0, yanchor="top", yshift=-98, showarrow=False,
         font=dict(family="Titillium Web", size=12, color=dark_gray),
+    )
+
+    # House accent (see style.py): highlight-blue dot in the top-right corner.
+    # Diameter is 75% of the title font height; sized in px and anchored to the
+    # plot area's top-right corner (paper 1,1) so the right edge sits on the
+    # plot's right edge. The top aligns with the title top, which is
+    # margin.t - title_top_px above the plot's top edge.
+    title_top_px = (1 - fca_template.layout.title.y) * fig_height
+    dot_d = 0.75 * fca_template.layout.title.font.size
+    dot_top = fca_template.layout.margin.t - title_top_px  # px above plot top
+    fig.add_shape(
+        type="circle", xref="paper", yref="paper",
+        xsizemode="pixel", ysizemode="pixel", xanchor=1, yanchor=1,
+        x0=-dot_d, x1=0, y0=dot_top - dot_d, y1=dot_top,
+        fillcolor=highlight_blue, line_width=0, layer="above",
     )
 
     os.makedirs(out_dir, exist_ok=True)
