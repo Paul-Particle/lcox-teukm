@@ -32,7 +32,7 @@ The script reports:
 .
 ├── config.yaml           # all model inputs — edit here to run scenarios
 ├── scripts/
-│   ├── lcox-teukm.py     # entry point (run this): loads config, orchestrates
+│   ├── run.py            # entry point (run this): loads config, orchestrates
 │   ├── units.py          # unit conversions — single source of truth
 │   ├── params.py         # Params schema + load_params(config.yaml)
 │   ├── finance.py        # capital recovery factor
@@ -60,7 +60,7 @@ This project uses [uv](https://docs.astral.sh/uv/). Dependencies are declared in
 uv sync
 
 # Run the model
-uv run scripts/lcox-teukm.py
+uv run scripts/run.py
 ```
 
 Results print to stdout; the interactive figure is written to
