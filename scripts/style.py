@@ -47,9 +47,15 @@ fca_colorway = [
 fca_template = go.layout.Template(
     layout=go.Layout(
         title=dict(
-            # Left-align; the subtitle inherits this anchor and sits beneath.
-            x=0,
             xanchor="left",
+            # Ideally the title's left edge lines up with the y-axis tick
+            # labels. That x is a paper fraction = (margin.l - tick-label width
+            # - ticklabelstandoff) / figure-width-in-px, so it depends on the
+            # figure's width and margin; Plotly has no "anchor title to tick
+            # labels" option, so it can't be a fixed template value once a
+            # figure overrides the width. 0.0 is a plain left-aligned fallback;
+            # figures that set their own width should compute x (see report.py).
+            x=0.0,
             # SemiBold gives the title a heavier weight than the body/subtitle.
             font=dict(family="Titillium Web SemiBold", size=18, color=blue_black),
             # Subtitle matches the axis-title font (Titillium Web, size 18).
@@ -58,6 +64,10 @@ fca_template = go.layout.Template(
             ),
         ),
         font=dict(family="Titillium Web", size=18, color=blue_black),
+        # Deterministic margins so the title-x alignment (see title comment) is
+        # predictable: l leaves room for short y tick labels (no rotated y
+        # title in this style), t for the title + subtitle.
+        margin=dict(l=60, r=40, t=96, b=64),
         xaxis=dict(
             title=dict(
                 font=dict(family="Titillium Web", size=18, color=blue_black),
