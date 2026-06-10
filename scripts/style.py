@@ -9,12 +9,18 @@ Usage:
     fig.update_traces(marker=dict(colorscale=fca_colormap))  # continuous scale
 
 Importing this module also registers the template as "fca" with Plotly, so
-`fig.update_layout(template="fca")` works anywhere afterwards.
+`fig.update_layout(template="fca")` works anywhere afterwards. `fca_logo()`
+returns the brand monogram as an embeddable image (or None if the asset is
+missing) for placing in a corner.
 
 Note: the brand font is "Titillium Web". If it is not installed (e.g. during
 static PNG export via kaleido) Plotly falls back to a default sans-serif; the
 colors and layout are unaffected.
 """
+
+import base64
+import struct
+from pathlib import Path
 
 import plotly.graph_objects as go
 import plotly.io as pio
@@ -48,10 +54,11 @@ fca_template = go.layout.Template(
     layout=go.Layout(
         title=dict(
             xanchor="left",
-            # Pin the title's top at 5% from the figure top so its vertical
-            # position is deterministic (the corner brand dot aligns to it).
+            # Pin the title's top at 7% from the figure top so its vertical
+            # position is deterministic (the leading dot aligns to it) and it
+            # keeps clear headroom from the figure edge.
             yanchor="top",
-            y=0.95,
+            y=0.93,
             # Ideally the title's left edge lines up with the y-axis tick
             # labels. That x is a paper fraction = (margin.l - tick-label width
             # - ticklabelstandoff) / figure-width-in-px, so it depends on the
@@ -112,6 +119,28 @@ fca_template = go.layout.Template(
 
 # Register so `template="fca"` resolves by name too.
 pio.templates["fca"] = fca_template
+
+
+# ---- Brand logo ----------------------------------------------------------
+_LOGO_PATH = Path(__file__).parent / "assets" / "fca_logo.png"
+
+
+def fca_logo():
+    """The FCA monogram as an embeddable image, or None if the asset is absent.
+
+    Returns ``{"source": <base64 PNG data URI>, "aspect": width / height}``.
+    Self-contained so it survives static export and offline HTML. Placement and
+    pixel size are per-figure (they depend on the figure's dimensions), so add
+    it via ``fig.add_layout_image(...)`` in the figure script — see report.py.
+    The asset (scripts/assets/fca_logo.png) is the EPS logo's "FCA" monogram,
+    rasterised once with the letters in fca_blue and the dot in highlight_blue.
+    """
+    if not _LOGO_PATH.exists():
+        return None
+    data = _LOGO_PATH.read_bytes()
+    width, height = struct.unpack(">II", data[16:24])  # PNG IHDR dimensions
+    uri = "data:image/png;base64," + base64.b64encode(data).decode("ascii")
+    return {"source": uri, "aspect": width / height}
 
 
 # ---- Continuous colormap -------------------------------------------------
