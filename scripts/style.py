@@ -78,6 +78,12 @@ fca_template = go.layout.Template(
             showline=True,
             linewidth=2,
             linecolor=blue_black,
+            # Log-axis convention: label the 1/2/5 ticks plus the range
+            # endpoints (e.g. 30, 50, 100, 200, 500, 1000, ...) via
+            # tickmode="array" + tickvals/ticktext. Clearer than dtick="D2"'s
+            # bare leading digits, and avoids the "9" crowding the next decade.
+            # The exact values depend on the data range, so they're set per
+            # figure rather than here (see report.py).
         ),
         yaxis=dict(
             title_font=dict(family="Titillium Web", size=18, color=blue_black),
