@@ -115,23 +115,28 @@ def plot_lcot_vs_dmax(p: Params, out_dir: str) -> list:
                              line=dict(color=blue_black, width=2.2), hovertemplate=hover))
     fig.add_trace(go.Scatter(x=dd, y=le, mode="lines", name="battery-electric",
                              line=dict(color=fca_blue, width=2.2), hovertemplate=hover))
+    # Economist-style header: the y-axis metric becomes a left-aligned subtitle
+    # (so the y axis carries no rotated title), with the title left edge lined
+    # up against the y tick labels. The title weight, subtitle font, left
+    # anchor, and margins all come from the fca template.
+    fig_width = 820
+    margin_l = fca_template.layout.margin.l
+    # Tick labels end ~ticklabelstandoff (10px) left of the axis at margin_l and
+    # the widest ("40") is ~20px, so their left edge is ~30px in; convert that
+    # px offset to the paper fraction Plotly wants for title.x. Width-dependent,
+    # hence computed here rather than in the template (see style.py).
+    title_x = (margin_l - 30) / fig_width
     fig.update_layout(
         template=fca_template,
-        # &#36; (literal "$") rather than "$" so static export does not treat
-        # the dollar signs as LaTeX/MathJax math delimiters. Alignment, title
-        # weight, and subtitle font come from the fca template.
         title=dict(
             text="Levelized cost of transport vs inter-swap distance",
-            subtitle=dict(
-                text=(f"base case, battery &#36;{p.battery_usd_per_kwh:.0f}/kWh, "
-                      f"elec &#36;{p.elec_usd_per_kwh}/kWh"),
-            ),
+            subtitle=dict(text="LCOT, US cents per TEU·km"),
+            x=title_x,
         ),
         xaxis_title="D_max  —  longest hop between swap ports (km, log scale)",
-        yaxis_title="LCOT (US cents per TEU·km)",
         hovermode="x unified",
         legend=dict(yanchor="top", y=0.98, xanchor="left", x=0.02),
-        width=820, height=520,
+        width=fig_width, height=520,
     )
     fig.update_xaxes(type="log")
     fig.update_yaxes(range=[0, max(max(lf), 8) * 1.3])
