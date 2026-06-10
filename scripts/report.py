@@ -14,7 +14,7 @@ from params import Params
 from lcot import lcot_fossil, lcot_elec
 from analysis import optimize_speed, crossover_dmax
 from units import CENTS_PER_USD, PERCENT_PER_FRACTION, KWH_PER_MWH, KG_PER_TONNE
-from style import fca_template, fca_blue, blue_black
+from style import fca_template, fca_blue, blue_black, dark_gray
 
 # Sample hop lengths (km) shown in the per-ship breakdown table.
 SAMPLE_HOPS_KM = [200, 500, 1000, 2000, 4000]
@@ -136,10 +136,23 @@ def plot_lcot_vs_dmax(p: Params, out_dir: str) -> list:
         xaxis_title="D_max  —  longest hop between swap ports (km, log scale)",
         hovermode="x unified",
         legend=dict(yanchor="top", y=0.98, xanchor="left", x=0.02),
+        # Extra bottom room (override the template) for the scenario footnote.
+        margin=dict(b=124),
         width=fig_width, height=520,
     )
     fig.update_xaxes(type="log")
     fig.update_yaxes(range=[0, max(max(lf), 8) * 1.3])
+
+    # Economist-style source line: scenario parameters as a small grey footnote
+    # at the bottom-left, sharing the title's left edge. &#36; (literal "$")
+    # avoids static export reading the price as a LaTeX/MathJax delimiter.
+    fig.add_annotation(
+        text=(f"Base case: battery &#36;{p.battery_usd_per_kwh:.0f}/kWh, "
+              f"electricity &#36;{p.elec_usd_per_kwh}/kWh"),
+        xref="paper", yref="paper", x=title_x, xanchor="left",
+        y=0, yanchor="top", yshift=-98, showarrow=False,
+        font=dict(family="Titillium Web", size=12, color=dark_gray),
+    )
 
     os.makedirs(out_dir, exist_ok=True)
     saved = []
