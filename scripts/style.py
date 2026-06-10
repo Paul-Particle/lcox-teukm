@@ -69,11 +69,6 @@ fca_template = go.layout.Template(
             ),
         ),
         font=dict(family="Titillium Web", size=18, color=blue_black),
-        # Light-grey surround, white plot area: the margins (title, subtitle,
-        # axis labels, footnote) sit on the lightest palette grey; the data
-        # area stays white.
-        paper_bgcolor=light_gray,
-        plot_bgcolor="white",
         # House accent: a highlight-blue dot in the top-right corner, with a
         # diameter ~75% of the title height, its right edge on the plot's right
         # edge and its top aligned with the title top. It's added per figure
