@@ -15,6 +15,7 @@ results/
 .idea/
 .vscode/
 
-# Source logo (6 MB EPS); the small rasterised monogram in scripts/assets/ is
-# committed and used by the plots. Keep the EPS itself out of the repo.
+# Logo source files; only the rasterised monogram (scripts/assets/fca_logo.png)
+# and its vector source (scripts/assets/fca_logo.svg) are tracked.
 *.eps
+/FCA monotgram.*
