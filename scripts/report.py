@@ -121,14 +121,18 @@ def plot_lcot_vs_dmax(p: Params, out_dir: str) -> list:
     # anchor, and margins all come from the fca template.
     fig_width, fig_height = 820, 520
     margin_l = fca_template.layout.margin.l
-    # Left edge of the header, lined up with the y tick labels: they end
-    # ~ticklabelstandoff (10px) left of the axis at margin_l, and the widest
-    # ("40") is ~20px, so their left edge sits ~30px in from margin_l.
+    title_size = fca_template.layout.title.font.size
+    # Header left edge (where the dot's left edge sits), lined up with the y
+    # tick labels: they end ~ticklabelstandoff (10px) left of the axis at
+    # margin_l and the widest ("40") is ~20px, so ~30px in from margin_l.
     tick_label_inset_px = 30
     header_left_px = margin_l - tick_label_inset_px
-    # title.x is a fraction of the *figure* width (width-dependent, hence
-    # computed here, not in the template — see style.py).
-    title_x = header_left_px / fig_width
+    # A dot leads the title (diameter 50% of the title size); the title sits a
+    # quarter-title-size to its right. title.x is a figure-width fraction
+    # (width-dependent, hence computed here, not in the template — see style.py).
+    dot_d = 0.5 * title_size
+    title_gap = title_size / 4
+    title_x = (header_left_px + dot_d + title_gap) / fig_width
     fig.update_layout(
         template=fca_template,
         title=dict(
@@ -164,18 +168,19 @@ def plot_lcot_vs_dmax(p: Params, out_dir: str) -> list:
         font=dict(family="Titillium Web", size=12, color=dark_gray),
     )
 
-    # House accent (see style.py): highlight-blue dot in the top-right corner.
-    # Diameter is 75% of the title font height; sized in px and anchored to the
-    # plot area's top-right corner (paper 1,1) so the right edge sits on the
-    # plot's right edge. The top aligns with the title top, which is
-    # margin.t - title_top_px above the plot's top edge.
+    # House accent (see style.py): highlight-blue dot leading the title. Left
+    # edge on the header left edge, vertically centred on the title line.
+    # Sized/anchored in px from the plot area's top-left corner (paper 0,1):
+    # x grows right, y grows up (so above the plot top is positive).
     title_top_px = (1 - fca_template.layout.title.y) * fig_height
-    dot_d = 0.75 * fca_template.layout.title.font.size
-    dot_top = fca_template.layout.margin.t - title_top_px  # px above plot top
+    title_mid_px = title_top_px + 0.5 * title_size   # ~centre of the title line
+    dot_left_off = header_left_px - margin_l          # from plot left (negative)
+    dot_mid_up = fca_template.layout.margin.t - title_mid_px  # above plot top
     fig.add_shape(
         type="circle", xref="paper", yref="paper",
-        xsizemode="pixel", ysizemode="pixel", xanchor=1, yanchor=1,
-        x0=-dot_d, x1=0, y0=dot_top - dot_d, y1=dot_top,
+        xsizemode="pixel", ysizemode="pixel", xanchor=0, yanchor=1,
+        x0=dot_left_off, x1=dot_left_off + dot_d,
+        y0=dot_mid_up - dot_d / 2, y1=dot_mid_up + dot_d / 2,
         fillcolor=highlight_blue, line_width=0, layer="above",
     )
 
