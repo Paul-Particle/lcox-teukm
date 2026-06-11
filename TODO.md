@@ -40,6 +40,28 @@ bundles three components with different behaviour:
 Already correct: hotel is time-based (`x sail_hours`), so slow steaming raises
 hotel energy per leg and partially offsets the cube-law savings.
 
+## Maneuverability credit (electric / podded ships)
+Option to credit the superior low-speed maneuverability of electric ships
+(azimuth pods/thrusters) — faster, easier berthing and less tug assistance.
+Two hooks:
+- **Port time**: make `port_hours_per_call` per-powertrain (lower for electric)
+  for the berthing/maneuverability saving. NOTE — battery swap itself adds ~no
+  time when a battery *replaces cargo* (offload-depleted + onload-charged = the
+  2 crane moves a cargo slot already needs; uniform battery boxes may crane
+  faster). Added swap time scales only with batteries in *empty* slots
+  (`B_empty` below), minus any charged onboard via a modest plug. Shorter port
+  time raises cycles/year, most impactful short-haul where port time dominates
+  the cycle, i.e. exactly where battery ships compete.
+- **O&M / tugs**: reduced tugboat fees. Tug/port fees are **not currently
+  modeled** (om_* is crew/insurance/repairs/lube only). Add an explicit
+  tug-cost-per-call parameter (lower for electric) rather than folding it into
+  `om_elec`, so the credit is visible.
+
+Related: crew salaries are bundled in `om_*_usd_yr`, not itemized or scaled by
+headcount. Itemizing O&M (crew / insurance / repairs / tugs / ...) would let
+the "fewer engineers" and tug credits be modeled explicitly instead of via the
+single 14% electric-vs-fossil O&M gap.
+
 ## Parameter checks
 - `availability` (0.95) is shared; consider raising it for electric/iron-air —
   lower drivetrain maintenance than combustion, à la EV vs ICE.
@@ -63,3 +85,16 @@ a scale-invariant fraction of each ship's own cargo-capable slots, so the
 electric ship's lighter overhead (30 vs 120 slots) is credited in full — 90
 extra slots = 72 revenue TEU at L=0.8, ~0.27 c/TEU.km. This is a genuine
 advantage of electric/iron-air and is modeled deliberately.
+
+**Empty-slot usability.** Not every empty slot is battery-usable (dangerous-
+goods segregation, stability/lashing, crane access, reefer positions), so
+batteries should not get the full `(1-L)·cargo_slots` slack for free.
+- **Done (hard cap):** `batt_empty_usable_frac` (θ = 0.40) — batteries fill
+  θ·slack for free, then displace cargo 1:1 (`carried_teu`). θ = 1.0 recovers
+  the old `min(demand, capacity)`. Raises battery-ship LCOT, iron-air most.
+- **Future (linear ramp):** replace the hard cap with a *marginal* cargo cost
+  ramping linearly 0→1 over `[θ·slack, slack]`, so constraints bite
+  progressively rather than at a single threshold.
+- **Couple to swap time:** the batteries-in-empty-slots count
+  (`B_empty = max(0, B - θ·slack)`-ish) is exactly what adds port/swap time —
+  feed the same quantity into the maneuverability port-time term above.
