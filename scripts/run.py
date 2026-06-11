@@ -1,7 +1,9 @@
 """
 lcox-teukm — levelized cost of transport (LCOT, US$/TEU·km) for a container
-ship: fossil vs battery-electric (Li-ion and iron-air, both with containerized
-battery swapping) vs onboard nuclear (SMR).
+ship across powertrains: fossil; battery-electric (Li-ion and iron-air, port
+swap); onboard nuclear (direct-drive SMR); nuclear-electric (reactor -> motor,
+containerized or integrated); and a battery ship recharged at sea by a mobile
+nuclear tender.
 
 Comparison axis: D_max = the longest hop between swap-capable ports (km).
 This sets the battery size (hence CAPEX + displaced cargo), independent of
@@ -26,7 +28,11 @@ This file is the entry point only. The model is split across sibling modules:
     params.py    Params schema + load_params(config.yaml)
     finance.py   capital recovery factor
     energy.py    ship physics (power, leg energy, cycles/year)
-    lcot.py      the four cost models
+    lcot.py      the cost models: fossil, Li-ion & iron-air battery (port swap),
+                 onboard nuclear (direct-drive), two nuclear-electric variants
+                 (containerized / integrated), and a battery ship charged at sea
+                 by a mobile nuclear tender. carried_teu now applies volume, mass
+                 and asymmetric-leg constraints.
     analysis.py  speed optimization + crossover distance
     report.py    console tables + plotting
 
@@ -40,8 +46,8 @@ import numpy as np
 from params import load_params
 from report import (print_base_header, print_energy_cost, print_breakdown,
                     print_crossover, print_sensitivity, print_hotel_sensitivity,
-                    plot_lcot_vs_dmax, plot_speed_vs_dmax, plot_lcot_tornado,
-                    plot_teu_tech_tradeoff)
+                    print_mobile_fleet, plot_lcot_vs_dmax, plot_speed_vs_dmax,
+                    plot_lcot_tornado, plot_teu_tech_tradeoff)
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CONFIG_PATH = os.path.join(REPO_ROOT, "config.yaml")
@@ -58,6 +64,7 @@ def main():
     print_crossover(p, d_grid)
     print_sensitivity(p, d_grid)
     print_hotel_sensitivity(p, d_grid)
+    print_mobile_fleet(p)
 
     saved = plot_lcot_vs_dmax(p, RESULTS_DIR)
     saved += plot_speed_vs_dmax(p, RESULTS_DIR)

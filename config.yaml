@@ -8,11 +8,14 @@
 # ---- shared hull / route -------------------------------------------------
 gross_slots: 3000.0          # nominal hull container capacity (TEU)
 load_factor: 0.80            # avg fraction of available slots filled
+load_factor_imbalance: 0.0   # headhaul/backhaul split (0 = symmetric); mean LF preserved
 hull_capex_usd: 45.0e+6      # newbuild hull excl. propulsion
 discount_rate: 0.08
 hull_life_yr: 25.0
 port_hours_per_call: 18.0    # cargo + (for electric) battery swap; assumed equal
 availability: 0.95           # fraction of the year the ship is in service
+deadweight_cargo_t: 38000.0  # cargo deadweight budget (t); batteries consume it (mass constraint)
+cargo_t_per_teu: 12.0        # avg laden mass per TEU (full+empty mix)
 
 # ---- powertrain sizing reference (admiralty-style P ~ v^3) ---------------
 p_ref_kw: 20000.0            # propulsion power at v_ref
@@ -50,7 +53,7 @@ batt_empty_usable_frac: 0.40 # fraction of empty slack batteries may use before 
                              # cargo (DG/stability/access limits); 1.0 = use all slack first
 battery_usd_per_kwh: 250.0   # installed, marinized system level
 battery_kwh_per_teu: 3000.0  # energy per battery container (3 MWh/TEU)
-battery_pack_wh_per_kg: 160.0  # for the deadweight sanity check
+battery_pack_wh_per_kg: 160.0  # Li-ion system density -> battery mass (deadweight constraint)
 battery_dod: 0.90            # usable depth of discharge
 battery_reserve: 0.20        # weather/safety margin on top of leg energy
 battery_cycle_life: 4000.0
@@ -72,6 +75,7 @@ ironair_cycle_life: 10000.0  # electrode claims >10k; non-binding at 100-h rates
 ironair_calendar_life_yr: 20.0
 ironair_eta_rt: 0.45         # ~40% AC-AC per Form; 40-50% in literature
 ironair_min_discharge_h: 100.0  # C/100: max pack power = installed kWh / 100 h
+ironair_pack_wh_per_kg: 30.0 # ~5x heavier than Li-ion; enforced as deadweight (bites long-haul)
 
 # ---- nuclear powertrain ----------------------------------------------------
 # Onboard SMR, no D_max-driven sizing. Sources: Lloyd's Register 2025
@@ -83,3 +87,19 @@ nuclear_life_yr: 25.0        # near-term marine SMR plant life
 nuclear_fuel_usd_per_kwh_th: 0.012  # HALEU fuel cycle ~$12/MWh thermal
 om_nuclear_usd_yr: 10.0e+6   # crew, security, bespoke insurance, regulatory (least certain)
 nuclear_overhead_slots: 120.0  # reactor + shielding ~ conventional engine room
+
+# ---- nuclear-electric powertrains (reactor -> electricity -> motor) ---------
+# End-to-end eff = eta_nuclear*eta_elec (~0.26); reuse eta_*, motor_*,
+# elec_prop_power_factor. (a) containerized modular units:
+nucc_unit_kw: 15000.0        # net electric per reactor module
+nucc_usd_per_kw: 5000.0      # factory-built modular, below integrated
+nucc_life_yr: 15.0           # swappable/leased modules refreshed sooner
+nucc_overhead_slots_per_unit: 45.0  # module + shielding; scales with unit count
+nucc_om_usd_yr: 8.0e+6       # some O&M shifts to module lessor
+nucc_fuel_usd_per_kwh_th: 0.012     # HALEU, same as direct-drive
+# (b) integrated single reactor:
+nuci_usd_per_kw: 6500.0      # adds generator + power electronics vs direct-drive
+nuci_life_yr: 30.0
+nuci_overhead_slots: 140.0   # reactor + shielding + switchboard
+nuci_om_usd_yr: 10.0e+6
+nuci_fuel_usd_per_kwh_th: 0.012

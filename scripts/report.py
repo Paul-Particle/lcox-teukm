@@ -12,7 +12,9 @@ from pathlib import Path
 import numpy as np
 
 from params import Params
-from lcot import lcot_fossil, lcot_elec, lcot_ironair, lcot_nuclear
+from lcot import (lcot_fossil, lcot_elec, lcot_ironair, lcot_nuclear,
+                  lcot_nuclear_elec_containerized, lcot_nuclear_elec_integrated,
+                  lcot_mobile)
 from analysis import optimize_speed, crossover_dmax
 from units import CENTS_PER_USD, PERCENT_PER_FRACTION, KWH_PER_MWH, KG_PER_TONNE
 from style import (
@@ -27,10 +29,13 @@ from style import (
 # capped at Y_CAP_CENTS in line plots so it doesn't flatten the region of
 # interest (viewers can still zoom).
 CASES = [
-    ("fossil",   "fossil",                      lcot_fossil,  blue_black,  False),
-    ("li-ion",   "battery-electric (Li-ion)",   lcot_elec,    fca_blue,    True),
-    ("iron-air", "battery-electric (iron-air)", lcot_ironair, sand_yellow, True),
-    ("nuclear",  "nuclear (SMR)",               lcot_nuclear, green,       False),
+    ("fossil",   "fossil",                          lcot_fossil,  blue_black,     False),
+    ("li-ion",   "battery-electric (Li-ion)",       lcot_elec,    fca_blue,       True),
+    ("iron-air", "battery-electric (iron-air)",     lcot_ironair, sand_yellow,    True),
+    ("nuclear",  "nuclear (SMR direct)",            lcot_nuclear, green,          False),
+    ("nuc-ec",   "nuclear-electric (containerized)", lcot_nuclear_elec_containerized, highlight_blue, False),
+    ("nuc-ei",   "nuclear-electric (integrated)",   lcot_nuclear_elec_integrated, very_dark_gray, False),
+    ("mobile",   "mobile-reactor charge",           lcot_mobile,  light_blue,     True),
 ]
 Y_CAP_CENTS = 50.0
 
@@ -148,6 +153,24 @@ def print_hotel_sensitivity(p: Params, d_grid) -> None:
         cox = "none" if co is None else (">6000" if np.isinf(co) else f"{co:.0f} km")
         tag = f"{label} {h:>4} kW"
         print(f"{tag:>20}{lf:>8.3f}c{le:>8.3f}c{li:>8.3f}c{cox:>15}")
+
+
+def print_mobile_fleet(p: Params) -> None:
+    """Mobile nuclear tender fleet economics, surfaced (not buried in LCOT):
+    delivered $/kWh and ships served per tender, at sample hop lengths."""
+    print("\n" + "=" * 72)
+    print("MOBILE TENDER FLEET (at-sea charging economics)")
+    print("=" * 72)
+    print(f"{'D_max':>7} {'v_opt':>6} {'batt_MWh':>9} {'$/kWh deliv':>12} "
+          f"{'ships/tender':>13} {'LCOT':>9}")
+    for d in SAMPLE_HOPS_KM:
+        r = optimize_speed(lcot_mobile, p, d)
+        if not np.isfinite(r["lcot"]):
+            print(f"{d:>7.0f} {'—':>6} {'—':>9} {'—':>12} {'—':>13} {'infeasible':>9}")
+            continue
+        print(f"{d:>7.0f} {r['v']:>6.1f} {r['battery_kwh']/KWH_PER_MWH:>9.0f} "
+              f"{'$'+format(r['tender_usd_per_kwh'],'.3f'):>12} {r['ships_per_tender']:>13.1f} "
+              f"{r['lcot']*CENTS_PER_USD:>8.3f}c")
 
 
 # ---- Shared save helper ----------------------------------------------------

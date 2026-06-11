@@ -26,6 +26,10 @@ as a dimensional cancellation, e.g.::
 # ---- speed -----------------------------------------------------------------
 KMH_PER_KNOT = 1.852        # 1 knot = 1.852 km/h (exact, by definition)
 
+# ---- distance --------------------------------------------------------------
+KM_PER_NM = 1.852           # 1 nautical mile = 1.852 km (distance; distinct from
+                            # KMH_PER_KNOT though numerically equal)
+
 # ---- mass ------------------------------------------------------------------
 KG_PER_TONNE = 1000.0       # 1 metric tonne = 1000 kg
 
