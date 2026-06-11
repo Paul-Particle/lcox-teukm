@@ -18,6 +18,28 @@
   motors stay flat — model `eta_fossil` as load/speed-dependent so slowing down
   favours the electric ship.
 
+## Hotel / reefer load
+`p_hotel_kw` (1500) is a constant, identical across powertrains and speeds. It
+bundles three components with different behaviour:
+- **Reefer load** — the large, variable part (hundreds of plugs x a few kW).
+  Not constant in reality: it scales with reefers carried, bounded by cargo
+  slots. The substantive coupling is that on a battery ship reefer energy comes
+  from the (slot-displacing, expensive) battery, whereas fossil feeds reefers
+  from cheap aux gensets — so reefer-heavy routes penalize battery ships far
+  more than fossil. A faithful model couples reefer load to carried cargo AND
+  credits reefer revenue (reefers are high-value, which the all-TEU-equal cost
+  model ignores); both are out of scope for now. A hotel-load sensitivity
+  (reefer-light / base / reefer-heavy) is in `print_hotel_sensitivity` to
+  surface the effect without overfitting.
+- **Accommodation / crew** — small; electric may shed a few engine-room
+  engineers (slightly lower), nuclear likely needs more crew + security
+  (slightly higher). Consider a small per-powertrain hotel delta later.
+- **Ship systems** (pumps, ventilation, nav) — roughly constant, no powertrain
+  dependence.
+
+Already correct: hotel is time-based (`x sail_hours`), so slow steaming raises
+hotel energy per leg and partially offsets the cube-law savings.
+
 ## Parameter checks
 - `availability` (0.95) is shared; consider raising it for electric/iron-air —
   lower drivetrain maintenance than combustion, à la EV vs ICE.

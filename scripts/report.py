@@ -41,6 +41,12 @@ SAMPLE_HOPS_KM = [200, 500, 1000, 2000, 4000]
 SENS_BATTERY_USD_PER_KWH = [250, 150, 80]
 SENS_ELEC_USD_PER_KWH = [0.09, 0.06, 0.03]
 
+# Hotel/reefer load scenarios (kW) and the D_max at which they are evaluated.
+# Reefer power is the big variable part of hotel load; reefer-heavy ~ hundreds
+# of reefer plugs at a few kW each, reefer-light ~ base ship systems only.
+SENS_HOTEL_KW = [("reefer-light", 1000), ("base", 1500), ("reefer-heavy", 3000)]
+SENS_HOTEL_DMAX_KM = 1000
+
 
 def print_base_header(p: Params) -> None:
     print("=" * 72)
@@ -119,6 +125,29 @@ def print_sensitivity(p: Params, d_grid) -> None:
             cell = "none" if c is None else (">6000" if np.isinf(c) else f"{c:.0f}")
             row += f"  {cell:>9}"
         print(row)
+
+
+def print_hotel_sensitivity(p: Params, d_grid) -> None:
+    """Hotel/reefer load sensitivity. Reefer power is the large, variable part
+    of hotel load, and on a battery ship it is drawn from the (slot-displacing)
+    battery, so reefer-heavy routes penalize the battery ships far more than
+    fossil. Shows LCOT at a representative D_max plus the Li-ion crossover.
+    A faithful model would couple reefer load to carried cargo and credit
+    reefer revenue (reefers are high-value) — out of scope here (see TODO.md)."""
+    d = SENS_HOTEL_DMAX_KM
+    print("\n" + "=" * 72)
+    print(f"SENSITIVITY: hotel/reefer load — LCOT (c/TEU·km) at D_max {d:.0f} km")
+    print("=" * 72)
+    print(f"{'':>20}{'fossil':>9}{'li-ion':>9}{'iron-air':>9}{'li-ion x-over':>15}")
+    for label, h in SENS_HOTEL_KW:
+        pp = replace(p, p_hotel_kw=h)
+        lf = optimize_speed(lcot_fossil,  pp, d)["lcot"] * CENTS_PER_USD
+        le = optimize_speed(lcot_elec,    pp, d)["lcot"] * CENTS_PER_USD
+        li = optimize_speed(lcot_ironair, pp, d)["lcot"] * CENTS_PER_USD
+        co = crossover_dmax(pp, d_grid, lcot_elec, lcot_fossil)
+        cox = "none" if co is None else (">6000" if np.isinf(co) else f"{co:.0f} km")
+        tag = f"{label} {h:>4} kW"
+        print(f"{tag:>20}{lf:>8.3f}c{le:>8.3f}c{li:>8.3f}c{cox:>15}")
 
 
 # ---- Shared save helper ----------------------------------------------------
