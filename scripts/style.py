@@ -48,6 +48,12 @@ fca_colorway = [
     very_dark_gray, turquois, blue_black, light_blue_gray,
 ]
 
+# ---- Display toggles -------------------------------------------------------
+# Set either to False to hide that element globally. When SHOW_DOT is False
+# the title shifts flush to the left header edge (no indent for the dot gap).
+SHOW_DOT = True    # leading brand dot to the left of the title
+SHOW_LOGO = True   # FCA monogram in the bottom-right corner
+
 
 # ---- Layout template -----------------------------------------------------
 fca_template = go.layout.Template(
@@ -379,3 +385,176 @@ fca_colormap = [
     [i / (_n - 1), f"rgb({round(r * 255)}, {round(g * 255)}, {round(b * 255)})"]
     for i, (r, g, b) in enumerate(_CM_DATA)
 ]
+
+# ---- Colormap shades note --------------------------------------------------
+# To sample N shades from one color family (e.g. multiple battery scenarios in
+# the blue–teal range) use:
+#
+#   import plotly.colors as pc
+#   shades = pc.sample_colorscale(fca_colormap, [i / (N - 1) for i in range(N)])
+#
+# The colormap spans blue-grey → teal → sand so it does NOT reproduce the
+# exact named palette colors, but approximates them well at the dark-blue and
+# sand ends. For FCA green or magenta traces use the named colors above.
+
+
+# ---- Titillium Web font embedding -----------------------------------------
+#
+# HTML output uses whatever fonts the browser finds; kaleido PNG/SVG uses the
+# system font library. To guarantee the brand font in self-contained HTML:
+#
+# Option A — online (Google Fonts CDN, zero setup, requires internet):
+#   html = fig.to_html(include_plotlyjs=True)
+#   html = inject_titillium_font(html)
+#   Path("output.html").write_text(html, encoding="utf-8")
+#
+# Option B — fully offline (embed base64 .woff2, no network needed):
+#   1. Download Titillium Web 400 + 600 .woff2 from fonts.google.com.
+#   2. Base64-encode: base64 -i TitilliumWeb-Regular.woff2 | tr -d '\n'
+#   3. Paste the output string into _TW_REGULAR_B64 / _TW_SEMIBOLD_B64 below.
+#      inject_titillium_font() will use the blobs when they are present.
+#
+# For kaleido PNG/SVG: install the font on the OS so kaleido can find it.
+#   macOS: open the .ttf/.otf file and click "Install Font".
+#   Linux: copy .ttf to ~/.local/share/fonts/ then run `fc-cache -fv`.
+
+_TW_GOOGLE_FONTS_URL = (
+    "https://fonts.googleapis.com/css2?"
+    "family=Titillium+Web:ital,wght@0,400;0,600;1,400&display=swap"
+)
+# Paste base64-encoded .woff2 strings here for fully-offline HTML embedding.
+_TW_REGULAR_B64: str = ""
+_TW_SEMIBOLD_B64: str = ""
+
+
+def inject_titillium_font(html_str: str) -> str:
+    """Inject Titillium Web into the <head> of a Plotly HTML string.
+
+    Uses embedded base64 .woff2 blobs when _TW_REGULAR_B64 / _TW_SEMIBOLD_B64
+    are filled in; otherwise falls back to a Google Fonts CDN <link>.
+
+    Usage::
+
+        html = fig.to_html(include_plotlyjs=True)
+        html = inject_titillium_font(html)
+        Path("output.html").write_text(html, encoding="utf-8")
+    """
+    if _TW_REGULAR_B64 and _TW_SEMIBOLD_B64:
+        css = (
+            "<style>"
+            "@font-face{font-family:'Titillium Web';font-weight:400;"
+            f"src:url('data:font/woff2;base64,{_TW_REGULAR_B64}') format('woff2');}}"
+            "@font-face{font-family:'Titillium Web';font-weight:600;"
+            f"src:url('data:font/woff2;base64,{_TW_SEMIBOLD_B64}') format('woff2');}}"
+            "</style>"
+        )
+    else:
+        css = (
+            '<link rel="preconnect" href="https://fonts.googleapis.com">'
+            '<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>'
+            f'<link href="{_TW_GOOGLE_FONTS_URL}" rel="stylesheet">'
+        )
+    return html_str.replace("<head>", f"<head>{css}", 1)
+
+
+# ---- Annotation-label recipe (replaces the built-in Plotly legend) ---------
+#
+# Each label is a solid rectangle of the trace color with white text — more
+# compact and visually consistent with the FCA palette than the default legend.
+#
+# Typical usage (two traces, labels stacked in the upper-right corner):
+#
+#   fig.update_layout(showlegend=False)
+#   add_trace_label(fig, "fossil",           color=blue_black,  x=0.97, y=0.92)
+#   add_trace_label(fig, "battery-electric", color=fca_blue,    x=0.97, y=0.81)
+#
+# x/y are paper coords (0–1). xanchor="right" pins the right edge of the box.
+# Vertical spacing: ~0.11 per label at font_size=14 with fig_height≈520.
+# Adjust y-gap proportionally when figure height changes.
+
+def add_trace_label(fig, text: str, color: str,
+                    x: float = 0.97, y: float = 0.90,
+                    xref: str = "paper", yref: str = "paper",
+                    font_size: int = 14) -> None:
+    """Add a solid-rectangle annotation label (preferred legend replacement)."""
+    fig.add_annotation(
+        text=f"  {text}  ",
+        x=x, y=y, xref=xref, yref=yref,
+        showarrow=False, xanchor="right", yanchor="middle",
+        bgcolor=color, borderpad=6, bordercolor=color,
+        font=dict(family="Titillium Web", size=font_size, color="white"),
+    )
+
+
+# ---- Header / brand helpers ------------------------------------------------
+
+def header_geometry(fig_width: int, fig_height: int,
+                    margin_l: int = None, margin_r: int = None,
+                    margin_t: int = None) -> dict:
+    """Pixel/fraction coordinates shared by dot, title, subtitle, and footnote.
+
+    Returns a dict with:
+        header_left_px  left edge of all header items (px from figure left)
+        header_x_shift  shift from paper x=0 to header_left (px, usually negative)
+        dot_d           leading-dot diameter (px)
+        title_x         paper-fraction x for the title (clears dot when SHOW_DOT)
+        dot_up          yshift (px, positive = up) to center dot on the cap-line
+    """
+    if margin_l is None:
+        margin_l = fca_template.layout.margin.l
+    if margin_r is None:
+        margin_r = fca_template.layout.margin.r
+    if margin_t is None:
+        margin_t = fca_template.layout.margin.t
+    title_size = fca_template.layout.title.font.size
+    header_left_px = margin_l - 30
+    header_x_shift = header_left_px - margin_l
+    dot_d = 0.3125 * title_size
+    if SHOW_DOT:
+        title_x = (header_left_px + dot_d + title_size / 4) / fig_width
+    else:
+        title_x = header_left_px / fig_width
+    cap_mid_px = (1 - fca_template.layout.title.y) * fig_height + 0.42 * title_size
+    dot_up = margin_t - cap_mid_px
+    return dict(
+        header_left_px=header_left_px,
+        header_x_shift=header_x_shift,
+        dot_d=dot_d,
+        title_x=title_x,
+        dot_up=dot_up,
+    )
+
+
+def apply_dot(fig, geom: dict) -> None:
+    """Draw the leading brand dot if SHOW_DOT is True."""
+    if not SHOW_DOT:
+        return
+    d = geom["dot_d"]
+    fig.add_shape(
+        type="circle", xref="paper", yref="paper",
+        xsizemode="pixel", ysizemode="pixel", xanchor=0, yanchor=1,
+        x0=geom["header_x_shift"], x1=geom["header_x_shift"] + d,
+        y0=geom["dot_up"] - d / 2, y1=geom["dot_up"] + d / 2,
+        fillcolor=highlight_blue, line_width=0, layer="above",
+    )
+
+
+def apply_logo(fig, fig_width: int, fig_height: int,
+               margin_l: int, margin_r: int,
+               margin_t: int, margin_b: int) -> None:
+    """Place the brand monogram bottom-right if SHOW_LOGO is True."""
+    if not SHOW_LOGO:
+        return
+    logo = fca_logo()
+    if not logo:
+        return
+    plot_w_px = fig_width - margin_l - margin_r
+    plot_h_px = fig_height - margin_t - margin_b
+    logo_h_px = 22
+    fig.add_layout_image(
+        source=logo["source"], xref="paper", yref="paper",
+        xanchor="right", yanchor="bottom",
+        x=1, y=-(margin_b - 28) / plot_h_px,
+        sizex=logo_h_px * logo["aspect"] / plot_w_px,
+        sizey=logo_h_px / plot_h_px, sizing="contain", layer="above",
+    )

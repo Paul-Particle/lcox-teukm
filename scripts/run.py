@@ -34,7 +34,8 @@ import numpy as np
 
 from params import load_params
 from report import (print_base_header, print_energy_cost, print_breakdown,
-                    print_crossover, print_sensitivity, plot_lcot_vs_dmax)
+                    print_crossover, print_sensitivity, plot_lcot_vs_dmax,
+                    plot_speed_vs_dmax, plot_lcot_tornado, plot_teu_tech_tradeoff)
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CONFIG_PATH = os.path.join(REPO_ROOT, "config.yaml")
@@ -52,6 +53,9 @@ def main():
     print_sensitivity(p, d_grid)
 
     saved = plot_lcot_vs_dmax(p, RESULTS_DIR)
+    saved += plot_speed_vs_dmax(p, RESULTS_DIR)
+    saved += plot_lcot_tornado(p, 500, RESULTS_DIR)
+    saved += plot_teu_tech_tradeoff(p, 500, RESULTS_DIR)
     for path in saved:
         print(f"Saved plot: {os.path.relpath(path, REPO_ROOT)}")
 
