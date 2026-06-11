@@ -58,6 +58,10 @@ class Params:
                                            # electric drivetrain enables; scales propulsion
                                            # power (shared by Li-ion + iron-air). Conservative
                                            # 10% lump pending itemized calc — see TODO.md.
+    batt_empty_usable_frac: float = 0.40   # fraction of the empty (1-load_factor) slack that
+                                           # batteries may occupy before displacing cargo;
+                                           # <1 for dangerous-goods/stability/access limits.
+                                           # 1.0 = batteries use all slack first. See TODO.md.
     battery_usd_per_kwh: float = 250.0     # installed, marinized system level
     battery_kwh_per_teu: float = 3000.0    # energy per battery container (3 MWh/TEU)
     battery_pack_wh_per_kg: float = 160.0  # for the deadweight sanity check

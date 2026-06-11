@@ -31,14 +31,19 @@ def carried_teu(p: Params, overhead_slots: float, battery_slots: float = 0.0) ->
     """Revenue TEU carried per leg.
 
     Cargo demand is exogenous: the ship books `load_factor` of its cargo-capable
-    slots (gross minus structural overhead). Batteries cut physical capacity but
-    only displace paying cargo once they have filled the empty
-    (1 - load_factor) slack, i.e. carried = min(demand, capacity). Assumes
-    symmetric leg fill (see TODO.md on trade-imbalance asymmetry)."""
+    slots (gross minus structural overhead). Batteries occupy physical slots,
+    but only `batt_empty_usable_frac` of the empty (1 - load_factor) slack is
+    actually battery-usable (dangerous-goods segregation, stability, crane
+    access); batteries fill that usable slack for free, then displace paying
+    cargo 1:1. batt_empty_usable_frac = 1.0 recovers carried = min(demand,
+    capacity). Assumes symmetric leg fill (see TODO.md). May return <= 0 for a
+    pack that swamps the ship; callers treat that as infeasible."""
     cargo_slots = p.gross_slots - overhead_slots
     demand = p.load_factor * cargo_slots
-    capacity = cargo_slots - battery_slots
-    return min(demand, capacity)
+    slack = cargo_slots - demand                       # empty slots at the load factor
+    free_empty = p.batt_empty_usable_frac * slack
+    cargo_displaced = max(0.0, battery_slots - free_empty)
+    return demand - cargo_displaced
 
 
 def lcot_fossil(p: Params, v_kn: float, d_km: float) -> dict:
@@ -94,7 +99,8 @@ def _lcot_battery(p: Params, v_kn: float, d_km: float, spec: BatterySpec) -> dic
     battery_slots = installed_kwh / spec.kwh_per_teu
 
     cargo_cap = p.gross_slots - p.elec_fixed_overhead_slots - battery_slots
-    if cargo_cap <= 0:
+    carried = carried_teu(p, p.elec_fixed_overhead_slots, battery_slots)
+    if carried <= 0:  # pack leaves no room for paying cargo
         return {"lcot": np.inf, "v": v_kn, "cargo_cap": cargo_cap,
                 "battery_slots": battery_slots, "battery_kwh": installed_kwh,
                 "battery_life": np.nan, "annual_fixed": np.inf,
@@ -113,7 +119,7 @@ def _lcot_battery(p: Params, v_kn: float, d_km: float, spec: BatterySpec) -> dic
                     + battery_capex * crf(p.discount_rate, battery_life)
                     + p.om_elec_usd_yr)
 
-    annual_teukm = cyc * d_km * carried_teu(p, p.elec_fixed_overhead_slots, battery_slots)
+    annual_teukm = cyc * d_km * carried
     annual_cost = annual_fixed + energy_cost_leg * cyc
     return {"lcot": annual_cost / annual_teukm, "v": v_kn, "cargo_cap": cargo_cap,
             "annual_fixed": annual_fixed, "annual_energy": energy_cost_leg * cyc,
