@@ -1,5 +1,23 @@
 # TODO / known limitations
 
+## Powertrain-specific efficiency (P-v curve)
+- `elec_prop_power_factor` (0.90) is a **conservative single lump** for the
+  hull-form, anti-fouling-coating, larger-low-RPM-propeller/pod, wider-motor-
+  efficiency-curve, and weather/trim-routing gains the electric drivetrain
+  enables. Replace with an itemized, sourced calculation (hull form ~−20%,
+  coatings ~−3%, propeller/pods ~−15–20%, wider eff. ~−5–10%, ops ~−8%; these
+  compound, so the realistic factor is well below 0.90 — current value is
+  deliberately cautious).
+- Fossil may warrant a **smaller** hull-design improvement of its own: the
+  barrier cited for optimized hulls is extra design/shipyard coordination, and
+  if that is overcome for electric ships it is no longer a blocker for fossil
+  either. Add a (smaller) `fossil_prop_power_factor < 1.0` when itemizing.
+- Slow-steaming asymmetry: `eta_fossil`/`eta_elec` are currently **constant in
+  speed**, so both ships get the identical ideal cube-law energy-vs-speed and
+  fossil slow-steaming is over-credited. Real engines droop at part-load while
+  motors stay flat — model `eta_fossil` as load/speed-dependent so slowing down
+  favours the electric ship.
+
 ## Parameter checks
 - `availability` (0.95) is shared; consider raising it for electric/iron-air —
   lower drivetrain maintenance than combustion, à la EV vs ICE.
