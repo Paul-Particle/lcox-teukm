@@ -1,6 +1,7 @@
 """
 analysis.py — operations on the cost models: per-ship speed optimization and
-the electric-vs-fossil crossover distance.
+the crossover distance between any two cost models (default: Li-ion battery
+vs the fossil incumbent).
 """
 
 import numpy as np
@@ -20,22 +21,23 @@ def optimize_speed(fn, p: Params, d_km: float, n: int = 141) -> dict:
     return best
 
 
-def crossover_dmax(p: Params, d_grid) -> float:
-    """Smallest D_max where electric stops being cheaper. None if electric never
-    wins; inf ('always') if it wins across the whole grid."""
+def crossover_dmax(p: Params, d_grid, fn_a=lcot_elec, fn_b=lcot_fossil) -> float:
+    """Smallest D_max where `fn_a` stops being cheaper than `fn_b` (defaults:
+    Li-ion battery vs fossil). None if fn_a never wins; inf ('always') if it
+    wins across the whole grid."""
     diff = []
     for d in d_grid:
-        f = optimize_speed(lcot_fossil, p, d)["lcot"]
-        e = optimize_speed(lcot_elec, p, d)["lcot"]
-        diff.append(e - f)
+        b = optimize_speed(fn_b, p, d)["lcot"]
+        a = optimize_speed(fn_a, p, d)["lcot"]
+        diff.append(a - b)
     diff = np.array(diff)
-    elec_wins = diff < 0
-    if not elec_wins.any():
+    a_wins = diff < 0
+    if not a_wins.any():
         return None
-    if elec_wins.all():
+    if a_wins.all():
         return float("inf")
     # first index where it flips from winning to losing
-    idx = np.where(elec_wins)[0]
+    idx = np.where(a_wins)[0]
     last_win = idx.max()
     if last_win + 1 < len(d_grid):
         # linear interp of the crossover between last_win and last_win+1

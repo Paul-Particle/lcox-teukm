@@ -12,7 +12,7 @@ from pathlib import Path
 import numpy as np
 
 from params import Params
-from lcot import lcot_fossil, lcot_elec
+from lcot import lcot_fossil, lcot_elec, lcot_ironair, lcot_nuclear
 from analysis import optimize_speed, crossover_dmax
 from units import CENTS_PER_USD, PERCENT_PER_FRACTION, KWH_PER_MWH, KG_PER_TONNE
 from style import (
@@ -21,10 +21,23 @@ from style import (
     header_geometry, apply_dot, apply_logo, add_trace_label, inject_titillium_font,
 )
 
+# All technology cases, in display order:
+# (table_name, plot_label, cost model fn, color, clip)
+# `clip` marks the battery ships, whose LCOT blows up at long D_max and is
+# capped at Y_CAP_CENTS in line plots so it doesn't flatten the region of
+# interest (viewers can still zoom).
+CASES = [
+    ("fossil",   "fossil",                      lcot_fossil,  blue_black,  False),
+    ("li-ion",   "battery-electric (Li-ion)",   lcot_elec,    fca_blue,    True),
+    ("iron-air", "battery-electric (iron-air)", lcot_ironair, sand_yellow, True),
+    ("nuclear",  "nuclear (SMR)",               lcot_nuclear, green,       False),
+]
+Y_CAP_CENTS = 50.0
+
 # Sample hop lengths (km) shown in the per-ship breakdown table.
 SAMPLE_HOPS_KM = [200, 500, 1000, 2000, 4000]
 
-# Sensitivity sweep axes.
+# Sensitivity sweep axes (Li-ion battery cost x electricity price).
 SENS_BATTERY_USD_PER_KWH = [250, 150, 80]
 SENS_ELEC_USD_PER_KWH = [0.09, 0.06, 0.03]
 
@@ -33,17 +46,26 @@ def print_base_header(p: Params) -> None:
     print("=" * 72)
     print("BASE CASE")
     print(f"  fuel ${p.fuel_usd_per_t}/t  |  elec ${p.elec_usd_per_kwh}/kWh  "
-          f"|  battery ${p.battery_usd_per_kwh}/kWh  |  hull {p.gross_slots:.0f} TEU")
+          f"|  Li-ion ${p.battery_usd_per_kwh}/kWh  |  hull {p.gross_slots:.0f} TEU")
+    print(f"  iron-air ${p.ironair_usd_per_kwh}/kWh @ "
+          f"{p.ironair_eta_rt*PERCENT_PER_FRACTION:.0f}% RTE  "
+          f"|  SMR ${p.nuclear_usd_per_kw:.0f}/kW")
     print("=" * 72)
 
 
 def print_energy_cost(p: Params) -> None:
-    """Useful-energy cost per kWh, fossil vs electric, head to head."""
-    fuel_useful = (p.fuel_usd_per_t / KG_PER_TONNE / p.fuel_lhv_kwh_per_kg) / p.eta_fossil
-    elec_useful = p.elec_usd_per_kwh / p.eta_charge / p.eta_elec
-    cheaper = "electric cheaper" if elec_useful < fuel_useful else "fossil cheaper"
-    print(f"\nEnergy cost per USEFUL kWh:  fossil ${fuel_useful:.3f}   "
-          f"electric ${elec_useful:.3f}   ({cheaper})")
+    """Useful-energy cost per kWh, all powertrains head to head."""
+    costs = {
+        "fossil": (p.fuel_usd_per_t / KG_PER_TONNE / p.fuel_lhv_kwh_per_kg)
+                  / p.eta_fossil,
+        "li-ion": p.elec_usd_per_kwh / (p.battery_eta_rt * p.eta_charge * p.eta_elec),
+        "iron-air": p.elec_usd_per_kwh / (p.ironair_eta_rt * p.eta_charge * p.eta_elec),
+        "nuclear": p.nuclear_fuel_usd_per_kwh_th / p.eta_nuclear,
+    }
+    cheapest = min(costs, key=costs.get)
+    print("\nEnergy cost per USEFUL kWh:  "
+          + "   ".join(f"{name} ${c:.3f}" for name, c in costs.items())
+          + f"   ({cheapest} cheapest)")
 
 
 def print_breakdown(p: Params) -> None:
@@ -55,7 +77,7 @@ def print_breakdown(p: Params) -> None:
     print(hdr)
     print("-" * len(hdr))
     for d in SAMPLE_HOPS_KM:
-        for name, fn in [("fossil", lcot_fossil), ("electric", lcot_elec)]:
+        for name, _, fn, _, _ in CASES:
             r = optimize_speed(fn, p, d)
             finite = np.isfinite(r["lcot"])
             fixed_share = (r["annual_fixed"] / (r["annual_fixed"] + r["annual_energy"])
@@ -70,23 +92,30 @@ def print_breakdown(p: Params) -> None:
 
 
 def print_crossover(p: Params, d_grid) -> None:
-    co = crossover_dmax(p, d_grid)
-    msg = ("electric never cheaper in base case" if co is None
-           else f"{co:.0f} km" if np.isfinite(co) else "electric always cheaper")
-    print("\nCrossover D_max (electric cheaper below this):", msg)
+    """Crossover vs the fossil incumbent, per battery case."""
+    print()
+    for name, _, fn, _, clip in CASES:
+        if not clip:  # the battery cases are the ones with a D_max crossover
+            continue
+        co = crossover_dmax(p, d_grid, fn, lcot_fossil)
+        msg = ("never cheaper in base case" if co is None
+               else f"cheaper than fossil below {co:.0f} km" if np.isfinite(co)
+               else "always cheaper than fossil")
+        print(f"Crossover D_max: {name} {msg}")
 
 
 def print_sensitivity(p: Params, d_grid) -> None:
-    """Crossover D_max vs battery cost and electricity price, around base case."""
+    """Li-ion-vs-fossil crossover D_max vs battery cost and electricity price.
+    (Iron-air and nuclear axes are out of scope for this table.)"""
     print("\n" + "=" * 72)
-    print("SENSITIVITY: crossover D_max (km) vs battery cost & electricity price")
+    print("SENSITIVITY: Li-ion crossover D_max (km) vs battery cost & elec price")
     print("=" * 72)
     print(f"{'':>14}" + "".join(f"  elec ${e:>4.2f}" for e in SENS_ELEC_USD_PER_KWH))
     for bc in SENS_BATTERY_USD_PER_KWH:
         row = f"batt ${bc:>3}/kWh "
         for ep in SENS_ELEC_USD_PER_KWH:
             pp = replace(p, battery_usd_per_kwh=bc, elec_usd_per_kwh=ep)
-            c = crossover_dmax(pp, d_grid)
+            c = crossover_dmax(pp, d_grid, lcot_elec, lcot_fossil)
             cell = "none" if c is None else (">6000" if np.isinf(c) else f"{c:.0f}")
             row += f"  {cell:>9}"
         print(row)
@@ -114,9 +143,9 @@ def _save_html_png(fig, out_dir: str, stem: str) -> list:
 # ---- Plots -----------------------------------------------------------------
 
 def plot_lcot_vs_dmax(p: Params, out_dir: str) -> list:
-    """LCOT vs D_max for both ships. Interactive HTML + static PNG.
+    """LCOT vs D_max for all ships. Interactive HTML + static PNG.
 
-    The electric curve is clipped at 50 c/TEU·km so the long-haul blow-up
+    The battery curves are clipped at Y_CAP_CENTS so the long-haul blow-up
     does not flatten the region of interest; the viewer can still zoom freely.
     Hover shows the optimum speed at each D_max point.
     """
@@ -127,26 +156,24 @@ def plot_lcot_vs_dmax(p: Params, out_dir: str) -> list:
         return []
 
     dd = np.geomspace(30, 6000, 160)
-    results_f = [optimize_speed(lcot_fossil, p, d) for d in dd]
-    results_e = [optimize_speed(lcot_elec,   p, d) for d in dd]
-    lf = [r["lcot"] * CENTS_PER_USD for r in results_f]
-    le = [min(r["lcot"] * CENTS_PER_USD, 50) for r in results_e]
-    vf = [r["v"] for r in results_f]
-    ve = [r["v"] for r in results_e]
 
     hover = ("D_max %{x:.0f} km<br>LCOT %{y:.3f} c/TEU·km"
              "<br>v_opt %{customdata:.1f} kn"
              "<extra>%{fullData.name}</extra>")
 
     fig = go.Figure()
-    fig.add_trace(go.Scatter(x=dd, y=lf, mode="lines", name="fossil",
-                             customdata=vf,
-                             line=dict(color=blue_black, width=2.2),
-                             hovertemplate=hover))
-    fig.add_trace(go.Scatter(x=dd, y=le, mode="lines", name="battery-electric",
-                             customdata=ve,
-                             line=dict(color=fca_blue, width=2.2),
-                             hovertemplate=hover))
+    fossil_max = 0.0  # the incumbent sets the y scale; other curves may exit it
+    for name, label, fn, color, clip in CASES:
+        results = [optimize_speed(fn, p, d) for d in dd]
+        ys = [r["lcot"] * CENTS_PER_USD for r in results]
+        if clip:
+            ys = [min(y, Y_CAP_CENTS) for y in ys]
+        if name == "fossil":
+            fossil_max = max(ys)
+        fig.add_trace(go.Scatter(x=dd, y=ys, mode="lines", name=label,
+                                 customdata=[r["v"] for r in results],
+                                 line=dict(color=color, width=2.2),
+                                 hovertemplate=hover))
 
     fig_width, fig_height = 820, 520
     margin_l = fca_template.layout.margin.l
@@ -168,7 +195,7 @@ def plot_lcot_vs_dmax(p: Params, out_dir: str) -> list:
     xticks = [30, 50, 100, 200, 500, 1000, 2000, 5000]
     fig.update_xaxes(type="log", tickmode="array", tickvals=xticks,
                      ticktext=[f"{v}" for v in xticks])
-    fig.update_yaxes(range=[0, max(max(lf), 8) * 1.3])
+    fig.update_yaxes(range=[0, max(fossil_max, 8) * 1.3])
 
     fig.add_annotation(
         text="US cents per TEU·km", xref="paper", yref="paper",
@@ -177,8 +204,11 @@ def plot_lcot_vs_dmax(p: Params, out_dir: str) -> list:
         font=dict(family="Titillium Web", size=18, color=blue_black),
     )
     fig.add_annotation(
-        text=(f"Base case: battery &#36;{p.battery_usd_per_kwh:.0f}/kWh, "
-              f"electricity &#36;{p.elec_usd_per_kwh}/kWh"),
+        text=(f"Base case: Li-ion &#36;{p.battery_usd_per_kwh:.0f}/kWh, "
+              f"iron-air &#36;{p.ironair_usd_per_kwh:.0f}/kWh @ "
+              f"{p.ironair_eta_rt*PERCENT_PER_FRACTION:.0f}% RTE, "
+              f"electricity &#36;{p.elec_usd_per_kwh}/kWh, "
+              f"SMR &#36;{p.nuclear_usd_per_kw:.0f}/kW"),
         xref="paper", yref="paper", x=0, xanchor="left",
         xshift=geom["header_x_shift"],
         y=0, yanchor="top", yshift=-98, showarrow=False,
@@ -186,19 +216,20 @@ def plot_lcot_vs_dmax(p: Params, out_dir: str) -> list:
     )
 
     apply_dot(fig, geom)
-    add_trace_label(fig, "fossil",           blue_black, x=0.97, y=0.88)
-    add_trace_label(fig, "battery-electric", fca_blue,   x=0.97, y=0.77)
+    for i, (_, label, _, color, _) in enumerate(CASES):
+        add_trace_label(fig, label, color, x=0.97, y=0.90 - 0.11 * i)
     apply_logo(fig, fig_width, fig_height, margin_l, margin_r, margin_t, margin_b)
 
     return _save_html_png(fig, out_dir, "lcot_vs_dmax")
 
 
 def plot_speed_vs_dmax(p: Params, out_dir: str) -> list:
-    """Optimum speed vs D_max for both ships.
+    """Optimum speed vs D_max for all ships.
 
     Shows how each powertrain's economically optimal speed varies with the
-    inter-swap distance. The electric ship slows down at longer ranges to
-    reduce battery size and recover cargo capacity.
+    inter-swap distance. The battery ships slow down at longer ranges to
+    reduce battery size and recover cargo capacity; the power-bound iron-air
+    ship sits near the minimum speed almost everywhere.
     """
     try:
         import plotly.graph_objects as go
@@ -207,17 +238,14 @@ def plot_speed_vs_dmax(p: Params, out_dir: str) -> list:
         return []
 
     dd = np.geomspace(30, 6000, 160)
-    vf = [optimize_speed(lcot_fossil, p, d)["v"] for d in dd]
-    ve = [optimize_speed(lcot_elec,   p, d)["v"] for d in dd]
 
     hover = "D_max %{x:.0f} km  →  v_opt %{y:.1f} kn<extra>%{fullData.name}</extra>"
     fig = go.Figure()
-    fig.add_trace(go.Scatter(x=dd, y=vf, mode="lines", name="fossil",
-                             line=dict(color=blue_black, width=2.2),
-                             hovertemplate=hover))
-    fig.add_trace(go.Scatter(x=dd, y=ve, mode="lines", name="battery-electric",
-                             line=dict(color=fca_blue, width=2.2),
-                             hovertemplate=hover))
+    for _, label, fn, color, _ in CASES:
+        vs = [optimize_speed(fn, p, d)["v"] for d in dd]
+        fig.add_trace(go.Scatter(x=dd, y=vs, mode="lines", name=label,
+                                 line=dict(color=color, width=2.2),
+                                 hovertemplate=hover))
 
     fig_width, fig_height = 820, 520
     margin_l = fca_template.layout.margin.l
@@ -248,8 +276,10 @@ def plot_speed_vs_dmax(p: Params, out_dir: str) -> list:
         font=dict(family="Titillium Web", size=18, color=blue_black),
     )
     fig.add_annotation(
-        text=(f"Base case: battery &#36;{p.battery_usd_per_kwh:.0f}/kWh, "
-              f"electricity &#36;{p.elec_usd_per_kwh}/kWh"),
+        text=(f"Base case: Li-ion &#36;{p.battery_usd_per_kwh:.0f}/kWh, "
+              f"iron-air &#36;{p.ironair_usd_per_kwh:.0f}/kWh, "
+              f"electricity &#36;{p.elec_usd_per_kwh}/kWh, "
+              f"SMR &#36;{p.nuclear_usd_per_kw:.0f}/kW"),
         xref="paper", yref="paper", x=0, xanchor="left",
         xshift=geom["header_x_shift"],
         y=0, yanchor="top", yshift=-98, showarrow=False,
@@ -257,8 +287,10 @@ def plot_speed_vs_dmax(p: Params, out_dir: str) -> list:
     )
 
     apply_dot(fig, geom)
-    add_trace_label(fig, "fossil",           blue_black, x=0.97, y=0.92)
-    add_trace_label(fig, "battery-electric", fca_blue,   x=0.97, y=0.81)
+    # Labels sit in the empty band between the fossil (~12 kn) and the
+    # flat-out nuclear (22 kn) curves.
+    for i, (_, label, _, color, _) in enumerate(CASES):
+        add_trace_label(fig, label, color, x=0.97, y=0.78 - 0.11 * i)
     apply_logo(fig, fig_width, fig_height, margin_l, margin_r, margin_t, margin_b)
 
     return _save_html_png(fig, out_dir, "speed_vs_dmax")
@@ -405,10 +437,13 @@ def plot_teu_tech_tradeoff(p: Params, d_km: float, out_dir: str) -> list:
              fn=lcot_elec,
              params=replace(p, battery_usd_per_kwh=250, battery_kwh_per_teu=5000),
              lcot_c=None, teu_c=None),
-        # Placeholders — replace with model results when available
-        dict(label="Nuclear SMR\n(placeholder)", color=green, computed=False,
-             fn=None, params=None,
-             lcot_c=2.8, teu_c=2700),
+        dict(label="Iron-air\n30 $/kWh", color=sand_yellow, computed=True,
+             fn=lcot_ironair, params=p,
+             lcot_c=None, teu_c=None),
+        dict(label="Nuclear SMR\n6000 $/kW", color=green, computed=True,
+             fn=lcot_nuclear, params=p,
+             lcot_c=None, teu_c=None),
+        # Placeholder — replace with model results when available
         dict(label="H₂ fuel cell\n(placeholder)", color=very_dark_gray, computed=False,
              fn=None, params=None,
              lcot_c=None, teu_c=None),

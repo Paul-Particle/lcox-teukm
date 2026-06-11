@@ -36,6 +36,7 @@ class Params:
     eta_fossil: float = 0.48           # fuel chemical -> useful (good 2-stroke)
     eta_elec: float = 0.88             # battery pack -> useful (drivetrain)
     eta_charge: float = 0.95           # grid -> battery pack
+    eta_nuclear: float = 0.30          # reactor thermal -> useful (marine PWR steam cycle)
 
     # ---- energy prices
     fuel_usd_per_t: float = 550.0      # VLSFO
@@ -60,6 +61,31 @@ class Params:
     battery_reserve: float = 0.20          # weather/safety margin on top of leg energy
     battery_cycle_life: float = 4000.0
     battery_calendar_life_yr: float = 12.0
+    battery_eta_rt: float = 1.0            # pack round-trip eff.; Li-ion losses sit in eta_charge
+    battery_min_discharge_h: float = 0.0   # rated discharge-duration floor; 0 = no power limit
+
+    # ---- iron-air battery powertrain (Form Energy class; shares hull, motor,
+    # drivetrain, electricity price, and swap logistics with the Li-ion ship).
+    # Deadweight is not enforced for either chemistry; iron-air's ~5x mass per
+    # kWh makes the model optimistic for it (see README).
+    ironair_usd_per_kwh: float = 30.0      # installed system (chemistry target <$20/kWh)
+    ironair_kwh_per_teu: float = 1500.0    # ~half Li-ion volumetric density per container
+    ironair_dod: float = 0.95              # chemistry tolerates deep discharge
+    ironair_reserve: float = 0.20          # weather/safety margin on top of leg energy
+    ironair_cycle_life: float = 10000.0    # non-binding at 100-h rates
+    ironair_calendar_life_yr: float = 20.0
+    ironair_eta_rt: float = 0.45           # electrochemical round-trip efficiency
+    ironair_min_discharge_h: float = 100.0 # 100-h class: max pack kW = installed kWh / 100 h
+
+    # ---- nuclear powertrain (onboard SMR; no D_max-driven sizing)
+    nuclear_usd_per_kw: float = 6000.0     # installed reactor + steam plant + drivetrain,
+                                           # per useful kW (lit. $5-8k/kWe; fleet-scale
+                                           # vendor targets as low as $750-2000/kW)
+    nuclear_life_yr: float = 25.0
+    nuclear_fuel_usd_per_kwh_th: float = 0.012  # HALEU fuel cycle, ~$12/MWh thermal
+    om_nuclear_usd_yr: float = 10.0e6      # specialized crew, security, insurance pools,
+                                           # regulatory; least-quantified parameter
+    nuclear_overhead_slots: float = 120.0  # reactor + shielding ~ conventional engine room
 
 
 def load_params(path) -> Params:

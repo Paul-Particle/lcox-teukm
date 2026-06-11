@@ -1,27 +1,32 @@
 """
-lcox-teukm — levelized cost of transport (LCOT, US$/TEU·km) for a container ship:
-fossil vs battery-electric with containerized battery swapping.
+lcox-teukm — levelized cost of transport (LCOT, US$/TEU·km) for a container
+ship: fossil vs battery-electric (Li-ion and iron-air, both with containerized
+battery swapping) vs onboard nuclear (SMR).
 
 Comparison axis: D_max = the longest hop between swap-capable ports (km).
 This sets the battery size (hence CAPEX + displaced cargo), independent of
-total route length. Everything that scales fossil and electric together
-(load factor, port time, route geometry beyond D_max) is fixed to
-representative values so we can read ABSOLUTE LCOT, not just the ratio.
+total route length. Everything that scales the ships together (load factor,
+port time, route geometry beyond D_max) is fixed to representative values so
+we can read ABSOLUTE LCOT, not just ratios.
 
 Structure of the route in this Tier-1 cut: the ship runs back-to-back legs of
 length D_max, with one combined cargo+swap port call at each end. Cycles/year
 (hence utilization and annual TEU-km) therefore fall out of D_max and speed.
 
-Speed is optimized separately for each ship: the electric ship has an extra
+Speed is optimized separately for each ship. The battery ships have an extra
 incentive to slow down (slower -> less energy/km -> smaller battery -> fewer
-displaced slots + less CAPEX), so its economic optimum speed is lower.
+displaced slots + less CAPEX); iron-air's 100-h discharge rating makes its
+pack power-bound (installed kWh >= peak kW x 100 h), pinning it near minimum
+speed. The nuclear ship is the opposite: cheap fuel and expensive capital push
+it to maximum speed, and its LCOT depends on D_max only through port-call
+frequency.
 
 This file is the entry point only. The model is split across sibling modules:
     units.py     unit conversions (single source of truth)
     params.py    Params schema + load_params(config.yaml)
     finance.py   capital recovery factor
     energy.py    ship physics (power, leg energy, cycles/year)
-    lcot.py      the two cost models
+    lcot.py      the four cost models
     analysis.py  speed optimization + crossover distance
     report.py    console tables + plotting
 

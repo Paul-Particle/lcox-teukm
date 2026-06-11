@@ -26,6 +26,7 @@ v_max_kn: 22.0
 eta_fossil: 0.48             # fuel chemical -> useful (good 2-stroke)
 eta_elec: 0.88               # battery pack -> useful (drivetrain)
 eta_charge: 0.95             # grid -> battery pack
+eta_nuclear: 0.30            # reactor thermal -> useful (marine PWR steam ~25-30%)
 
 # ---- energy prices -------------------------------------------------------
 fuel_usd_per_t: 550.0        # VLSFO
@@ -50,3 +51,31 @@ battery_dod: 0.90            # usable depth of discharge
 battery_reserve: 0.20        # weather/safety margin on top of leg energy
 battery_cycle_life: 4000.0
 battery_calendar_life_yr: 12.0
+battery_eta_rt: 1.0          # pack round-trip eff.; Li-ion losses already in eta_charge
+battery_min_discharge_h: 0.0 # rated discharge-duration floor; 0 = no power limit
+
+# ---- iron-air battery powertrain ------------------------------------------
+# Form Energy class 100-hour chemistry; shares hull, motor, drivetrain,
+# electricity price, and swap logistics with the Li-ion ship. Sources: Form
+# Energy ISO-NE 2024 deck (~40% AC-AC RTE, 100-h product, 20-yr life), Utility
+# Dive (<$20/kWh chemistry target). Deadweight not enforced (model optimistic:
+# iron-air is ~5x heavier per kWh than Li-ion at system level).
+ironair_usd_per_kwh: 30.0    # installed system; chemistry target <$20/kWh + marine premium
+ironair_kwh_per_teu: 1500.0  # ~half of Li-ion's 3 MWh/TEU (aqueous, lower density)
+ironair_dod: 0.95            # chemistry tolerates deep discharge; no published spec
+ironair_reserve: 0.20        # weather/safety margin on top of leg energy
+ironair_cycle_life: 10000.0  # electrode claims >10k; non-binding at 100-h rates
+ironair_calendar_life_yr: 20.0
+ironair_eta_rt: 0.45         # ~40% AC-AC per Form; 40-50% in literature
+ironair_min_discharge_h: 100.0  # C/100: max pack power = installed kWh / 100 h
+
+# ---- nuclear powertrain ----------------------------------------------------
+# Onboard SMR, no D_max-driven sizing. Sources: Lloyd's Register 2025
+# containership study, peer-reviewed marine SMR economics ($5-8k/kWe near
+# term; fleet-scale vendor targets $750-2000/kW), Carlson 2020 HALEU costs,
+# KAIST/HD KSOE 15,000 TEU concept (reactor space ~ engine room or better).
+nuclear_usd_per_kw: 6000.0   # installed reactor + steam plant + drivetrain, per useful kW
+nuclear_life_yr: 25.0        # near-term marine SMR plant life
+nuclear_fuel_usd_per_kwh_th: 0.012  # HALEU fuel cycle ~$12/MWh thermal
+om_nuclear_usd_yr: 10.0e+6   # crew, security, bespoke insurance, regulatory (least certain)
+nuclear_overhead_slots: 120.0  # reactor + shielding ~ conventional engine room
