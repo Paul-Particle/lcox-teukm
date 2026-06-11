@@ -10,8 +10,18 @@ compares four powertrains:
   chemistry: very cheap per kWh but ~45% round-trip efficient and power-limited (the pack
   must be sized for peak draw × its 100 h discharge rating, not just leg energy), which
   pins its optimal speed near the minimum.
-- **Nuclear (onboard SMR)** — reactor CAPEX per kW, cheap HALEU fuel, high fixed O&M; no
-  D_max-driven sizing, so its LCOT depends on D_max only through port-call frequency.
+- **Nuclear (onboard SMR, direct-drive)** — reactor CAPEX per kW, cheap HALEU fuel, high fixed
+  O&M; no D_max-driven sizing, so its LCOT depends on D_max only through port-call frequency.
+- **Nuclear-electric (containerized / integrated)** — onboard reactor driving an electric motor
+  (reactor → electricity → propeller). Slightly lower end-to-end efficiency than direct-drive, but
+  earns the electric-drive hull/prop gains; modular containerized units vs a single integrated plant.
+- **Mobile-reactor charge** — a battery-electric ship recharged **at sea** by a fleet of mobile
+  nuclear tenders (underway escort top-ups) instead of port swaps. The pack only bridges the gap
+  between rendezvous (plus a sea-state disconnect reserve), so it is far smaller; energy is priced
+  at the tender fleet's levelized $/kWh, and speed is capped by the floating charging cable.
+
+Cargo accounting applies **volume (slots), mass (deadweight) and power** constraints together, and
+supports **asymmetric headhaul/backhaul legs** (`load_factor_imbalance`).
 
 ## What it answers
 

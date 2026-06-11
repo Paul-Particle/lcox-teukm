@@ -24,26 +24,42 @@ import numpy as np
 from params import Params
 from finance import crf
 from energy import prop_power_kw, leg_useful_energy_kwh, cycles_per_year
-from units import KG_PER_TONNE
+from units import KG_PER_TONNE, KMH_PER_KNOT, HOURS_PER_YEAR, KM_PER_NM
 
 
-def carried_teu(p: Params, overhead_slots: float, battery_slots: float = 0.0) -> float:
-    """Revenue TEU carried per leg.
+def carried_teu(p: Params, overhead_slots: float,
+                battery_slots: float = 0.0, battery_tonnes: float = 0.0) -> float:
+    """Revenue cargo (TEU) carried per leg, round-trip averaged.
 
-    Cargo demand is exogenous: the ship books `load_factor` of its cargo-capable
-    slots (gross minus structural overhead). Batteries occupy physical slots,
-    but only `batt_empty_usable_frac` of the empty (1 - load_factor) slack is
-    actually battery-usable (dangerous-goods segregation, stability, crane
-    access); batteries fill that usable slack for free, then displace paying
-    cargo 1:1. batt_empty_usable_frac = 1.0 recovers carried = min(demand,
-    capacity). Assumes symmetric leg fill (see TODO.md). May return <= 0 for a
-    pack that swamps the ship; callers treat that as infeasible."""
+    Three capacity limits act together; carried = min(volume-limited, mass-limited):
+      - VOLUME: cargo demand is exogenous (`load_factor` of cargo-capable slots).
+        Batteries occupy slots, but only `batt_empty_usable_frac` of the empty
+        (1-load_factor) slack is battery-usable (DG segregation, stability,
+        access); they fill that for free, then displace cargo 1:1.
+      - MASS: the battery's deadweight (`battery_tonnes`) eats the cargo
+        deadweight budget, leaving (deadweight_cargo_t - battery_tonnes) /
+        cargo_t_per_teu TEU by weight.
+      - POWER is handled in battery sizing, not here.
+
+    Legs are ASYMMETRIC: `load_factor_imbalance` splits the mean load factor into
+    a fuller headhaul and lighter backhaul; a fixed battery footprint bites the
+    fuller leg first. imbalance=0 with a non-binding deadweight reproduces the
+    old symmetric, volume-only result. May return <= 0 (pack swamps the ship);
+    callers treat that as infeasible."""
     cargo_slots = p.gross_slots - overhead_slots
-    demand = p.load_factor * cargo_slots
-    slack = cargo_slots - demand                       # empty slots at the load factor
-    free_empty = p.batt_empty_usable_frac * slack
-    cargo_displaced = max(0.0, battery_slots - free_empty)
-    return demand - cargo_displaced
+    mass_limited = (p.deadweight_cargo_t - battery_tonnes) / p.cargo_t_per_teu
+
+    def carried_dir(lf):
+        demand = lf * cargo_slots
+        slack = cargo_slots - demand
+        free_empty = p.batt_empty_usable_frac * slack
+        vol_carried = demand - max(0.0, battery_slots - free_empty)
+        return min(vol_carried, mass_limited)
+
+    imb = p.load_factor_imbalance
+    lf_head = min(1.0, p.load_factor * (1.0 + imb))
+    lf_back = p.load_factor * (1.0 - imb)
+    return 0.5 * (carried_dir(lf_head) + carried_dir(lf_back))
 
 
 def lcot_fossil(p: Params, v_kn: float, d_km: float) -> dict:
@@ -79,6 +95,7 @@ class BatterySpec:
     calendar_life_yr: float
     eta_rt: float            # pack round-trip eff. (charger/grid losses live in eta_charge)
     min_discharge_h: float   # max pack power = installed kWh / this; 0 disables
+    pack_wh_per_kg: float    # system energy density -> battery mass (deadweight constraint)
 
 
 def _lcot_battery(p: Params, v_kn: float, d_km: float, spec: BatterySpec) -> dict:
@@ -97,10 +114,11 @@ def _lcot_battery(p: Params, v_kn: float, d_km: float, spec: BatterySpec) -> dic
     pack_power_kw = (prop_power_kw(p, v_kn, pf) + p.p_hotel_kw) / p.eta_elec
     installed_kwh = max(installed_energy, pack_power_kw * spec.min_discharge_h)
     battery_slots = installed_kwh / spec.kwh_per_teu
+    battery_tonnes = installed_kwh / spec.pack_wh_per_kg   # kWh*1000Wh / (Wh/kg) / 1000 = t
 
     cargo_cap = p.gross_slots - p.elec_fixed_overhead_slots - battery_slots
-    carried = carried_teu(p, p.elec_fixed_overhead_slots, battery_slots)
-    if carried <= 0:  # pack leaves no room for paying cargo
+    carried = carried_teu(p, p.elec_fixed_overhead_slots, battery_slots, battery_tonnes)
+    if carried <= 0:  # pack leaves no room for paying cargo (volume or mass)
         return {"lcot": np.inf, "v": v_kn, "cargo_cap": cargo_cap,
                 "battery_slots": battery_slots, "battery_kwh": installed_kwh,
                 "battery_life": np.nan, "annual_fixed": np.inf,
@@ -131,14 +149,14 @@ def lcot_elec(p: Params, v_kn: float, d_km: float) -> dict:
     return _lcot_battery(p, v_kn, d_km, BatterySpec(
         p.battery_usd_per_kwh, p.battery_kwh_per_teu, p.battery_dod,
         p.battery_reserve, p.battery_cycle_life, p.battery_calendar_life_yr,
-        p.battery_eta_rt, p.battery_min_discharge_h))
+        p.battery_eta_rt, p.battery_min_discharge_h, p.battery_pack_wh_per_kg))
 
 
 def lcot_ironair(p: Params, v_kn: float, d_km: float) -> dict:
     return _lcot_battery(p, v_kn, d_km, BatterySpec(
         p.ironair_usd_per_kwh, p.ironair_kwh_per_teu, p.ironair_dod,
         p.ironair_reserve, p.ironair_cycle_life, p.ironair_calendar_life_yr,
-        p.ironair_eta_rt, p.ironair_min_discharge_h))
+        p.ironair_eta_rt, p.ironair_min_discharge_h, p.ironair_pack_wh_per_kg))
 
 
 def lcot_nuclear(p: Params, v_kn: float, d_km: float) -> dict:
@@ -164,3 +182,143 @@ def lcot_nuclear(p: Params, v_kn: float, d_km: float) -> dict:
             "annual_fixed": annual_fixed, "annual_energy": energy_cost_leg * cyc,
             "teukm": annual_teukm, "cyc": cyc, "battery_slots": 0.0,
             "battery_kwh": 0.0, "battery_life": np.nan}
+
+
+def _lcot_nuclear_elec(p: Params, v_kn: float, d_km: float, reactor_capex: float,
+                       reactor_life_yr: float, overhead_slots: float,
+                       om_usd_yr: float, fuel_usd_per_kwh_th: float) -> dict:
+    """Shared body for the nuclear-electric cases: reactor -> electricity ->
+    electric motor. End-to-end useful eff = eta_nuclear*eta_elec; the electric
+    drivetrain earns the hull/prop factor and uses motor (not reactor-direct)
+    CAPEX. Callers supply the reactor CAPEX/overhead (containerized vs integrated)."""
+    pf = p.elec_prop_power_factor
+    E_use = leg_useful_energy_kwh(p, v_kn, d_km, pf)
+    cyc = cycles_per_year(p, v_kn, d_km)
+
+    thermal_kwh = E_use / (p.eta_elec * p.eta_nuclear)
+    energy_cost_leg = thermal_kwh * fuel_usd_per_kwh_th
+
+    motor_capex = p.motor_usd_per_kw * prop_power_kw(p, p.v_design_max_kn, pf)
+    annual_fixed = (p.hull_capex_usd * crf(p.discount_rate, p.hull_life_yr)
+                    + reactor_capex * crf(p.discount_rate, reactor_life_yr)
+                    + motor_capex * crf(p.discount_rate, p.motor_life_yr)
+                    + om_usd_yr)
+
+    cargo_cap = p.gross_slots - overhead_slots
+    annual_teukm = cyc * d_km * carried_teu(p, overhead_slots)
+    annual_cost = annual_fixed + energy_cost_leg * cyc
+    return {"lcot": annual_cost / annual_teukm, "v": v_kn, "cargo_cap": cargo_cap,
+            "annual_fixed": annual_fixed, "annual_energy": energy_cost_leg * cyc,
+            "teukm": annual_teukm, "cyc": cyc, "battery_slots": 0.0,
+            "battery_kwh": 0.0, "battery_life": np.nan}
+
+
+def _reactor_design_power_kw(p: Params) -> float:
+    """Electric-side power the onboard reactor plant must supply at design speed."""
+    pf = p.elec_prop_power_factor
+    return (prop_power_kw(p, p.v_design_max_kn, pf) + p.p_hotel_kw) / p.eta_elec
+
+
+def lcot_nuclear_elec_containerized(p: Params, v_kn: float, d_km: float) -> dict:
+    n_units = int(np.ceil(_reactor_design_power_kw(p) / p.nucc_unit_kw))
+    reactor_capex = p.nucc_usd_per_kw * n_units * p.nucc_unit_kw
+    overhead = n_units * p.nucc_overhead_slots_per_unit
+    return _lcot_nuclear_elec(p, v_kn, d_km, reactor_capex, p.nucc_life_yr,
+                              overhead, p.nucc_om_usd_yr, p.nucc_fuel_usd_per_kwh_th)
+
+
+def lcot_nuclear_elec_integrated(p: Params, v_kn: float, d_km: float) -> dict:
+    reactor_capex = p.nuci_usd_per_kw * _reactor_design_power_kw(p)
+    return _lcot_nuclear_elec(p, v_kn, d_km, reactor_capex, p.nuci_life_yr,
+                              p.nuci_overhead_slots, p.nuci_om_usd_yr,
+                              p.nuci_fuel_usd_per_kwh_th)
+
+
+def _mobile_tender_usd_per_kwh(p: Params, inter_kwh: float):
+    """Explicit tender-fleet economics -> levelized $/kWh delivered, plus the
+    top-ups/yr one tender can serve. A tender alternates charging a ship
+    (`charge_h`) and transiting to the next (`transit_h`); its annualized cost
+    (hull + reactor CAPEX + O&M + HALEU fuel incl. parasitic) is divided by the
+    grid-side energy it delivers per year."""
+    deliverable_kw = min(p.mob_charge_power_kw,
+                         p.mob_tender_reactor_kw - p.mob_tender_parasitic_kw)
+    e_topup_grid = (inter_kwh * p.mob_charge_availability) / (p.battery_eta_rt * p.eta_charge)
+    charge_h = e_topup_grid / deliverable_kw
+    transit_h = 2 * p.mob_rendezvous_distance_nm / p.mob_tender_transit_v_kn
+    topups_per_yr = HOURS_PER_YEAR * p.mob_tender_availability / (charge_h + transit_h)
+    annual_kwh = topups_per_yr * e_topup_grid
+    parasitic_kwh_yr = p.mob_tender_parasitic_kw * topups_per_yr * charge_h
+
+    tender_capex = (p.mob_tender_capex_hull_usd
+                    + p.mob_tender_usd_per_kw * p.mob_tender_reactor_kw)
+    tender_fixed = tender_capex * crf(p.discount_rate, p.mob_tender_life_yr) + p.mob_tender_om_usd_yr
+    tender_fuel = ((annual_kwh + parasitic_kwh_yr) / p.mob_tender_eta_nuclear
+                   ) * p.mob_tender_fuel_usd_per_kwh_th
+    usd_per_kwh = (tender_fixed + tender_fuel) / annual_kwh
+    return usd_per_kwh, topups_per_yr
+
+
+def lcot_mobile(p: Params, v_kn: float, d_km: float) -> dict:
+    """Battery-electric ship recharged at sea by a mobile nuclear tender
+    (underway escort top-ups). Reuses the electric drivetrain; the pack only
+    bridges the gap between rendezvous (plus a sea-state disconnect reserve and
+    the on-battery deadhead to the meeting point), so it is far smaller than the
+    port-swap battery ship. Energy is priced at the tender fleet's levelized
+    $/kWh. Speed is capped by the floating charging cable."""
+    pf = p.elec_prop_power_factor
+    # Cable speed cap: infeasible above the cap (optimizer pins at the cap).
+    if v_kn > p.mob_cable_v_cap_kn:
+        return {"lcot": np.inf, "v": v_kn, "cargo_cap": 0.0, "battery_slots": 0.0,
+                "battery_kwh": 0.0, "battery_life": np.nan, "annual_fixed": np.inf,
+                "annual_energy": np.inf, "teukm": 0.0, "cyc": 0.0}
+
+    E_use_leg = leg_useful_energy_kwh(p, v_kn, d_km, pf)
+    pack_draw_kw = (prop_power_kw(p, v_kn, pf) + p.p_hotel_kw) / p.eta_elec
+
+    # Battery sized to bridge a rendezvous gap (only the un-charged share, plus a
+    # disconnect reserve) and the on-battery deadhead to/from the meeting point.
+    inter_kwh = pack_draw_kw * p.mob_rendezvous_spacing_h
+    bridge_kwh = inter_kwh * (1 - p.mob_charge_availability) * (1 + p.mob_disconnect_reserve)
+    deadhead_km = 2 * p.mob_rendezvous_distance_nm * KM_PER_NM
+    deadhead_kwh = pack_draw_kw * deadhead_km / (v_kn * KMH_PER_KNOT)
+    installed_energy = (bridge_kwh + deadhead_kwh) / p.battery_dod
+    installed_kwh = max(installed_energy, pack_draw_kw * p.battery_min_discharge_h)
+    battery_slots = installed_kwh / p.battery_kwh_per_teu
+    battery_tonnes = installed_kwh / p.battery_pack_wh_per_kg
+
+    carried = carried_teu(p, p.elec_fixed_overhead_slots, battery_slots, battery_tonnes)
+    if carried <= 0:
+        return {"lcot": np.inf, "v": v_kn, "cargo_cap": p.gross_slots - p.elec_fixed_overhead_slots - battery_slots,
+                "battery_slots": battery_slots, "battery_kwh": installed_kwh,
+                "battery_life": np.nan, "annual_fixed": np.inf,
+                "annual_energy": np.inf, "teukm": 0.0, "cyc": 0.0}
+
+    tender_usd_per_kwh, topups_per_yr = _mobile_tender_usd_per_kwh(p, inter_kwh)
+    grid_kwh_leg = (E_use_leg / p.eta_elec) / (p.battery_eta_rt * p.eta_charge)
+    energy_cost_leg = grid_kwh_leg * tender_usd_per_kwh
+
+    # Cycle: charged underway, so no battery swap in port -> shorter port time.
+    sail_h = d_km / (v_kn * KMH_PER_KNOT)
+    cyc = HOURS_PER_YEAR * p.availability / (sail_h + p.mob_port_hours_per_call)
+
+    # Small pack cycles once per top-up; account for partial cycles per leg.
+    topups_per_leg = max(1.0, sail_h / p.mob_rendezvous_spacing_h)
+    battery_life = min(p.battery_calendar_life_yr, p.battery_cycle_life / (cyc * topups_per_leg))
+
+    motor_capex = p.motor_usd_per_kw * prop_power_kw(p, p.v_design_max_kn, pf)
+    battery_capex = p.battery_usd_per_kwh * installed_kwh
+    annual_fixed = (p.hull_capex_usd * crf(p.discount_rate, p.hull_life_yr)
+                    + motor_capex * crf(p.discount_rate, p.motor_life_yr)
+                    + battery_capex * crf(p.discount_rate, battery_life)
+                    + p.om_elec_usd_yr)
+
+    cargo_cap = p.gross_slots - p.elec_fixed_overhead_slots - battery_slots
+    annual_teukm = cyc * d_km * carried
+    annual_cost = annual_fixed + energy_cost_leg * cyc
+    # ships one tender serves = its top-ups/yr / a single ship's top-ups/yr
+    ships_per_tender = topups_per_yr / (cyc * topups_per_leg)
+    return {"lcot": annual_cost / annual_teukm, "v": v_kn, "cargo_cap": cargo_cap,
+            "annual_fixed": annual_fixed, "annual_energy": energy_cost_leg * cyc,
+            "teukm": annual_teukm, "cyc": cyc, "battery_slots": battery_slots,
+            "battery_kwh": installed_kwh, "battery_life": battery_life,
+            "tender_usd_per_kwh": tender_usd_per_kwh, "ships_per_tender": ships_per_tender}

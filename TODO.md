@@ -1,5 +1,29 @@
 # TODO / known limitations
 
+## New cases — speculative params & follow-ups
+- **Mobile nuclear tender** and **nuclear-electric (containerized)** params have
+  little/no commercial precedent — all engineering estimates. Highest-leverage,
+  most uncertain: `mob_tender_*` (reactor/hull/O&M cost, parasitic), `mob_cable_v_cap_kn`,
+  `mob_charge_power_kw`, `mob_rendezvous_spacing_h`, `nucc_unit_kw`, `nucc_usd_per_kw`.
+  Add them (and `ironair_pack_wh_per_kg`) to the tornado sensitivity — it currently
+  sweeps only Li-ion params.
+- Mobile tender: rendezvous spacing is a fixed param; jointly optimizing it trades
+  ship battery size vs tender count. Battery cycle-life accounting under frequent
+  shallow top-ups is approximate. Single capped cruise speed (no separate free-speed
+  deadhead leg).
+- Nuclear-electric: `elec_prop_power_factor` (pod gains) applied to both; the
+  single-shaft integrated case may not earn the full pod benefit — consider a
+  separate factor. Containerized priced as owned (shorter life); a lease option
+  (`nucc_lease_usd_yr`) is an alternative.
+
+## Deferred — 3-axis platform refactor
+The big refactor (Platform × Drivetrain × Energy-source; bulk/chemical tonne·km
+platforms; one `levelized_cost(case,v,d)`) is documented in the plan file but NOT
+done. The mass + asymmetry work here on the flat model carries concepts the refactor
+will formalize on the platform axis. Plot also needs work: 7 trace labels crowd the
+right edge of `lcot_vs_dmax` — consider faceting or a real legend.
+
+
 ## Powertrain-specific efficiency (P-v curve)
 - `elec_prop_power_factor` (0.90) is a **conservative single lump** for the
   hull-form, anti-fouling-coating, larger-low-RPM-propeller/pod, wider-motor-
@@ -67,17 +91,23 @@ single 14% electric-vs-fossil O&M gap.
   lower drivetrain maintenance than combustion, à la EV vs ICE.
 - `v_min_kn` (9 kn): check the minimum sailing speed is justified (probably fine).
 
-## Cargo demand & load factor (trade-imbalance asymmetry)
-Carried cargo is `min(demand, capacity)` with
-`demand = load_factor x (gross_slots - overhead_slots)` (see `carried_teu` in
-`scripts/lcot.py`). Batteries displace paying cargo only after they use up the
-empty `(1 - load_factor)` slack.
+## Cargo demand & load factor
+Carried cargo (`carried_teu` in `scripts/lcot.py`) is the round-trip average of
+per-direction `min(volume-limited, mass-limited)`, where volume demand =
+`load_factor x (gross_slots - overhead)` and batteries displace cargo only after
+the usable empty slack.
 
-This assumes **symmetric leg fill** — every leg loaded to the same fraction.
-Real liner trades are directionally imbalanced (full headhaul, light backhaul),
-so a fixed battery footprint eats into cargo on the full leg before the
-*average* slack is gone. Honest treatment: `mean(min(demand_i, capacity))` over
-a headhaul/backhaul fill distribution — add a directional split parameter.
+**Done — asymmetric legs:** `load_factor_imbalance` (default 0 = symmetric) splits
+the mean LF into headhaul `LF·(1+imb)` and backhaul `LF·(1-imb)`; a fixed battery
+footprint eats the fuller leg first. (`mean(min(demand_dir, capacity))`.) Future:
+a richer fill distribution instead of a two-point head/back split.
+
+**Done — mass/deadweight constraint:** carried also limited by
+`(deadweight_cargo_t - battery_tonnes)/cargo_t_per_teu`; battery mass =
+`installed_kwh / pack_wh_per_kg`. This makes iron-air's weight bite (it's
+mass-limited at all ranges and infeasible long-haul). `ironair_pack_wh_per_kg`
+(30 Wh/kg) is a key uncertain input — sweep it. Power constraint already exists
+(`*_min_discharge_h`); volume = slots (`*_kwh_per_teu`).
 
 **Decided (per-ship demand):** demand is `load_factor x (gross - that ship's
 overhead)`, not a single freight task shared across powertrains. Load factor is
