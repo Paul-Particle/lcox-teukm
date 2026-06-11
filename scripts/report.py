@@ -1,5 +1,5 @@
 """
-report.py — human-facing output: console tables and the LCOT-vs-D_max plot.
+report.py — human-facing output: console tables and plots.
 
 All number formatting and unit-for-display conversions live here so the model
 modules stay free of presentation concerns.
@@ -7,6 +7,7 @@ modules stay free of presentation concerns.
 
 import os
 from dataclasses import replace
+from pathlib import Path
 
 import numpy as np
 
@@ -14,7 +15,11 @@ from params import Params
 from lcot import lcot_fossil, lcot_elec
 from analysis import optimize_speed, crossover_dmax
 from units import CENTS_PER_USD, PERCENT_PER_FRACTION, KWH_PER_MWH, KG_PER_TONNE
-from style import fca_template, fca_blue, blue_black, dark_gray, highlight_blue, fca_logo
+from style import (
+    fca_template, fca_blue, blue_black, dark_gray, highlight_blue,
+    sand_yellow, green, very_dark_gray, light_blue, gray,
+    header_geometry, apply_dot, apply_logo, add_trace_label, inject_titillium_font,
+)
 
 # Sample hop lengths (km) shown in the per-ship breakdown table.
 SAMPLE_HOPS_KM = [200, 500, 1000, 2000, 4000]
@@ -87,116 +92,405 @@ def print_sensitivity(p: Params, d_grid) -> None:
         print(row)
 
 
-def plot_lcot_vs_dmax(p: Params, out_dir: str) -> list:
-    """Plot base-case LCOT vs D_max for both ships with Plotly; write an
-    interactive HTML and a static PNG, and return the list of saved paths
-    (empty if Plotly is unavailable).
+# ---- Shared save helper ----------------------------------------------------
 
-    The electric curve is clipped at 50 c/TEU·km so the long-haul blow-up does
-    not flatten the region where the two ships are actually competitive (the
-    viewer can still zoom freely)."""
+def _save_html_png(fig, out_dir: str, stem: str) -> list:
+    """Write fig as font-injected HTML and static PNG. Returns saved paths."""
+    os.makedirs(out_dir, exist_ok=True)
+    saved = []
+    html_path = os.path.join(out_dir, f"{stem}.html")
+    html = inject_titillium_font(fig.to_html(include_plotlyjs=True))
+    Path(html_path).write_text(html, encoding="utf-8")
+    saved.append(html_path)
+    png_path = os.path.join(out_dir, f"{stem}.png")
+    try:
+        fig.write_image(png_path, scale=2)
+        saved.append(png_path)
+    except Exception as e:
+        print(f"PNG export skipped ({stem}):", e)
+    return saved
+
+
+# ---- Plots -----------------------------------------------------------------
+
+def plot_lcot_vs_dmax(p: Params, out_dir: str) -> list:
+    """LCOT vs D_max for both ships. Interactive HTML + static PNG.
+
+    The electric curve is clipped at 50 c/TEU·km so the long-haul blow-up
+    does not flatten the region of interest; the viewer can still zoom freely.
+    Hover shows the optimum speed at each D_max point.
+    """
     try:
         import plotly.graph_objects as go
     except Exception as e:
         print("plot skipped:", e)
         return []
 
-    # Log-spaced grid + log x-axis: the electric ship is cheaper only at short
-    # hops (crossover ~120 km), so a linear 100-6000 km axis crushes that whole
-    # advantage region into a sliver. Geometric spacing from 30 km gives the
-    # short-haul regime the room it needs to be read.
     dd = np.geomspace(30, 6000, 160)
-    lf = [optimize_speed(lcot_fossil, p, d)["lcot"] * CENTS_PER_USD for d in dd]
-    le = [min(optimize_speed(lcot_elec, p, d)["lcot"] * CENTS_PER_USD, 50) for d in dd]
+    results_f = [optimize_speed(lcot_fossil, p, d) for d in dd]
+    results_e = [optimize_speed(lcot_elec,   p, d) for d in dd]
+    lf = [r["lcot"] * CENTS_PER_USD for r in results_f]
+    le = [min(r["lcot"] * CENTS_PER_USD, 50) for r in results_e]
+    vf = [r["v"] for r in results_f]
+    ve = [r["v"] for r in results_e]
 
-    hover = "D_max %{x:.0f} km<br>LCOT %{y:.3f} c/TEU·km<extra>%{fullData.name}</extra>"
+    hover = ("D_max %{x:.0f} km<br>LCOT %{y:.3f} c/TEU·km"
+             "<br>v_opt %{customdata:.1f} kn"
+             "<extra>%{fullData.name}</extra>")
+
     fig = go.Figure()
     fig.add_trace(go.Scatter(x=dd, y=lf, mode="lines", name="fossil",
-                             line=dict(color=blue_black, width=2.2), hovertemplate=hover))
+                             customdata=vf,
+                             line=dict(color=blue_black, width=2.2),
+                             hovertemplate=hover))
     fig.add_trace(go.Scatter(x=dd, y=le, mode="lines", name="battery-electric",
-                             line=dict(color=fca_blue, width=2.2), hovertemplate=hover))
-    # Header geometry: the dot, subtitle, and footnote share a left edge aligned
-    # with the y tick labels (~30px in from margin_l); the title sits right of the dot.
+                             customdata=ve,
+                             line=dict(color=fca_blue, width=2.2),
+                             hovertemplate=hover))
+
     fig_width, fig_height = 820, 520
     margin_l = fca_template.layout.margin.l
     margin_r = fca_template.layout.margin.r
     margin_t = fca_template.layout.margin.t
-    margin_b = 140  # room for footnote + logo
-    title_size = fca_template.layout.title.font.size
-    header_left_px = margin_l - 30
-    header_x_shift = header_left_px - margin_l   # plot-left -> header-left, in px
-    dot_d = 0.25 * title_size                    # leading-dot diameter
-    title_x = (header_left_px + dot_d + title_size / 4) / fig_width
+    margin_b = 140
+    geom = header_geometry(fig_width, fig_height, margin_l, margin_r, margin_t)
+
     fig.update_layout(
         template=fca_template,
-        title=dict(text="Levelized cost of transport vs inter-swap distance", x=title_x),
+        title=dict(text="Levelized cost of transport vs inter-swap distance",
+                   x=geom["title_x"]),
         xaxis_title="D_max  —  longest hop between swap ports (km, log scale)",
         hovermode="x unified",
-        legend=dict(yanchor="top", y=0.98, xanchor="left", x=0.02),
+        showlegend=False,
         margin=dict(b=margin_b),
         width=fig_width, height=fig_height,
     )
-    xticks = [30, 50, 100, 200, 500, 1000, 2000, 5000]  # explicit 1/2/5 log ticks
+    xticks = [30, 50, 100, 200, 500, 1000, 2000, 5000]
     fig.update_xaxes(type="log", tickmode="array", tickvals=xticks,
                      ticktext=[f"{v}" for v in xticks])
     fig.update_yaxes(range=[0, max(max(lf), 8) * 1.3])
 
-    # Subtitle (the y-axis metric), left-aligned with the dot, above the plot.
     fig.add_annotation(
         text="US cents per TEU·km", xref="paper", yref="paper",
-        x=0, xanchor="left", xshift=header_x_shift,
+        x=0, xanchor="left", xshift=geom["header_x_shift"],
         y=1, yanchor="bottom", yshift=12, showarrow=False,
         font=dict(family="Titillium Web", size=18, color=blue_black),
     )
-    # Scenario footnote, bottom-left. &#36; is a literal "$" (avoids MathJax).
     fig.add_annotation(
         text=(f"Base case: battery &#36;{p.battery_usd_per_kwh:.0f}/kWh, "
               f"electricity &#36;{p.elec_usd_per_kwh}/kWh"),
-        xref="paper", yref="paper", x=0, xanchor="left", xshift=header_x_shift,
+        xref="paper", yref="paper", x=0, xanchor="left",
+        xshift=geom["header_x_shift"],
         y=0, yanchor="top", yshift=-98, showarrow=False,
         font=dict(family="Titillium Web", size=12, color=dark_gray),
     )
 
-    # Leading dot, centred on the title line, left edge on the header edge.
-    title_mid_px = (1 - fca_template.layout.title.y) * fig_height + 0.5 * title_size
-    dot_up = margin_t - title_mid_px
-    fig.add_shape(
-        type="circle", xref="paper", yref="paper",
-        xsizemode="pixel", ysizemode="pixel", xanchor=0, yanchor=1,
-        x0=header_x_shift, x1=header_x_shift + dot_d,
-        y0=dot_up - dot_d / 2, y1=dot_up + dot_d / 2,
-        fillcolor=highlight_blue, line_width=0, layer="above",
+    apply_dot(fig, geom)
+    add_trace_label(fig, "fossil",           blue_black, x=0.97, y=0.88)
+    add_trace_label(fig, "battery-electric", fca_blue,   x=0.97, y=0.77)
+    apply_logo(fig, fig_width, fig_height, margin_l, margin_r, margin_t, margin_b)
+
+    return _save_html_png(fig, out_dir, "lcot_vs_dmax")
+
+
+def plot_speed_vs_dmax(p: Params, out_dir: str) -> list:
+    """Optimum speed vs D_max for both ships.
+
+    Shows how each powertrain's economically optimal speed varies with the
+    inter-swap distance. The electric ship slows down at longer ranges to
+    reduce battery size and recover cargo capacity.
+    """
+    try:
+        import plotly.graph_objects as go
+    except Exception as e:
+        print("plot skipped:", e)
+        return []
+
+    dd = np.geomspace(30, 6000, 160)
+    vf = [optimize_speed(lcot_fossil, p, d)["v"] for d in dd]
+    ve = [optimize_speed(lcot_elec,   p, d)["v"] for d in dd]
+
+    hover = "D_max %{x:.0f} km  →  v_opt %{y:.1f} kn<extra>%{fullData.name}</extra>"
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=dd, y=vf, mode="lines", name="fossil",
+                             line=dict(color=blue_black, width=2.2),
+                             hovertemplate=hover))
+    fig.add_trace(go.Scatter(x=dd, y=ve, mode="lines", name="battery-electric",
+                             line=dict(color=fca_blue, width=2.2),
+                             hovertemplate=hover))
+
+    fig_width, fig_height = 820, 520
+    margin_l = fca_template.layout.margin.l
+    margin_r = fca_template.layout.margin.r
+    margin_t = fca_template.layout.margin.t
+    margin_b = 140
+    geom = header_geometry(fig_width, fig_height, margin_l, margin_r, margin_t)
+
+    fig.update_layout(
+        template=fca_template,
+        title=dict(text="Optimal speed vs inter-swap distance", x=geom["title_x"]),
+        xaxis_title="D_max  —  longest hop between swap ports (km, log scale)",
+        hovermode="x unified",
+        showlegend=False,
+        margin=dict(b=margin_b),
+        width=fig_width, height=fig_height,
+    )
+    xticks = [30, 50, 100, 200, 500, 1000, 2000, 5000]
+    fig.update_xaxes(type="log", tickmode="array", tickvals=xticks,
+                     ticktext=[f"{v}" for v in xticks])
+    fig.update_yaxes(title_text="knots",
+                     range=[p.v_min_kn * 0.9, p.v_max_kn * 1.1])
+
+    fig.add_annotation(
+        text="knots", xref="paper", yref="paper",
+        x=0, xanchor="left", xshift=geom["header_x_shift"],
+        y=1, yanchor="bottom", yshift=12, showarrow=False,
+        font=dict(family="Titillium Web", size=18, color=blue_black),
+    )
+    fig.add_annotation(
+        text=(f"Base case: battery &#36;{p.battery_usd_per_kwh:.0f}/kWh, "
+              f"electricity &#36;{p.elec_usd_per_kwh}/kWh"),
+        xref="paper", yref="paper", x=0, xanchor="left",
+        xshift=geom["header_x_shift"],
+        y=0, yanchor="top", yshift=-98, showarrow=False,
+        font=dict(family="Titillium Web", size=12, color=dark_gray),
     )
 
-    # Brand logo, bottom-right, mirroring the footnote (gap from the edge so
-    # viewers that trim a few px don't clip it).
-    logo = fca_logo()
-    if logo:
-        plot_w_px = fig_width - margin_l - margin_r
-        plot_h_px = fig_height - margin_t - margin_b
-        logo_h_px = 22
-        fig.add_layout_image(
-            source=logo["source"], xref="paper", yref="paper",
-            xanchor="right", yanchor="bottom",
-            x=1, y=-(margin_b - 28) / plot_h_px,
-            sizex=logo_h_px * logo["aspect"] / plot_w_px,
-            sizey=logo_h_px / plot_h_px, sizing="contain", layer="above",
-        )
+    apply_dot(fig, geom)
+    add_trace_label(fig, "fossil",           blue_black, x=0.97, y=0.92)
+    add_trace_label(fig, "battery-electric", fca_blue,   x=0.97, y=0.81)
+    apply_logo(fig, fig_width, fig_height, margin_l, margin_r, margin_t, margin_b)
 
-    os.makedirs(out_dir, exist_ok=True)
-    saved = []
+    return _save_html_png(fig, out_dir, "speed_vs_dmax")
 
-    # Interactive HTML. include_plotlyjs=True -> self-contained, renders offline.
-    html_path = os.path.join(out_dir, "lcot_vs_dmax.html")
-    fig.write_html(html_path, include_plotlyjs=True)
-    saved.append(html_path)
 
-    # Static PNG for slides/papers (requires the kaleido engine).
-    png_path = os.path.join(out_dir, "lcot_vs_dmax.png")
+def plot_lcot_tornado(p: Params, d_km: float, out_dir: str) -> list:
+    """Sensitivity tornado: how much each parameter shifts LCOT for the electric
+    ship at a fixed D_max. Bars extend from Δ(low param) to Δ(high param)
+    relative to the base case, sorted by total swing (most influential on top).
+
+    The low-value bar is blue (often favourable) and the high-value bar is sand
+    (often unfavourable); both start from 0 on a shared x axis.
+    """
     try:
-        fig.write_image(png_path, scale=2)
-        saved.append(png_path)
+        import plotly.graph_objects as go
     except Exception as e:
-        print("PNG export skipped (kaleido unavailable?):", e)
+        print("plot skipped:", e)
+        return []
 
-    return saved
+    base_lcot = optimize_speed(lcot_elec, p, d_km)["lcot"] * CENTS_PER_USD
+
+    # (label, field_name, low_value, high_value)
+    sens = [
+        ("battery cost ($/kWh)",          "battery_usd_per_kwh",    80,    350),
+        ("electricity price ($/kWh)",     "elec_usd_per_kwh",       0.03,  0.15),
+        ("battery energy density (kWh/TEU)", "battery_kwh_per_teu", 2000,  5000),
+        ("discount rate",                 "discount_rate",           0.05,  0.12),
+        ("load factor",                   "load_factor",             0.65,  0.95),
+        ("hull CAPEX ($M)",               "hull_capex_usd",          30e6,  60e6),
+        ("O&M electric ($/yr)",           "om_elec_usd_yr",          2e6,   4e6),
+        ("battery cycle life",            "battery_cycle_life",      2000,  6000),
+    ]
+
+    rows = []
+    for label, field, lo, hi in sens:
+        dl = optimize_speed(lcot_elec, replace(p, **{field: lo}), d_km)["lcot"] * CENTS_PER_USD - base_lcot
+        dh = optimize_speed(lcot_elec, replace(p, **{field: hi}), d_km)["lcot"] * CENTS_PER_USD - base_lcot
+        rows.append((label, dl, dh, abs(dh - dl)))
+
+    rows.sort(key=lambda r: r[3], reverse=True)
+    labels  = [r[0] for r in rows]
+    d_lows  = [r[1] for r in rows]
+    d_highs = [r[2] for r in rows]
+
+    fig = go.Figure()
+    fig.add_trace(go.Bar(
+        name="low param", y=labels, x=d_lows, orientation="h",
+        marker_color=fca_blue, opacity=0.9,
+        hovertemplate="%{y}<br>Δ LCOT %{x:+.3f} c/TEU·km  (low value)<extra></extra>",
+    ))
+    fig.add_trace(go.Bar(
+        name="high param", y=labels, x=d_highs, orientation="h",
+        marker_color=sand_yellow, opacity=0.9,
+        hovertemplate="%{y}<br>Δ LCOT %{x:+.3f} c/TEU·km  (high value)<extra></extra>",
+    ))
+
+    fig_width, fig_height = 820, 560
+    margin_l_val = 260
+    margin_r_val = 60
+    margin_t_val = 96
+    margin_b = 120
+    geom = header_geometry(fig_width, fig_height,
+                           margin_l_val, margin_r_val, margin_t_val)
+
+    fig.update_layout(
+        template=fca_template,
+        title=dict(
+            text=f"LCOT sensitivity — battery-electric at D_max {d_km:.0f} km",
+            x=geom["title_x"],
+        ),
+        barmode="overlay",
+        showlegend=False,
+        hovermode="y unified",
+        margin=dict(l=margin_l_val, r=margin_r_val, t=margin_t_val, b=margin_b),
+        width=fig_width, height=fig_height,
+    )
+    fig.update_xaxes(
+        title_text="Δ LCOT  (c/TEU·km vs base case)",
+        zeroline=True, zerolinecolor=blue_black, zerolinewidth=1.5,
+    )
+    fig.update_yaxes(showgrid=False)
+
+    fig.add_annotation(
+        text="US cents per TEU·km  vs base case", xref="paper", yref="paper",
+        x=0, xanchor="left", xshift=geom["header_x_shift"],
+        y=1, yanchor="bottom", yshift=12, showarrow=False,
+        font=dict(family="Titillium Web", size=16, color=blue_black),
+    )
+    fig.add_annotation(
+        text=(f"Base case: battery &#36;{p.battery_usd_per_kwh:.0f}/kWh, "
+              f"electricity &#36;{p.elec_usd_per_kwh}/kWh, "
+              f"D_max {d_km:.0f} km"),
+        xref="paper", yref="paper", x=0, xanchor="left",
+        xshift=geom["header_x_shift"],
+        y=0, yanchor="top", yshift=-80, showarrow=False,
+        font=dict(family="Titillium Web", size=11, color=dark_gray),
+    )
+
+    apply_dot(fig, geom)
+    add_trace_label(fig, "low param value",  fca_blue,    x=0.97, y=0.96)
+    add_trace_label(fig, "high param value", sand_yellow, x=0.97, y=0.87)
+    apply_logo(fig, fig_width, fig_height,
+               margin_l_val, margin_r_val, margin_t_val, margin_b)
+
+    return _save_html_png(fig, out_dir, "lcot_tornado")
+
+
+def plot_teu_tech_tradeoff(p: Params, d_km: float, out_dir: str) -> list:
+    """Bar chart comparing LCOT and cargo TEU for multiple technology cases.
+
+    Left panel: LCOT at D_max = d_km. Right panel: cargo TEU capacity.
+    Add new cases to the CASES list; use computed=False for placeholder
+    entries that have no model yet (lcot_c and teu_c are shown as-is).
+
+    Intended to grow: add further battery chemistries, nuclear SMR, hydrogen
+    fuel cell, wind-assisted, etc. as those models are developed.
+    """
+    try:
+        import plotly.graph_objects as go
+        from plotly.subplots import make_subplots
+    except Exception as e:
+        print("plot skipped:", e)
+        return []
+
+    # ---- Case definitions --------------------------------------------------
+    # Each entry: label, bar color, compute function (or None), Params override,
+    #             lcot_c (override, c/TEU·km), teu_c (override, TEU)
+    # When computed=True: lcot_c and teu_c are ignored; the model is run.
+    # When computed=False: provide lcot_c/teu_c directly (rough estimates OK).
+    CASES = [
+        dict(label="Fossil\n(baseline)", color=blue_black, computed=True,
+             fn=lcot_fossil, params=p,
+             lcot_c=None, teu_c=None),
+        dict(label="Battery\n250 $/kWh", color=fca_blue, computed=True,
+             fn=lcot_elec, params=replace(p, battery_usd_per_kwh=250),
+             lcot_c=None, teu_c=None),
+        dict(label="Battery\n150 $/kWh", color=highlight_blue, computed=True,
+             fn=lcot_elec, params=replace(p, battery_usd_per_kwh=150),
+             lcot_c=None, teu_c=None),
+        dict(label="Battery\n80 $/kWh", color="#52B5D9", computed=True,
+             fn=lcot_elec, params=replace(p, battery_usd_per_kwh=80),
+             lcot_c=None, teu_c=None),
+        dict(label="Battery 250 $/kWh\n5 MWh/TEU", color="#70D2F0", computed=True,
+             fn=lcot_elec,
+             params=replace(p, battery_usd_per_kwh=250, battery_kwh_per_teu=5000),
+             lcot_c=None, teu_c=None),
+        # Placeholders — replace with model results when available
+        dict(label="Nuclear SMR\n(placeholder)", color=green, computed=False,
+             fn=None, params=None,
+             lcot_c=2.8, teu_c=2700),
+        dict(label="H₂ fuel cell\n(placeholder)", color=very_dark_gray, computed=False,
+             fn=None, params=None,
+             lcot_c=None, teu_c=None),
+    ]
+
+    case_labels, lcots, teus, colors = [], [], [], []
+    for c in CASES:
+        case_labels.append(c["label"])
+        colors.append(c["color"])
+        if c["computed"]:
+            r = optimize_speed(c["fn"], c["params"], d_km)
+            lcots.append(r["lcot"] * CENTS_PER_USD)
+            teus.append(max(r["cargo_cap"], 0))
+        else:
+            lcots.append(c["lcot_c"])
+            teus.append(c["teu_c"])
+
+    fig = make_subplots(
+        rows=1, cols=2,
+        subplot_titles=["LCOT (c/TEU·km)", f"Cargo TEU at D_max {d_km:.0f} km"],
+        horizontal_spacing=0.12,
+    )
+
+    bar_kw = dict(showlegend=False, marker_line_width=0)
+
+    # LCOT bars — None values plotted as zero with annotation "TBD"
+    lcot_plot = [v if v is not None else 0.0 for v in lcots]
+    fig.add_trace(go.Bar(
+        x=case_labels, y=lcot_plot,
+        marker_color=colors,
+        text=[f"{v:.2f}" if v is not None else "TBD" for v in lcots],
+        textposition="outside",
+        hovertemplate="%{x}<br>LCOT %{y:.3f} c/TEU·km<extra></extra>",
+        **bar_kw,
+    ), row=1, col=1)
+
+    # TEU bars
+    teu_plot = [v if v is not None else 0.0 for v in teus]
+    fig.add_trace(go.Bar(
+        x=case_labels, y=teu_plot,
+        marker_color=colors,
+        text=[f"{v:.0f}" if v is not None else "TBD" for v in teus],
+        textposition="outside",
+        hovertemplate="%{x}<br>%{y:.0f} cargo TEU<extra></extra>",
+        **bar_kw,
+    ), row=1, col=2)
+
+    fig_width, fig_height = 1040, 560
+    margin_l = fca_template.layout.margin.l
+    margin_r = fca_template.layout.margin.r
+    margin_t = fca_template.layout.margin.t
+    margin_b = 80
+    geom = header_geometry(fig_width, fig_height, margin_l, margin_r, margin_t)
+
+    fig.update_layout(
+        template=fca_template,
+        title=dict(text="Technology & TEU tradeoffs — selected powertrain cases",
+                   x=geom["title_x"]),
+        showlegend=False,
+        margin=dict(b=margin_b),
+        width=fig_width, height=fig_height,
+    )
+    fig.update_yaxes(title_text="c/TEU·km", row=1, col=1)
+    fig.update_yaxes(title_text="TEU", row=1, col=2)
+
+    # Push y-axis upper limit so outside-bar text is not clipped
+    lcot_max = max((v for v in lcots if v is not None), default=1.0)
+    teu_max  = max((v for v in teus  if v is not None), default=100.0)
+    fig.update_yaxes(range=[0, lcot_max * 1.35], row=1, col=1)
+    fig.update_yaxes(range=[0, teu_max  * 1.25], row=1, col=2)
+
+    fig.add_annotation(
+        text=(f"Base case: battery &#36;{p.battery_usd_per_kwh:.0f}/kWh, "
+              f"electricity &#36;{p.elec_usd_per_kwh}/kWh, "
+              f"D_max {d_km:.0f} km — placeholders are rough estimates"),
+        xref="paper", yref="paper", x=0, xanchor="left",
+        xshift=geom["header_x_shift"],
+        y=0, yanchor="top", yshift=-48, showarrow=False,
+        font=dict(family="Titillium Web", size=11, color=dark_gray),
+    )
+
+    apply_dot(fig, geom)
+    apply_logo(fig, fig_width, fig_height, margin_l, margin_r, margin_t, margin_b)
+
+    return _save_html_png(fig, out_dir, "teu_tech_tradeoff")
