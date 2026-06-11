@@ -77,7 +77,10 @@ class BatterySpec:
 
 
 def _lcot_battery(p: Params, v_kn: float, d_km: float, spec: BatterySpec) -> dict:
-    E_use = leg_useful_energy_kwh(p, v_kn, d_km)
+    # Electric drivetrain enables hull/propeller efficiency gains; scales the
+    # propulsion P-v curve, so it cuts both leg energy and the installed motor.
+    pf = p.elec_prop_power_factor
+    E_use = leg_useful_energy_kwh(p, v_kn, d_km, pf)
     cyc = cycles_per_year(p, v_kn, d_km)
 
     pack_draw_leg = E_use / p.eta_elec
@@ -86,7 +89,7 @@ def _lcot_battery(p: Params, v_kn: float, d_km: float, spec: BatterySpec) -> dic
     # the steady cruise draw at v (not v_design_max — the ship can install a
     # big motor, but the pack physically cannot supply it; the speed optimizer
     # trades against this since P ~ v^3).
-    pack_power_kw = (prop_power_kw(p, v_kn) + p.p_hotel_kw) / p.eta_elec
+    pack_power_kw = (prop_power_kw(p, v_kn, pf) + p.p_hotel_kw) / p.eta_elec
     installed_kwh = max(installed_energy, pack_power_kw * spec.min_discharge_h)
     battery_slots = installed_kwh / spec.kwh_per_teu
 
@@ -103,7 +106,7 @@ def _lcot_battery(p: Params, v_kn: float, d_km: float, spec: BatterySpec) -> dic
     # Cycle wear counted per leg, as for Li-ion before; slightly conservative
     # when the pack is power-oversized and a leg is only a partial cycle.
     battery_life = min(spec.calendar_life_yr, spec.cycle_life / cyc)
-    motor_capex = p.motor_usd_per_kw * prop_power_kw(p, p.v_design_max_kn)
+    motor_capex = p.motor_usd_per_kw * prop_power_kw(p, p.v_design_max_kn, pf)
     battery_capex = spec.usd_per_kwh * installed_kwh
     annual_fixed = (p.hull_capex_usd * crf(p.discount_rate, p.hull_life_yr)
                     + motor_capex * crf(p.discount_rate, p.motor_life_yr)

@@ -54,6 +54,10 @@ class Params:
     motor_life_yr: float = 25.0
     om_elec_usd_yr: float = 3.0e6      # fewer moving parts, no fuel system
     elec_fixed_overhead_slots: float = 30.0  # compact motors only (no big engine/tanks)
+    elec_prop_power_factor: float = 0.90   # hull/propeller/pod/coating/routing gains the
+                                           # electric drivetrain enables; scales propulsion
+                                           # power (shared by Li-ion + iron-air). Conservative
+                                           # 10% lump pending itemized calc — see TODO.md.
     battery_usd_per_kwh: float = 250.0     # installed, marinized system level
     battery_kwh_per_teu: float = 3000.0    # energy per battery container (3 MWh/TEU)
     battery_pack_wh_per_kg: float = 160.0  # for the deadweight sanity check

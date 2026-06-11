@@ -44,6 +44,8 @@ motor_usd_per_kw: 120.0
 motor_life_yr: 25.0
 om_elec_usd_yr: 3.0e+6       # fewer moving parts, no fuel system
 elec_fixed_overhead_slots: 30.0  # compact motors only (no big engine/tanks)
+elec_prop_power_factor: 0.90 # hull/prop/pod/coating/routing gains (Li-ion + iron-air);
+                             # conservative 10% lump, itemize later (see TODO.md)
 battery_usd_per_kwh: 250.0   # installed, marinized system level
 battery_kwh_per_teu: 3000.0  # energy per battery container (3 MWh/TEU)
 battery_pack_wh_per_kg: 160.0  # for the deadweight sanity check
