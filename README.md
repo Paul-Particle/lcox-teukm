@@ -74,7 +74,7 @@ The script reports:
 │   ├── analysis.py       # speed optimization + crossover distance
 │   ├── report.py         # console tables
 │   ├── plots.py          # Plotly figures
-│   └── regression_check.py  # golden-output regression test (vs golden_output.txt)
+│   └── smoke_check.py    # lightweight sanity check (renders + finite/positive LCOT per case)
 ├── results/              # generated plots (gitignored)
 ├── pyproject.toml        # project + dependencies (numpy, plotly, pyyaml)
 ├── uv.lock               # pinned dependency versions
