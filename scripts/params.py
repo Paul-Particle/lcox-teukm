@@ -159,12 +159,14 @@ class Params:
     # TODO: nucc_* (modular marine reactor) cost/size are speculative — sweep them;
     # the integrated single-shaft case may not earn the full pod benefit of the
     # electric propulsion-factor stack (consider a separate factor).
-    # (a) containerized modular reactor units (AMPERA-class) with a per-unit power cap:
-    nucc_unit_kw: float = 30000.0          # net electric per AMPERA module (two-core 30 MWe)
+    # (a) containerized modular reactor (AMPERA-class). Sized CONTINUOUSLY to the
+    # ship's design power for now (no integer-module discretization).
     nucc_usd_per_kw: float = 5000.0        # factory-built modular, below integrated
     nucc_life_yr: float = 15.0             # swappable/leased modules refreshed sooner
-    nucc_overhead_slots_per_unit: float = 36.0  # AMPERA: two 40ft cores (4 TEU) + shielding on all
-                                                # sides -> 36 TEU footprint; scales with unit count
+    nucc_overhead_teu_per_mwe: float = 1.2  # reactor slot footprint per MWe installed, scaled
+                                            # LINEARLY with reactor power. AMPERA anchor: 36 TEU /
+                                            # 30 MWe (two 40ft cores + shielding all sides). TODO:
+                                            # shielding is a surface effect, so really sub-linear.
     nucc_om_other_usd_yr: float = 5.3e6          # NON-crew residual (crew = crew_count_nuclear x crew_cost)
     nucc_fuel_usd_per_kwh_th: float = 0.012     # HALEU, same cycle as direct-drive
     # (a2) leased containerized reactor (Reactor-as-a-Service): same modules as (a),

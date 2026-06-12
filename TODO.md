@@ -7,8 +7,8 @@ refactor is sketched in the appendix.
 - The new-case params have little/no commercial precedent — all engineering
   estimates. Highest-leverage, most uncertain: `mob_tender_*` (reactor/hull/O&M
   cost, parasitic), `mob_cable_v_cap_kn`, `coastal_untethered_distance_nm`,
-  `storm_survival_duration_h`, `cable_efficiency`, `nucc_unit_kw`,
-  `nucc_usd_per_kw`, `nucc_pool_idle_h`, `nucc_pool_availability`. All are swept
+  `storm_survival_duration_h`, `cable_efficiency`, `nucc_usd_per_kw`,
+  `nucc_overhead_teu_per_mwe`, `nucc_pool_idle_h`, `nucc_pool_availability`. All are swept
   in the per-case tornados (`plot_tornados`); treat the new-case absolute LCOTs
   as order-of-magnitude until grounded in real data.
 
