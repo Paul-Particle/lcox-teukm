@@ -29,9 +29,13 @@
   nuclear-specialist crew into the lease isn't done (our `crew_count_nuclear` is the
   ship's whole complement, not splittable). The 3-axis refactor folds lease-vs-owned
   into an `EnergySource` pricing strategy.
-- Containerized reactor power density: revisit `nucc_overhead_slots_per_unit` (45
-  slots / 15 MWe module incl. shielding) against AMPERA-class footprints — may be
-  pessimistic (per `swappable_reactor_concept.md` §3).
+- **Containerized reactor power density — DONE (re-based on AMPERA).** A module is
+  now 30 MWe / 36 TEU (two 40ft cores = 4 TEU + shielding on all sides), vs the old
+  45 slots / 15 MWe. Side-effect worth noting: with ~32 MWe design demand just over
+  one 30 MWe unit, the ship needs 2 units (60 MWe, 72 TEU) — an 87% power overshoot.
+  That integer-granularity penalty makes containerized look worse and is very
+  sensitive to `v_design_max` (lower design speed -> demand under 30 MWe -> 1 unit ->
+  large LCOT drop). Reinforces the design-speed-sweep + marginal-reactor-CAPEX TODO.
 - **Battery mix for short journeys:** iron-air is power-limited (C/50) up to
   ~1500 km — its pack is sized by *sustained* cruise power, 2-6x the energy it
   uses, and a finite LFP/supercap buffer can't relieve that (cruise power is
