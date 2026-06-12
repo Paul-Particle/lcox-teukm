@@ -34,7 +34,8 @@ This file is the entry point only. The model is split across sibling modules:
                  by a mobile nuclear tender. carried_teu now applies volume, mass
                  and asymmetric-leg constraints.
     analysis.py  speed optimization + crossover distance
-    report.py    console tables + plotting
+    report.py    console tables (+ the CASES registry)
+    plots.py     Plotly figures (interactive HTML + static PNG)
 
 All energy in kWh, power in kW, time in hours, distance in km, speed in knots.
 """
@@ -46,8 +47,9 @@ import numpy as np
 from params import load_params
 from report import (print_base_header, print_energy_cost, print_breakdown,
                     print_crossover, print_sensitivity, print_hotel_sensitivity,
-                    print_mobile_fleet, plot_lcot_vs_dmax, plot_speed_vs_dmax,
-                    plot_tornados, plot_teu_tech_tradeoff)
+                    print_mobile_fleet)
+from plots import (plot_lcot_vs_dmax, plot_speed_vs_dmax, plot_tornados,
+                   plot_teu_tech_tradeoff)
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CONFIG_PATH = os.path.join(REPO_ROOT, "config.yaml")
