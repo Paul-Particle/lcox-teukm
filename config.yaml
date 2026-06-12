@@ -16,6 +16,7 @@ port_hours_per_call: 18.0    # fossil/nuclear-direct berthing + cargo (conventio
 port_hours_elec: 16.0        # electric-drive: pods/azimuth -> faster berthing
 availability: 0.95           # fraction of the year in service (fossil/nuclear)
 availability_elec: 0.97      # battery/electric-drive: lower drivetrain maintenance (EV-like)
+weather_reserve: 0.20        # route margin: extra leg energy for weather/headwinds (any battery ship)
 deadweight_t: 41000.0        # total deadweight for cargo + onboard energy carrier (t)
 cargo_t_per_teu: 12.0        # avg laden mass per TEU (full+empty mix)
 bunker_mass_t: 3000.0        # fossil onboard fuel mass — explicit deadweight it carries
@@ -74,8 +75,7 @@ batt_empty_usable_frac: 0.40 # fraction of empty slack batteries may use before 
 battery_usd_per_kwh: 250.0   # installed, marinized system level
 battery_kwh_per_teu: 3000.0  # energy per battery container (3 MWh/TEU)
 battery_pack_wh_per_kg: 130.0  # LFP system density (conservative) -> battery mass (deadweight)
-battery_dod: 0.90            # usable depth of discharge
-battery_reserve: 0.20        # weather/safety margin on top of leg energy
+battery_dod: 0.90            # routine usable depth of discharge (below it = emergency)
 battery_cycle_life: 4000.0
 battery_calendar_life_yr: 12.0
 battery_eta_charge: 0.97     # LFP grid -> stored
@@ -90,8 +90,7 @@ battery_min_discharge_h: 0.0 # rated discharge-duration floor; 0 = no power limi
 # iron-air is ~4x heavier per kWh than LFP at system level).
 ironair_usd_per_kwh: 30.0    # installed system; chemistry target <$20/kWh + marine premium
 ironair_kwh_per_teu: 1500.0  # ~half of LFP's 3 MWh/TEU (aqueous, lower density)
-ironair_dod: 0.95            # chemistry tolerates deep discharge; no published spec
-ironair_reserve: 0.20        # weather/safety margin on top of leg energy
+ironair_dod: 0.95            # routine usable depth (chemistry tolerates deep discharge)
 ironair_cycle_life: 10000.0  # electrode claims >10k; non-binding at 100-h rates
 ironair_calendar_life_yr: 20.0
 ironair_eta_charge: 0.55     # iron-air grid -> stored; charge-limited chemistry

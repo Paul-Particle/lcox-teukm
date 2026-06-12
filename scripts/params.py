@@ -30,6 +30,10 @@ class Params:
                                        # berthing (swap assumed ~neutral; see TODO.md)
     availability: float = 0.95         # fraction of the year in service (fossil/nuclear)
     availability_elec: float = 0.97    # battery/electric-drive: lower drivetrain maintenance (EV-like)
+    weather_reserve: float = 0.20      # ROUTE requirement: extra leg-energy margin for weather /
+                                       # headwinds / detours, carried by any battery ship (not a
+                                       # chemistry property). Routine; deep-discharge below dod is an
+                                       # emergency-only buffer, not for everyday bad weather.
     deadweight_t: float = 41000.0      # total deadweight for cargo + onboard energy carrier (t).
                                        # Each ship subtracts its OWN energy-carrier mass (fossil
                                        # bunkers, battery pack, nuclear ~0) -> cargo mass budget.
@@ -105,8 +109,7 @@ class Params:
     battery_kwh_per_teu: float = 3000.0    # energy per battery container (3 MWh/TEU)
     battery_pack_wh_per_kg: float = 130.0  # LFP system energy density (conservative; cells ~160-180,
                                            # system/pack lower) -> battery mass (deadweight)
-    battery_dod: float = 0.90              # usable depth of discharge
-    battery_reserve: float = 0.20          # weather/safety margin on top of leg energy
+    battery_dod: float = 0.90              # routine usable depth of discharge (below it = emergency)
     battery_cycle_life: float = 4000.0
     battery_calendar_life_yr: float = 12.0
     battery_eta_charge: float = 0.97       # LFP grid -> stored
@@ -119,8 +122,7 @@ class Params:
     # (carried_teu), so its weight bites: mass-limited short-haul, infeasible long.
     ironair_usd_per_kwh: float = 30.0      # installed system (chemistry target <$20/kWh)
     ironair_kwh_per_teu: float = 1500.0    # ~half LFP volumetric density per container
-    ironair_dod: float = 0.95              # chemistry tolerates deep discharge
-    ironair_reserve: float = 0.20          # weather/safety margin on top of leg energy
+    ironair_dod: float = 0.95              # routine usable depth (chemistry tolerates deep discharge)
     ironair_cycle_life: float = 10000.0    # non-binding at 100-h rates
     ironair_calendar_life_yr: float = 20.0
     ironair_eta_charge: float = 0.55       # iron-air grid -> stored; charge-limited chemistry

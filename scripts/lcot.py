@@ -102,7 +102,6 @@ class BatterySpec:
     usd_per_kwh: float
     kwh_per_teu: float
     dod: float
-    reserve: float
     cycle_life: float
     calendar_life_yr: float
     eta_charge: float        # grid -> stored energy
@@ -121,7 +120,9 @@ def _lcot_battery(p: Params, v_kn: float, d_km: float, spec: BatterySpec) -> dic
     cyc = cycles_per_year(p, v_kn, d_km, port_h=p.port_hours_elec, avail=p.availability_elec)
 
     pack_draw_leg = E_use / p.eta_elec
-    installed_energy = pack_draw_leg * (1 + spec.reserve) / spec.dod
+    # weather_reserve is a route margin (any battery ship); dod is the chemistry's
+    # routine usable fraction (deeper discharge is emergency-only).
+    installed_energy = pack_draw_leg * (1 + p.weather_reserve) / spec.dod
     # Duration-limited chemistries: the pack must also be big enough to feed
     # the steady cruise draw at v (not v_design_max — the ship can install a
     # big motor, but the pack physically cannot supply it; the speed optimizer
@@ -175,7 +176,7 @@ def _lcot_battery(p: Params, v_kn: float, d_km: float, spec: BatterySpec) -> dic
 def lcot_lfp(p: Params, v_kn: float, d_km: float) -> dict:
     return _lcot_battery(p, v_kn, d_km, BatterySpec(
         p.battery_usd_per_kwh, p.battery_kwh_per_teu, p.battery_dod,
-        p.battery_reserve, p.battery_cycle_life, p.battery_calendar_life_yr,
+        p.battery_cycle_life, p.battery_calendar_life_yr,
         p.battery_eta_charge, p.battery_eta_discharge,
         p.battery_min_discharge_h, p.battery_pack_wh_per_kg))
 
@@ -183,7 +184,7 @@ def lcot_lfp(p: Params, v_kn: float, d_km: float) -> dict:
 def lcot_ironair(p: Params, v_kn: float, d_km: float) -> dict:
     return _lcot_battery(p, v_kn, d_km, BatterySpec(
         p.ironair_usd_per_kwh, p.ironair_kwh_per_teu, p.ironair_dod,
-        p.ironair_reserve, p.ironair_cycle_life, p.ironair_calendar_life_yr,
+        p.ironair_cycle_life, p.ironair_calendar_life_yr,
         p.ironair_eta_charge, p.ironair_eta_discharge,
         p.ironair_min_discharge_h, p.ironair_pack_wh_per_kg))
 
