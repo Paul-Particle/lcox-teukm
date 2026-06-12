@@ -240,7 +240,10 @@ def plot_lcot_vs_dmax(p: Params, out_dir: str) -> list:
                    x=geom["title_x"]),
         xaxis_title="D_max  —  longest hop between swap ports (km, log scale)",
         hovermode="x unified",
-        showlegend=False,
+        showlegend=True,
+        legend=dict(x=0.985, xanchor="right", y=0.97, yanchor="top",
+                    bgcolor="rgba(255,255,255,0.65)", borderwidth=0,
+                    font=dict(family="Titillium Web", size=12)),
         margin=dict(b=margin_b),
         width=fig_width, height=fig_height,
     )
@@ -268,8 +271,6 @@ def plot_lcot_vs_dmax(p: Params, out_dir: str) -> list:
     )
 
     apply_dot(fig, geom)
-    for i, (_, label, _, color, _) in enumerate(CASES):
-        add_trace_label(fig, label, color, x=0.97, y=0.90 - 0.11 * i)
     apply_logo(fig, fig_width, fig_height, margin_l, margin_r, margin_t, margin_b)
 
     return _save_html_png(fig, out_dir, "lcot_vs_dmax")
@@ -311,7 +312,10 @@ def plot_speed_vs_dmax(p: Params, out_dir: str) -> list:
         title=dict(text="Optimal speed vs inter-swap distance", x=geom["title_x"]),
         xaxis_title="D_max  —  longest hop between swap ports (km, log scale)",
         hovermode="x unified",
-        showlegend=False,
+        showlegend=True,
+        legend=dict(x=0.985, xanchor="right", y=0.55, yanchor="middle",
+                    bgcolor="rgba(255,255,255,0.65)", borderwidth=0,
+                    font=dict(family="Titillium Web", size=12)),
         margin=dict(b=margin_b),
         width=fig_width, height=fig_height,
     )
@@ -339,48 +343,80 @@ def plot_speed_vs_dmax(p: Params, out_dir: str) -> list:
     )
 
     apply_dot(fig, geom)
-    # Labels sit in the empty band between the fossil (~12 kn) and the
-    # flat-out nuclear (22 kn) curves.
-    for i, (_, label, _, color, _) in enumerate(CASES):
-        add_trace_label(fig, label, color, x=0.97, y=0.78 - 0.11 * i)
     apply_logo(fig, fig_width, fig_height, margin_l, margin_r, margin_t, margin_b)
 
     return _save_html_png(fig, out_dir, "speed_vs_dmax")
 
 
-def plot_lcot_tornado(p: Params, d_km: float, out_dir: str) -> list:
-    """Sensitivity tornado: how much each parameter shifts LCOT for the electric
-    ship at a fixed D_max. Bars extend from Δ(low param) to Δ(high param)
-    relative to the base case, sorted by total swing (most influential on top).
+# (label, field, low, high) sweeps per case. The new cases' most uncertain
+# params dominate (mobile tender, iron-air mass density, modular reactor).
+SENS_LIION = [
+    ("battery cost ($/kWh)",             "battery_usd_per_kwh",    80,   350),
+    ("electricity price ($/kWh)",        "elec_usd_per_kwh",       0.03, 0.15),
+    ("battery energy density (kWh/TEU)", "battery_kwh_per_teu",    2000, 5000),
+    ("discount rate",                    "discount_rate",          0.05, 0.12),
+    ("load factor",                      "load_factor",            0.65, 0.95),
+    ("hull CAPEX ($M)",                  "hull_capex_usd",         30e6, 60e6),
+    ("O&M electric ($/yr)",              "om_elec_usd_yr",         2e6,  4e6),
+    ("battery cycle life",               "battery_cycle_life",     2000, 6000),
+]
+SENS_IRONAIR = [
+    ("pack density (Wh/kg)",          "ironair_pack_wh_per_kg", 20,   60),
+    ("iron-air cost ($/kWh)",         "ironair_usd_per_kwh",    20,   60),
+    ("energy density (kWh/TEU)",      "ironair_kwh_per_teu",    1000, 2500),
+    ("charge eff",                    "ironair_eta_charge",     0.45, 0.70),
+    ("discharge eff",                 "ironair_eta_discharge",  0.70, 0.90),
+    ("electricity price ($/kWh)",     "elec_usd_per_kwh",       0.03, 0.15),
+    ("discount rate",                 "discount_rate",          0.05, 0.12),
+    ("load factor",                   "load_factor",            0.65, 0.95),
+]
+SENS_MOBILE = [
+    ("tender reactor CAPEX ($/kW)",       "mob_tender_usd_per_kw",      4000, 20000),
+    ("tender idle / top-up (h)",          "mob_tender_idle_h",          2,    12),
+    ("EEZ rendezvous distance (nm)",      "mob_rendezvous_distance_nm", 12,   200),
+    ("tender reactor size (kWe)",         "mob_tender_reactor_kw",      15000,45000),
+    ("charge availability",               "mob_charge_availability",    0.70, 0.95),
+    ("tender O&M ($/yr)",                 "mob_tender_om_usd_yr",       2e6,  10e6),
+    ("tender hull CAPEX ($M)",            "mob_tender_capex_hull_usd",  30e6, 100e6),
+    ("rendezvous spacing (h)",            "mob_rendezvous_spacing_h",   6,    24),
+]
+SENS_NUCELEC = [
+    ("reactor CAPEX ($/kW)",              "nucc_usd_per_kw",             4000, 20000),
+    ("reactor module size (kWe)",         "nucc_unit_kw",                10000,20000),
+    ("reactor life (yr)",                 "nucc_life_yr",                10,   30),
+    ("overhead / module (TEU)",           "nucc_overhead_slots_per_unit",30,   70),
+    ("O&M ($/yr)",                        "nucc_om_usd_yr",              5e6,  12e6),
+    ("reactor->elec eff",                 "eta_nuclear",                 0.25, 0.40),
+    ("discount rate",                     "discount_rate",               0.05, 0.12),
+    ("load factor",                       "load_factor",                 0.65, 0.95),
+]
 
-    The low-value bar is blue (often favourable) and the high-value bar is sand
-    (often unfavourable); both start from 0 on a shared x axis.
-    """
+
+def plot_tornado(p: Params, d_km: float, out_dir: str, fn, sens,
+                 case_label: str, stem: str) -> list:
+    """Sensitivity tornado for one case `fn` at fixed D_max: each parameter's
+    LCOT swing from its low to high value, sorted by total swing (most
+    influential on top). Low-value bar blue, high-value sand; both from 0."""
     try:
         import plotly.graph_objects as go
     except Exception as e:
         print("plot skipped:", e)
         return []
 
-    base_lcot = optimize_speed(lcot_elec, p, d_km)["lcot"] * CENTS_PER_USD
+    base_lcot = optimize_speed(fn, p, d_km)["lcot"] * CENTS_PER_USD
+    if not np.isfinite(base_lcot):
+        print(f"tornado skipped ({stem}): base infeasible at {d_km:.0f} km")
+        return []
 
-    # (label, field_name, low_value, high_value)
-    sens = [
-        ("battery cost ($/kWh)",          "battery_usd_per_kwh",    80,    350),
-        ("electricity price ($/kWh)",     "elec_usd_per_kwh",       0.03,  0.15),
-        ("battery energy density (kWh/TEU)", "battery_kwh_per_teu", 2000,  5000),
-        ("discount rate",                 "discount_rate",           0.05,  0.12),
-        ("load factor",                   "load_factor",             0.65,  0.95),
-        ("hull CAPEX ($M)",               "hull_capex_usd",          30e6,  60e6),
-        ("O&M electric ($/yr)",           "om_elec_usd_yr",          2e6,   4e6),
-        ("battery cycle life",            "battery_cycle_life",      2000,  6000),
-    ]
+    def _delta(field, val):
+        r = optimize_speed(fn, replace(p, **{field: val}), d_km)["lcot"] * CENTS_PER_USD
+        return r - base_lcot if np.isfinite(r) else np.nan
 
     rows = []
     for label, field, lo, hi in sens:
-        dl = optimize_speed(lcot_elec, replace(p, **{field: lo}), d_km)["lcot"] * CENTS_PER_USD - base_lcot
-        dh = optimize_speed(lcot_elec, replace(p, **{field: hi}), d_km)["lcot"] * CENTS_PER_USD - base_lcot
-        rows.append((label, dl, dh, abs(dh - dl)))
+        dl, dh = _delta(field, lo), _delta(field, hi)
+        swing = abs(np.nan_to_num(dh) - np.nan_to_num(dl))
+        rows.append((label, dl, dh, swing))
 
     rows.sort(key=lambda r: r[3], reverse=True)
     labels  = [r[0] for r in rows]
@@ -409,10 +445,7 @@ def plot_lcot_tornado(p: Params, d_km: float, out_dir: str) -> list:
 
     fig.update_layout(
         template=fca_template,
-        title=dict(
-            text=f"LCOT sensitivity — battery-electric at D_max {d_km:.0f} km",
-            x=geom["title_x"],
-        ),
+        title=dict(text=f"LCOT sensitivity — {case_label}", x=geom["title_x"]),
         barmode="overlay",
         showlegend=False,
         hovermode="y unified",
@@ -432,9 +465,8 @@ def plot_lcot_tornado(p: Params, d_km: float, out_dir: str) -> list:
         font=dict(family="Titillium Web", size=16, color=blue_black),
     )
     fig.add_annotation(
-        text=(f"Base case: battery &#36;{p.battery_usd_per_kwh:.0f}/kWh, "
-              f"electricity &#36;{p.elec_usd_per_kwh}/kWh, "
-              f"D_max {d_km:.0f} km"),
+        text=(f"{case_label}, base case at D_max {d_km:.0f} km — "
+              f"bars span low→high parameter value"),
         xref="paper", yref="paper", x=0, xanchor="left",
         xshift=geom["header_x_shift"],
         y=0, yanchor="top", yshift=-80, showarrow=False,
@@ -447,7 +479,23 @@ def plot_lcot_tornado(p: Params, d_km: float, out_dir: str) -> list:
     apply_logo(fig, fig_width, fig_height,
                margin_l_val, margin_r_val, margin_t_val, margin_b)
 
-    return _save_html_png(fig, out_dir, "lcot_tornado")
+    return _save_html_png(fig, out_dir, stem)
+
+
+def plot_tornados(p: Params, d_km: float, out_dir: str) -> list:
+    """Tornados for the cases whose parameters carry the most uncertainty —
+    Li-ion plus the speculative new cases (iron-air mass, mobile tender, modular
+    reactor). One PNG/HTML each."""
+    saved = []
+    for fn, sens, label, stem in [
+        (lcot_elec,    SENS_LIION,   "battery-electric (Li-ion)",        "tornado_liion"),
+        (lcot_ironair, SENS_IRONAIR, "battery-electric (iron-air)",      "tornado_ironair"),
+        (lcot_mobile,  SENS_MOBILE,  "mobile-reactor charge",            "tornado_mobile"),
+        (lcot_nuclear_elec_containerized, SENS_NUCELEC,
+         "nuclear-electric (containerized)", "tornado_nucelec"),
+    ]:
+        saved += plot_tornado(p, d_km, out_dir, fn, sens, label, stem)
+    return saved
 
 
 def plot_teu_tech_tradeoff(p: Params, d_km: float, out_dir: str) -> list:

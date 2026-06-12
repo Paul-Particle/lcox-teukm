@@ -471,6 +471,11 @@ def inject_titillium_font(html_str: str) -> str:
 # x/y are paper coords (0–1). xanchor="right" pins the right edge of the box.
 # Vertical spacing: ~0.11 per label at font_size=14 with fig_height≈520.
 # Adjust y-gap proportionally when figure height changes.
+#
+# This is the DEFAULT/preferred style, but it only reads well for a few traces
+# (~2–4): the stacked rectangles crowd and overlap the curves beyond that. For
+# many-trace plots fall back to a real (translucent) Plotly legend instead —
+# see plot_lcot_vs_dmax / plot_speed_vs_dmax in report.py (7 cases each).
 
 def add_trace_label(fig, text: str, color: str,
                     x: float = 0.97, y: float = 0.90,
