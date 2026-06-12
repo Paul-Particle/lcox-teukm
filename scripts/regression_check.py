@@ -19,12 +19,8 @@ import io
 import os
 import sys
 
-import numpy as np
-
 from params import load_params
-from report import (print_base_header, print_energy_cost, print_breakdown,
-                    print_crossover, print_sensitivity, print_hotel_sensitivity,
-                    print_mobile_fleet, print_reactor_lease)
+from report import print_report
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CONFIG_PATH = os.path.join(REPO_ROOT, "config.yaml")
@@ -32,19 +28,11 @@ GOLDEN_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "golden_o
 
 
 def render() -> str:
-    """The console half of run.py — the same print sequence, captured to a string."""
-    p = load_params(CONFIG_PATH)
-    d_grid = np.linspace(100, 6000, 80)
+    """The console report (report.print_report) captured to a string — the same
+    single sequence run.py emits, so the golden can't drift from the live output."""
     buf = io.StringIO()
     with contextlib.redirect_stdout(buf):
-        print_base_header(p)
-        print_energy_cost(p)
-        print_breakdown(p)
-        print_crossover(p, d_grid)
-        print_sensitivity(p, d_grid)
-        print_hotel_sensitivity(p, d_grid)
-        print_mobile_fleet(p)
-        print_reactor_lease(p)
+        print_report(load_params(CONFIG_PATH))
     return buf.getvalue()
 
 

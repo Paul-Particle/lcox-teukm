@@ -96,3 +96,16 @@ REACTOR LEASE POOL (containerized nuclear-electric, as-a-service)
    2000   22.0       $0.124             1.1    6.248c
    4000   22.0       $0.118             1.0    5.776c
   * diagnostic only: reactor priced as a per-kWh service, not a fleet ratio
+
+========================================================================
+DESIGN-SPEED SWEEP: reactor LCOT (c/TEU·km) vs service speed, D_max 2000 km
+========================================================================
+ v_service     nuclear      nuc-ec      nuc-ei
+       8kn      6.977c      5.760c      6.818c
+      10kn      6.221c      5.115c      5.996c
+      12kn      5.926c      4.857c      5.624c
+      14kn      5.939c      4.857c      5.547c
+      16kn      6.183c      5.050c      5.687c
+      18kn      6.619c      5.406c      6.002c
+      20kn      7.225c      5.906c      6.470c
+      22kn      7.989c      6.541c      7.076c
