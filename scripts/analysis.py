@@ -1,13 +1,13 @@
 """
 analysis.py — operations on the cost models: per-ship speed optimization and
-the crossover distance between any two cost models (default: Li-ion battery
+the crossover distance between any two cost models (default: LFP battery
 vs the fossil incumbent).
 """
 
 import numpy as np
 
 from params import Params
-from lcot import lcot_fossil, lcot_elec
+from lcot import lcot_fossil, lcot_lfp
 
 
 def optimize_speed(fn, p: Params, d_km: float, n: int = 141) -> dict:
@@ -21,9 +21,9 @@ def optimize_speed(fn, p: Params, d_km: float, n: int = 141) -> dict:
     return best
 
 
-def crossover_dmax(p: Params, d_grid, fn_a=lcot_elec, fn_b=lcot_fossil) -> float:
+def crossover_dmax(p: Params, d_grid, fn_a=lcot_lfp, fn_b=lcot_fossil) -> float:
     """Smallest D_max where `fn_a` stops being cheaper than `fn_b` (defaults:
-    Li-ion battery vs fossil). None if fn_a never wins; inf ('always') if it
+    LFP battery vs fossil). None if fn_a never wins; inf ('always') if it
     wins across the whole grid."""
     diff = []
     for d in d_grid:
