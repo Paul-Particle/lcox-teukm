@@ -269,10 +269,19 @@ def _reactor_design_power_kw(p: Params) -> float:
     return prop_power_kw(p, p.v_design_max_kn, pf) / p.eta_elec + hotel / p.eta_hotel
 
 
+def _ceil_half_teu(teu: float) -> float:
+    """Round a slot footprint up to the nearest half-TEU (a reactor + shielding
+    package still has to land on a coarse container-slot grid, even sized
+    continuously to power)."""
+    return np.ceil(teu * 2.0) / 2.0
+
+
 def lcot_nuclear_elec_containerized(p: Params, v_kn: float, d_km: float) -> dict:
-    n_units = int(np.ceil(_reactor_design_power_kw(p) / p.nucc_unit_kw))
-    reactor_capex = p.nucc_usd_per_kw * n_units * p.nucc_unit_kw
-    overhead = n_units * p.nucc_overhead_slots_per_unit
+    # Reactor sized continuously to design power; CAPEX and slot footprint both
+    # scale linearly with it (no integer-module discretization for now).
+    design_kw = _reactor_design_power_kw(p)
+    reactor_capex = p.nucc_usd_per_kw * design_kw
+    overhead = _ceil_half_teu(p.nucc_overhead_teu_per_mwe * design_kw / 1000.0)
     return _lcot_nuclear_elec(p, v_kn, d_km, reactor_capex, p.nucc_life_yr,
                               overhead, p.nucc_om_other_usd_yr, p.nucc_fuel_usd_per_kwh_th)
 
@@ -318,9 +327,9 @@ def lcot_nuclear_elec_leased(p: Params, v_kn: float, d_km: float) -> dict:
     legs = legs_per_year(p, v_kn, d_km, port_h=p.port_hours_elec)
     sail_h = d_km / (v_kn * KMH_PER_KNOT)
 
-    n_units = int(np.ceil(_reactor_design_power_kw(p) / p.nucc_unit_kw))
-    reactor_capex = p.nucc_usd_per_kw * n_units * p.nucc_unit_kw
-    overhead = n_units * p.nucc_overhead_slots_per_unit
+    design_kw = _reactor_design_power_kw(p)
+    reactor_capex = p.nucc_usd_per_kw * design_kw
+    overhead = _ceil_half_teu(p.nucc_overhead_teu_per_mwe * design_kw / 1000.0)
 
     # Electric energy the reactor generates per leg (propulsion via motor, hotel
     # off the bus).

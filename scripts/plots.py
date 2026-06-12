@@ -202,9 +202,8 @@ SENS_MOBILE = [
 ]
 SENS_NUCELEC = [
     ("reactor CAPEX ($/kW)",              "nucc_usd_per_kw",             4000, 20000),
-    ("reactor module size (kWe)",         "nucc_unit_kw",                15000,45000),
     ("reactor life (yr)",                 "nucc_life_yr",                10,   30),
-    ("overhead / module (TEU)",           "nucc_overhead_slots_per_unit",24,   72),
+    ("overhead density (TEU/MWe)",        "nucc_overhead_teu_per_mwe",   0.8,  2.0),
     ("non-crew O&M ($/yr)",               "nucc_om_other_usd_yr",             3e6,  8e6),
     ("reactor->elec eff",                 "eta_nuclear",                 0.25, 0.40),
     ("discount rate",                     "discount_rate",               0.05, 0.12),
@@ -215,9 +214,8 @@ SENS_NUCLEASE = [
     ("reactor CAPEX ($/kW)",              "nucc_usd_per_kw",             4000, 20000),
     ("pool idle / assignment (h)",        "nucc_pool_idle_h",            2,    18),
     ("reactor pool availability",         "nucc_pool_availability",      0.80, 0.98),
-    ("reactor module size (kWe)",         "nucc_unit_kw",                15000,45000),
     ("reactor life (yr)",                 "nucc_life_yr",                10,   30),
-    ("overhead / module (TEU)",           "nucc_overhead_slots_per_unit",24,   72),
+    ("overhead density (TEU/MWe)",        "nucc_overhead_teu_per_mwe",   0.8,  2.0),
     ("reactor->elec eff",                 "eta_nuclear",                 0.25, 0.40),
     ("load factor",                       "load_factor",                 0.65, 0.95),
 ]
