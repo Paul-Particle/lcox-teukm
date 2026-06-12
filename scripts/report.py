@@ -152,12 +152,14 @@ def print_hotel_sensitivity(p: Params, d_grid) -> None:
 
 def print_mobile_fleet(p: Params) -> None:
     """Mobile nuclear tender fleet economics, surfaced (not buried in LCOT):
-    delivered $/kWh and ships served per tender, at sample hop lengths."""
+    the service $/kWh that prices each leg, at sample hop lengths. `ships/tender`
+    is a face-validity diagnostic (>=1 means one dedicated tender keeps pace); it
+    does not feed back into LCOT — energy is priced as a per-kWh service."""
     print("\n" + "=" * 72)
     print("MOBILE TENDER FLEET (at-sea charging economics)")
     print("=" * 72)
     print(f"{'D_max':>7} {'v_opt':>6} {'batt_MWh':>9} {'$/kWh deliv':>12} "
-          f"{'ships/tender':>13} {'LCOT':>9}")
+          f"{'ships/tender*':>13} {'LCOT':>9}")
     for d in SAMPLE_HOPS_KM:
         r = optimize_speed(lcot_mobile, p, d)
         if not np.isfinite(r["lcot"]):
@@ -166,3 +168,4 @@ def print_mobile_fleet(p: Params) -> None:
         print(f"{d:>7.0f} {r['v']:>6.1f} {r['battery_kwh']/KWH_PER_MWH:>9.0f} "
               f"{'$'+format(r['tender_usd_per_kwh'],'.3f'):>12} {r['ships_per_tender']:>13.1f} "
               f"{r['lcot']*CENTS_PER_USD:>8.3f}c")
+    print("  * diagnostic only: tender priced as a per-kWh service, not a fleet ratio")
