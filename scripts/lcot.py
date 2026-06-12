@@ -62,7 +62,7 @@ def carried_teu(p: Params, overhead_slots: float, battery_slots: float = 0.0,
     return 0.5 * (carried_dir(lf_head) + carried_dir(lf_back))
 
 
-def _elec_prop_factor(p: Params) -> float:
+def _elec_propulsion_factor(p: Params) -> float:
     """Electric-drive hull/propeller efficiency: the itemized component factors
     compounded (hull form x coating x propeller/pods x wider-eff x routing)."""
     return (p.elec_hull_form_factor * p.elec_coating_factor
@@ -71,7 +71,7 @@ def _elec_prop_factor(p: Params) -> float:
 
 
 def lcot_fossil(p: Params, v_kn: float, d_km: float) -> dict:
-    pf = p.fossil_prop_power_factor
+    pf = p.fossil_propulsion_factor
     E_use = leg_useful_energy_kwh(p, v_kn, d_km, pf)
     cyc = cycles_per_year(p, v_kn, d_km)
 
@@ -114,7 +114,7 @@ def _lcot_battery(p: Params, v_kn: float, d_km: float, spec: BatterySpec) -> dic
     # Electric drivetrain enables hull/propeller efficiency gains (itemized) and
     # sheds a few engine-room crew (hotel delta), maneuvers better (faster
     # berthing, fewer tugs), and needs less drivetrain maintenance (uptime).
-    pf = _elec_prop_factor(p)
+    pf = _elec_propulsion_factor(p)
     hotel = p.p_hotel_kw + p.hotel_delta_elec_kw
     E_use = leg_useful_energy_kwh(p, v_kn, d_km, pf, hotel_kw=hotel)
     cyc = cycles_per_year(p, v_kn, d_km, port_h=p.port_hours_elec, avail=p.availability_elec)
@@ -225,11 +225,11 @@ def _lcot_nuclear_elec(p: Params, v_kn: float, d_km: float, reactor_capex: float
                        om_usd_yr: float, fuel_usd_per_kwh_th: float) -> dict:
     """Shared body for the nuclear-electric cases: reactor -> electricity ->
     electric motor. End-to-end useful eff = eta_nuclear*eta_elec; the electric
-    drivetrain earns the electric hull/prop factor + maneuverability (faster
+    drivetrain earns the electric propulsion factor + maneuverability (faster
     berthing, fewer tugs), but carries nuclear crew + security (hotel delta,
     crew count) and reactor-paced uptime. Callers supply the reactor
     CAPEX/overhead (containerized vs integrated)."""
-    pf = _elec_prop_factor(p)
+    pf = _elec_propulsion_factor(p)
     hotel = p.p_hotel_kw + p.hotel_delta_nuclear_kw
     E_use = leg_useful_energy_kwh(p, v_kn, d_km, pf, hotel_kw=hotel)
     cyc = cycles_per_year(p, v_kn, d_km, port_h=p.port_hours_elec)
@@ -256,7 +256,7 @@ def _lcot_nuclear_elec(p: Params, v_kn: float, d_km: float, reactor_capex: float
 
 def _reactor_design_power_kw(p: Params) -> float:
     """Electric-side power the onboard reactor plant must supply at design speed."""
-    pf = _elec_prop_factor(p)
+    pf = _elec_propulsion_factor(p)
     hotel = p.p_hotel_kw + p.hotel_delta_nuclear_kw
     return (prop_power_kw(p, p.v_design_max_kn, pf) + hotel) / p.eta_elec
 
@@ -308,7 +308,7 @@ def lcot_mobile(p: Params, v_kn: float, d_km: float) -> dict:
     the on-battery deadhead to the meeting point), so it is far smaller than the
     port-swap battery ship. Energy is priced at the tender fleet's levelized
     $/kWh. Speed is capped by the floating charging cable."""
-    pf = _elec_prop_factor(p)
+    pf = _elec_propulsion_factor(p)
     hotel = p.p_hotel_kw + p.hotel_delta_elec_kw
     # Cable speed cap: infeasible above the cap (optimizer pins at the cap).
     if v_kn > p.mob_cable_v_cap_kn:

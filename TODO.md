@@ -7,17 +7,11 @@
   `mob_charge_power_kw`, `mob_rendezvous_spacing_h`, `nucc_unit_kw`, `nucc_usd_per_kw`.
   Now swept in per-case tornados (`plot_tornados`: LFP, iron-air, mobile,
   nuclear-electric), incl. `ironair_pack_wh_per_kg` and EEZ distance.
-- Mobile tender: rendezvous spacing is a fixed param; jointly optimizing it trades
-  ship battery size vs tender count. Battery cycle-life accounting under frequent
-  shallow top-ups is approximate. Single capped cruise speed (no separate free-speed
-  deadhead leg).
-- Mobile tender EEZ energy: the outbound EEZ crossing could be topped from *port
-  shore power* (~$0.09/kWh) before departure rather than the tender (~$0.35/kWh);
-  pricing the whole leg at the tender rate is mildly pessimistic for mobile.
+- **Mobile tender escort refactor:** The current code mathematically models a high-frequency "relay" top-up system, which conflicts with the intended Continuous Escort operational concept. A full refactor of `lcot_mobile` and its parameters is needed to correctly size the batteries for max(coastal transit, storm survival) and amortize the tender's cost over a dedicated ocean crossing cycle. (Future optimizations to implement later: consider the ability to ride out storms at reduced or zero speed to save battery, and the ability to charge batteries while steaming fast on the supplied nuclear power).
 - `lcot_mobile` duplicates the battery hull/motor/CAPEX/`carried` boilerplate; the
   3-axis refactor collapses it to "battery energy-source + at-sea-charge sizing
   strategy + tender price fn" — good motivation to do the refactor.
-- Nuclear-electric: `elec_prop_power_factor` (pod gains) applied to both; the
+- Nuclear-electric: `elec_propulsion_factor` (pod gains) applied to both; the
   single-shaft integrated case may not earn the full pod benefit — consider a
   separate factor. Containerized priced as owned (shorter life); a lease option
   (`nucc_lease_usd_yr`) is an alternative.
@@ -68,9 +62,9 @@ will formalize on the platform axis.
 
 ## Powertrain-specific efficiency (P-v curve)
 - **Done — itemized electric factor:** `elec_hull_form/coating/propeller/
-  wider_eff/routing` factors compound (~0.73 via `_elec_prop_factor`), replacing
+  wider_eff/routing` factors compound (~0.73 via `_elec_propulsion_factor`), replacing
   the 0.90 lump. Values at the conservative end of the literature ranges.
-- **Done — fossil factor:** `fossil_prop_power_factor` (0.95) — the smaller
+- **Done — fossil factor:** `fossil_propulsion_factor` (0.95) — the smaller
   hull/coating/routing gain fossil can adopt once the design barrier is overcome.
 - Slow-steaming asymmetry: `eta_fossil`/`eta_elec` are currently **constant in
   speed**, so both ships get the identical ideal cube-law energy-vs-speed and
@@ -178,7 +172,7 @@ single shared `levelized_cost(case, v, d)` instead of N `lcot_*` functions.
   - `Platform`: `name`, `cargo_unit` ("TEU"/"tonne"), `gross_capacity`,
     `load_factor`, hull capex/life, port hours, availability, `batt_usable_frac`,
     + a `displace(overhead, storage)` strategy fn.
-  - `Drivetrain`: `eta`, `prop_power_factor`, prop capex/life, om, overhead.
+  - `Drivetrain`: `eta`, `propulsion_factor`, prop capex/life, om, overhead.
   - `EnergySource`: `kind` ∈ fuel/battery/reactor, price, `BatterySpec|None`,
     reactor capex/life, + a `size_storage` strategy fn.
   Composed by a `Case` namedtuple registry in a new `cases.py` (one row per case).

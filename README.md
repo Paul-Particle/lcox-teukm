@@ -127,6 +127,34 @@ Case-specific caveats:
 > Note: this is a first-draft Tier-1 cut intended for order-of-magnitude comparison, not a
 > detailed naval-architecture or financial model.
 
+## Glossary
+
+Maritime / model terms used in the code and outputs:
+
+- **LCOT** — levelized cost of transport: total annualized cost ÷ annual cargo·distance (here, US¢ per TEU·km). The headline metric.
+- **TEU** — twenty-foot equivalent unit; one standard container "slot." Hull capacity and battery containers are counted in TEU.
+- **D_max** — the longest hop between battery-swap-capable ports (km); the comparison axis. Sets battery size, hence CAPEX and displaced cargo.
+- **Headhaul / backhaul** — the two directions of a round trip. Trade is directionally imbalanced (a full headhaul, a lighter backhaul), captured by `load_factor_imbalance`.
+- **Load factor** — average fraction of available cargo slots actually filled (≈0.8); reflects trade imbalance, demand variability, weight-vs-volume, empty repositioning.
+- **Deadweight (DWT)** — the mass a ship can carry (cargo + fuel + stores). `deadweight_t` is the cargo+energy mass budget; batteries/bunkers eat into it (the mass constraint).
+- **Reefer** — refrigerated container; draws power continuously, the large/variable part of hotel load.
+- **Hotel load** — non-propulsion electrical load (reefers, accommodation, ship systems).
+- **Slow steaming** — sailing below design speed to cut fuel (power ∝ speed³); the basis for optimizing cruise speed per ship.
+- **Service / design speed & sea margin** — the speed the plant is sized for, plus a power margin (~15%) for weather/fouling. Here installed power is sized at `v_design_max`.
+- **Sea margin** — extra installed power reserve for real-world weather/hull-fouling losses vs calm-water trials.
+- **Propulsion (power) factor** — fractional reduction in propulsion power at a given speed from hull form, anti-fouling coatings, propeller/pods, wider motor-efficiency, and weather routing (the electric-drive stack `_elec_propulsion_factor`; `fossil_propulsion_factor` for fossil). Broader than just the propeller.
+- **Pods / azimuth thrusters** — steerable electric propulsion units; better low-speed maneuverability (faster berthing, fewer tugs) and freedom to use larger, more efficient propellers.
+- **Admiralty (cube) law** — propulsion power scales as speed³ (`prop_power_kw`).
+- **DoD** — depth of discharge: the routine usable fraction of battery capacity; deeper discharge is an emergency-only buffer.
+- **RTE** — round-trip efficiency: energy out ÷ energy in for a battery (here `eta_charge × eta_discharge`).
+- **C-rate / C/50** — discharge rate relative to capacity; C/50 means full discharge over 50 h (iron-air is power-limited).
+- **Battery swapping** — exchanging depleted containerized battery packs for charged ones at port, rather than plugging in.
+- **Tender** — a support vessel; here the mobile nuclear reactor that recharges battery ships at sea.
+- **EEZ** — Exclusive Economic Zone, to ~200 nm offshore; the mobile tender stays in international waters beyond it for easier licensing, so the ship crosses the EEZ on battery.
+- **nm / knot** — nautical mile (1.852 km) / one nautical mile per hour.
+- **VLSFO** — very low sulfur fuel oil, the conventional marine fuel.
+- **SMR / HALEU** — small modular reactor; high-assay low-enriched uranium fuel.
+
 ## License
 
 Released under the [MIT License](LICENSE).
