@@ -56,7 +56,7 @@ engine_usd_per_kw: 400.0
 engine_life_yr: 25.0
 om_fossil_usd_yr: 1.52e+6    # NON-crew O&M: insurance, repairs, lube, stores (crew separate)
 fossil_overhead_slots: 120.0 # engine room + bunkers, in slot-equivalents
-fossil_prop_power_factor: 0.95  # smaller hull/coating/routing gain fossil can adopt
+fossil_propulsion_factor: 0.95  # smaller hull/coating/routing gain fossil can adopt
 
 # ---- electric powertrain -------------------------------------------------
 motor_usd_per_kw: 120.0
@@ -111,7 +111,7 @@ nuclear_overhead_slots: 120.0  # reactor + shielding ~ conventional engine room
 
 # ---- nuclear-electric powertrains (reactor -> electricity -> motor) ---------
 # End-to-end eff = eta_nuclear*eta_elec (~0.26); reuse eta_*, motor_*, the
-# electric prop-factor stack. (a) containerized modular units:
+# electric propulsion-factor stack. (a) containerized modular units:
 nucc_unit_kw: 15000.0        # net electric per reactor module
 nucc_usd_per_kw: 5000.0      # factory-built modular, below integrated
 nucc_life_yr: 15.0           # swappable/leased modules refreshed sooner

@@ -83,7 +83,7 @@ class Params:
     om_fossil_usd_yr: float = 1.52e6   # NON-crew O&M: insurance, repairs, lube, stores (crew is now
                                        # crew_count_fossil x crew_cost_usd_yr; tugs are separate)
     fossil_overhead_slots: float = 120.0  # engine room + bunkers, in slot-equivalents
-    fossil_prop_power_factor: float = 0.95 # smaller hull-form/coating/routing gain fossil can adopt
+    fossil_propulsion_factor: float = 0.95 # smaller hull-form/coating/routing gain fossil can adopt
                                            # once the design barrier is overcome (vs electric's stack)
 
     # ---- electric powertrain
@@ -148,12 +148,12 @@ class Params:
     nuclear_overhead_slots: float = 120.0  # reactor + shielding ~ conventional engine room
 
     # ---- nuclear-electric powertrains (reactor -> electricity -> electric motor;
-    # reuse eta_nuclear, eta_elec, motor_*, the electric prop-factor stack). End-to-end
+    # reuse eta_nuclear, eta_elec, motor_*, the electric propulsion-factor stack). End-to-end
     # useful eff = eta_nuclear*eta_elec (~0.26) vs 0.30 direct-drive, but unlocks
     # the electric-drive hull/prop gains and compact overhead.
     # TODO: nucc_* (modular marine reactor) cost/size are speculative — sweep them;
     # the integrated single-shaft case may not earn the full pod benefit of the
-    # electric prop-factor stack (consider a separate factor).
+    # electric propulsion-factor stack (consider a separate factor).
     # (a) containerized modular reactor units with a per-unit power cap:
     nucc_unit_kw: float = 15000.0          # net electric per reactor module
     nucc_usd_per_kw: float = 5000.0        # factory-built modular, below integrated
