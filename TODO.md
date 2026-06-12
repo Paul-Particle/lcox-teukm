@@ -111,16 +111,15 @@ bundles three components with different behaviour:
 Already correct: hotel is time-based (`x sail_hours`), so slow steaming raises
 hotel energy per leg and partially offsets the cube-law savings.
 
-- **Hotel efficiency split (battery cases):** `pack_draw_leg = E_use / eta_elec`
-  applies the traction-motor efficiency (0.88) to the hotel load, but hotel
-  power never passes through the drive motor — it draws directly from the pack
-  via the ship-service bus (efficiency ~0.97). The correct treatment is
-  `pack_draw_leg = prop_E/eta_elec + hotel_E/eta_hotel`. At 14 kn the error is
-  ~1.5%, growing at lower speeds as hotel becomes a larger fraction of total
-  draw. For fossil, `E_use/eta_fossil` applies main-engine efficiency to the
-  hotel load too; aux-gen efficiency (~0.42) is close enough to `eta_fossil`
-  (~0.50) to be order-of-magnitude correct, but should eventually be modelled
-  explicitly with a separate `eta_aux_gen` parameter.
+- **Hotel efficiency split — DONE.** Propulsion and hotel energy now take
+  separate paths via `leg_input_energy_kwh(p, v, d, eta_drive, eta_hotel, ...)`
+  = `prop_E/eta_drive + hotel_E/eta_hotel`. Electric/battery/nuclear-electric
+  cases route hotel off the ship-service bus (`eta_hotel` 0.97), bypassing the
+  drive motor (`eta_elec` 0.88); fossil routes hotel through aux gensets
+  (`eta_aux_gen` 0.42), not the main 2-stroke (`eta_fossil`). Effect grows at
+  low speed (hotel a larger share of draw) — battery crossovers rose
+  (LFP 333->355, iron-air 419->506 km). Nuclear-direct still lumps hotel into
+  `eta_nuclear` (its hotel runs off the same steam plant — defensible).
 
 ## Maneuverability credit (electric / podded ships) — DONE
 - **Port time:** per-powertrain `port_hours_elec` (16 h vs 18) — pods/azimuth

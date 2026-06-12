@@ -29,6 +29,22 @@ def leg_useful_energy_kwh(p: Params, v_kn: float, d_km: float,
     return (prop_power_kw(p, v_kn, propulsion_factor) + hotel_kw) * sail_h
 
 
+def leg_input_energy_kwh(p: Params, v_kn: float, d_km: float, eta_drive: float,
+                         eta_hotel: float, propulsion_factor: float = 1.0,
+                         hotel_kw: float = None) -> float:
+    """Source-side energy drawn over one leg, splitting the two paths that have
+    different efficiencies: propulsion goes through the drivetrain (`eta_drive`),
+    while hotel load draws directly off the ship-service bus (`eta_hotel`) — it
+    never passes through the drive motor. Returns energy at the source bus
+    (battery pack / fuel-chemical / reactor-electric, per the etas passed)."""
+    if hotel_kw is None:
+        hotel_kw = p.p_hotel_kw
+    sail_h = d_km / (v_kn * KMH_PER_KNOT)
+    prop_e = prop_power_kw(p, v_kn, propulsion_factor) * sail_h
+    hotel_e = hotel_kw * sail_h
+    return prop_e / eta_drive + hotel_e / eta_hotel
+
+
 def legs_per_year(p: Params, v_kn: float, d_km: float,
                   port_h: float = None, avail: float = None) -> float:
     """Number of D_max legs completed per year, given sailing + port time.

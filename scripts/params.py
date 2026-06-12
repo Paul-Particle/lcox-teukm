@@ -71,6 +71,11 @@ class Params:
                                        # should favour electric over fossil (see TODO.md)
     eta_elec: float = 0.88             # battery pack -> useful (drivetrain); ~flat across speed
     eta_nuclear: float = 0.30          # reactor thermal -> useful (marine PWR steam cycle)
+    eta_hotel: float = 0.97            # source bus -> hotel load: hotel draws directly off the
+                                       # ship-service bus, NOT through the drive motor — so on
+                                       # electric/battery/nuclear-electric ships it bypasses eta_elec
+    eta_aux_gen: float = 0.42          # fossil: auxiliary genset fuel -> hotel electricity (hotel
+                                       # runs off aux diesels, not the main 2-stroke -> below eta_fossil)
 
     # ---- energy prices
     fuel_usd_per_t: float = 550.0      # VLSFO

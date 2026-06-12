@@ -23,7 +23,8 @@ import numpy as np
 
 from params import Params
 from finance import crf
-from energy import prop_power_kw, leg_useful_energy_kwh, legs_per_year
+from energy import (prop_power_kw, leg_useful_energy_kwh, leg_input_energy_kwh,
+                    legs_per_year)
 from units import KG_PER_TONNE, KMH_PER_KNOT, HOURS_PER_YEAR, KM_PER_NM
 
 
@@ -72,10 +73,11 @@ def _elec_propulsion_factor(p: Params) -> float:
 
 def lcot_fossil(p: Params, v_kn: float, d_km: float) -> dict:
     pf = p.fossil_propulsion_factor
-    E_use = leg_useful_energy_kwh(p, v_kn, d_km, pf)
     legs = legs_per_year(p, v_kn, d_km)
 
-    fuel_chem_kwh = E_use / p.eta_fossil
+    # Propulsion burns through the main 2-stroke (eta_fossil); hotel load runs off
+    # auxiliary gensets (eta_aux_gen), not the main engine.
+    fuel_chem_kwh = leg_input_energy_kwh(p, v_kn, d_km, p.eta_fossil, p.eta_aux_gen, pf)
     fuel_cost_per_kwh_chem = p.fuel_usd_per_t / KG_PER_TONNE / p.fuel_lhv_kwh_per_kg
     energy_cost_leg = fuel_chem_kwh * fuel_cost_per_kwh_chem
 
@@ -116,10 +118,12 @@ def _lcot_battery(p: Params, v_kn: float, d_km: float, spec: BatterySpec) -> dic
     # berthing, fewer tugs), and needs less drivetrain maintenance (uptime).
     pf = _elec_propulsion_factor(p)
     hotel = p.p_hotel_kw + p.hotel_delta_elec_kw
-    E_use = leg_useful_energy_kwh(p, v_kn, d_km, pf, hotel_kw=hotel)
     legs = legs_per_year(p, v_kn, d_km, port_h=p.port_hours_elec, avail=p.availability_elec)
 
-    pack_draw_leg = E_use / p.eta_elec
+    # Propulsion draws through the motor (eta_elec); hotel draws off the pack via
+    # the ship-service bus (eta_hotel), bypassing the motor.
+    pack_draw_leg = leg_input_energy_kwh(p, v_kn, d_km, p.eta_elec, p.eta_hotel, pf,
+                                         hotel_kw=hotel)
     # weather_reserve is a route margin (any battery ship); dod is the chemistry's
     # routine usable fraction (deeper discharge is emergency-only).
     installed_energy = pack_draw_leg * (1 + p.weather_reserve) / spec.dod
@@ -127,7 +131,7 @@ def _lcot_battery(p: Params, v_kn: float, d_km: float, spec: BatterySpec) -> dic
     # the steady cruise draw at v (not v_design_max — the ship can install a
     # big motor, but the pack physically cannot supply it; the speed optimizer
     # trades against this since P ~ v^3).
-    pack_power_kw = (prop_power_kw(p, v_kn, pf) + hotel) / p.eta_elec
+    pack_power_kw = prop_power_kw(p, v_kn, pf) / p.eta_elec + hotel / p.eta_hotel
     installed_kwh = max(installed_energy, pack_power_kw * spec.min_discharge_h)
     # ISO container gross-weight cap: a battery container can't exceed the ISO
     # max (+ marinized margin), so a dense-but-heavy chemistry holds less energy
@@ -232,10 +236,12 @@ def _lcot_nuclear_elec(p: Params, v_kn: float, d_km: float, reactor_capex: float
     CAPEX/overhead (containerized vs integrated)."""
     pf = _elec_propulsion_factor(p)
     hotel = p.p_hotel_kw + p.hotel_delta_nuclear_kw
-    E_use = leg_useful_energy_kwh(p, v_kn, d_km, pf, hotel_kw=hotel)
     legs = legs_per_year(p, v_kn, d_km, port_h=p.port_hours_elec)
 
-    thermal_kwh = E_use / (p.eta_elec * p.eta_nuclear)
+    # Reactor electric output at the bus (propulsion through the motor, hotel off
+    # the bus), then the reactor thermal->electric stage (eta_nuclear).
+    bus_kwh = leg_input_energy_kwh(p, v_kn, d_km, p.eta_elec, p.eta_hotel, pf, hotel_kw=hotel)
+    thermal_kwh = bus_kwh / p.eta_nuclear
     energy_cost_leg = thermal_kwh * fuel_usd_per_kwh_th
 
     motor_capex = p.motor_usd_per_kw * prop_power_kw(p, p.v_design_max_kn, pf)
@@ -256,10 +262,11 @@ def _lcot_nuclear_elec(p: Params, v_kn: float, d_km: float, reactor_capex: float
 
 
 def _reactor_design_power_kw(p: Params) -> float:
-    """Electric-side power the onboard reactor plant must supply at design speed."""
+    """Electric-side power the onboard reactor plant must supply at design speed
+    (propulsion via the motor, hotel off the bus)."""
     pf = _elec_propulsion_factor(p)
     hotel = p.p_hotel_kw + p.hotel_delta_nuclear_kw
-    return (prop_power_kw(p, p.v_design_max_kn, pf) + hotel) / p.eta_elec
+    return prop_power_kw(p, p.v_design_max_kn, pf) / p.eta_elec + hotel / p.eta_hotel
 
 
 def lcot_nuclear_elec_containerized(p: Params, v_kn: float, d_km: float) -> dict:
@@ -308,7 +315,6 @@ def lcot_nuclear_elec_leased(p: Params, v_kn: float, d_km: float) -> dict:
     charged for the reactor sitting idle during its port calls."""
     pf = _elec_propulsion_factor(p)
     hotel = p.p_hotel_kw + p.hotel_delta_nuclear_kw
-    E_use = leg_useful_energy_kwh(p, v_kn, d_km, pf, hotel_kw=hotel)
     legs = legs_per_year(p, v_kn, d_km, port_h=p.port_hours_elec)
     sail_h = d_km / (v_kn * KMH_PER_KNOT)
 
@@ -316,7 +322,10 @@ def lcot_nuclear_elec_leased(p: Params, v_kn: float, d_km: float) -> dict:
     reactor_capex = p.nucc_usd_per_kw * n_units * p.nucc_unit_kw
     overhead = n_units * p.nucc_overhead_slots_per_unit
 
-    bus_kwh_leg = E_use / p.eta_elec       # electric energy the reactor generates per leg
+    # Electric energy the reactor generates per leg (propulsion via motor, hotel
+    # off the bus).
+    bus_kwh_leg = leg_input_energy_kwh(p, v_kn, d_km, p.eta_elec, p.eta_hotel, pf,
+                                       hotel_kw=hotel)
     lease_usd_per_kwh, assignments_per_yr = _reactor_lease_usd_per_kwh(
         p, sail_h, bus_kwh_leg, reactor_capex, p.nucc_life_yr, p.nucc_fuel_usd_per_kwh_th)
     energy_cost_leg = bus_kwh_leg * lease_usd_per_kwh   # lease recovers reactor CAPEX + fuel
@@ -393,7 +402,8 @@ def lcot_mobile(p: Params, v_kn: float, d_km: float) -> dict:
     if v_kn > p.mob_cable_v_cap_kn:
         return _mobile_infeasible(v_kn)
 
-    pack_draw_kw = (prop_power_kw(p, v_kn, pf) + hotel) / p.eta_elec
+    # Propulsion via the motor (eta_elec), hotel off the bus (eta_hotel).
+    pack_draw_kw = prop_power_kw(p, v_kn, pf) / p.eta_elec + hotel / p.eta_hotel
     coastal_km = p.coastal_untethered_distance_nm * KM_PER_NM
     coastal_h = coastal_km / (v_kn * KMH_PER_KNOT)
     tethered_km = d_km - 2 * coastal_km
