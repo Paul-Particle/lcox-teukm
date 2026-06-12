@@ -16,9 +16,11 @@ port_hours_per_call: 18.0    # fossil/nuclear-direct berthing + cargo (conventio
 port_hours_elec: 16.0        # electric-drive: pods/azimuth -> faster berthing
 availability: 0.95           # fraction of the year in service (fossil/nuclear)
 availability_elec: 0.97      # battery/electric-drive: lower drivetrain maintenance (EV-like)
-deadweight_cargo_t: 38000.0  # cargo deadweight budget (t) for a FOSSIL ship, net of bunkers
+deadweight_t: 41000.0        # total deadweight for cargo + onboard energy carrier (t)
 cargo_t_per_teu: 12.0        # avg laden mass per TEU (full+empty mix)
-bunker_mass_t: 3000.0        # fossil onboard fuel mass; battery/nuclear recover it as cargo DWT
+bunker_mass_t: 3000.0        # fossil onboard fuel mass — explicit deadweight it carries
+iso_container_max_gross_t: 30.0  # ISO 20ft max gross; caps energy per battery container
+iso_container_margin: 0.20   # tolerance over ISO max for marinized/reinforced units
 
 # ---- crew & port services (O&M itemized) ---------------------------------
 crew_cost_usd_yr: 90000.0    # loaded annual cost per crew member
@@ -94,7 +96,7 @@ ironair_cycle_life: 10000.0  # electrode claims >10k; non-binding at 100-h rates
 ironair_calendar_life_yr: 20.0
 ironair_eta_charge: 0.55     # iron-air grid -> stored; charge-limited chemistry
 ironair_eta_discharge: 0.82  # iron-air stored -> delivered (round-trip ~0.45 AC-AC; split approx.)
-ironair_min_discharge_h: 100.0  # C/100: max pack power = installed kWh / 100 h
+ironair_min_discharge_h: 50.0  # C/50 sustained discharge (2x Form's C/100); see params.py rationale
 ironair_pack_wh_per_kg: 30.0 # ~5x heavier than Li-ion; enforced as deadweight (bites long-haul)
 
 # ---- nuclear powertrain ----------------------------------------------------
