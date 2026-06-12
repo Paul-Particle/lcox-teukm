@@ -12,6 +12,8 @@ enforces that. Platform parameters are still read from the flat `Params` `p`
 (the platform axis is extracted later).
 """
 
+import functools
+
 import numpy as np
 
 from params import Params
@@ -19,9 +21,15 @@ from finance import crf
 from energy import (prop_power_kw, leg_useful_energy_kwh, leg_input_energy_kwh,
                     legs_per_year)
 from units import KMH_PER_KNOT, HOURS_PER_YEAR, KM_PER_NM
-from lcot import (carried_teu, _reactor_design_power_kw, _reactor_lease_usd_per_kwh,
-                  _mobile_tender_usd_per_kwh, _mobile_infeasible)
+from sizing import (carried_teu, _reactor_design_power_kw, _reactor_lease_usd_per_kwh,
+                    _mobile_tender_usd_per_kwh, _mobile_infeasible)
 from cases import Case
+
+
+def cost_fn(case: Case):
+    """Bind a `Case` into the `fn(p, v, d) -> dict` callable that `analysis.py`
+    (optimize_speed / crossover_dmax) expects."""
+    return functools.partial(levelized_cost, case)
 
 
 def levelized_cost(case: Case, p: Params, v_kn: float, d_km: float) -> dict:
