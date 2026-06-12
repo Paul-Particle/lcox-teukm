@@ -5,6 +5,11 @@ A Tier-1 techno-economic model for container shipping decarbonization. It comput
 compares several powertrains:
 
 - **Fossil** — conventional VLSFO-burning two-stroke.
+- **E-methanol** — the same two-stroke (dual-fuel) burning synthetic e-methanol: identical ship,
+  only the fuel and its (much higher) price differ. The price is a **placeholder**
+  (`efuel_usd_per_kwh`) from the `supply.efuel_chemical` stub pending an
+  electrolyzer+DAC+synthesis production model; the optimizer slow-steams it harder than fossil
+  because the costly fuel rewards it.
 - **Battery-electric (LFP)** — with containerized battery swapping at port calls.
 - **Battery-electric (iron-air)** — same swap concept with a Form-Energy-class 100-hour
   chemistry: very cheap per kWh but ~45% round-trip efficient and power-limited (the pack

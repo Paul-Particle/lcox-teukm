@@ -47,6 +47,7 @@ def print_energy_cost(p: Params) -> None:
     costs = {
         "fossil": (p.fuel_usd_per_t / KG_PER_TONNE / p.fuel_lhv_kwh_per_kg)
                   / p.eta_fossil,
+        "e-methanol": p.efuel_usd_per_kwh / p.eta_fossil,
         "lfp": p.elec_usd_per_kwh / (p.battery_eta_charge * p.battery_eta_discharge * p.eta_elec),
         "iron-air": p.elec_usd_per_kwh / (p.ironair_eta_charge * p.ironair_eta_discharge * p.eta_elec),
         "nuclear": p.nuclear_fuel_usd_per_kwh_th / p.eta_nuclear,

@@ -113,7 +113,7 @@ def build_cases(p: Params):
     """Compose the case registry from the flat Params (the transition adapter).
     Returns a list of `Case`. Colours/labels mirror the old report.CASES order."""
     from style import (blue_black, fca_blue, sand_yellow, green, highlight_blue,
-                       turquois, very_dark_gray, light_blue)
+                       turquois, very_dark_gray, light_blue, magenta_red)
 
     elec_pf = _elec_propulsion_factor(p)
 
@@ -145,6 +145,13 @@ def build_cases(p: Params):
     fuel = EnergySource("VLSFO", "fuel", "direct",
                         supply_usd_per_kwh=supply.vlsfo_chemical(p),
                         energy_mass_t=p.bunker_mass_t)
+    # e-methanol burns in essentially the same 2-stroke (dual-fuel) as VLSFO, so it
+    # reuses the mechanical-fossil drivetrain; only the fuel and its (much higher)
+    # price differ. TODO: methanol's lower LHV/density means ~2x bunker mass & tank
+    # volume for the same range — reusing fossil bunker mass/overhead understates that.
+    efuel_src = EnergySource("e-methanol", "fuel", "direct",
+                             supply_usd_per_kwh=supply.efuel_chemical(p),
+                             energy_mass_t=p.bunker_mass_t)
     lfp_src = EnergySource("LFP", "battery", "swap",
                            supply_usd_per_kwh=supply.grid_electricity(p),
                            battery=_battery_spec(p, "battery"))
@@ -177,6 +184,9 @@ def build_cases(p: Params):
     return [
         Case("fossil", "fossil", blue_black, False, container, mechanical_fossil, fuel,
              p.crew_count_fossil, 0.0, p.om_fossil_other_usd_yr,
+             p.fossil_overhead_slots, p.port_hours_per_call, p.availability),
+        Case("efuel", "e-methanol", magenta_red, False, container, mechanical_fossil,
+             efuel_src, p.crew_count_fossil, 0.0, p.om_fossil_other_usd_yr,
              p.fossil_overhead_slots, p.port_hours_per_call, p.availability),
         Case("lfp", "battery-electric (LFP)", fca_blue, True, container, electric, lfp_src,
              p.crew_count_elec, p.hotel_delta_elec_kw, p.om_elec_other_usd_yr,
