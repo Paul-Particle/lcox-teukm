@@ -6,7 +6,7 @@ it dispatches to an archetype by (drivetrain.kind, source.kind, source.pricing)
 and reads every case-specific scalar from the composed `Case` (see cases.py).
 
 During the migration it reuses the shared primitives still living in `lcot.py`
-(carried_teu, the reactor/tender economics, BatterySpec) so its output is
+(carried, the reactor/tender economics, BatterySpec) so its output is
 float-identical to the legacy functions — the parity gate (scripts/parity_check.py)
 enforces that. Platform parameters are still read from the flat `Params` `p`
 (the platform axis is extracted later).
@@ -21,7 +21,7 @@ from finance import crf
 from energy import (prop_power_kw, leg_useful_energy_kwh, leg_input_energy_kwh,
                     legs_per_year)
 from units import KMH_PER_KNOT, HOURS_PER_YEAR, KM_PER_NM
-from sizing import (carried_teu, _reactor_design_power_kw, _reactor_lease_usd_per_kwh,
+from sizing import (carried, _reactor_design_power_kw, _reactor_lease_usd_per_kwh,
                     _mobile_tender_usd_per_kwh, _mobile_infeasible)
 from cases import Case
 
@@ -35,6 +35,7 @@ def cost_fn(case: Case):
 def levelized_cost(case: Case, p: Params, v_kn: float, d_km: float) -> dict:
     """LCOT (US$/TEU·km) + breakdown for one case at cruise speed v, hop d."""
     dt, src = case.drivetrain, case.source
+    pl = case.platform
     if dt.kind == "mechanical" and src.kind == "fuel":
         return _mechanical_fuel(case, p, v_kn, d_km)
     if dt.kind == "mechanical" and src.kind == "reactor":
@@ -61,6 +62,7 @@ def _result(v_kn, cargo_cap, annual_fixed, annual_energy, annual_teukm, legs,
 
 def _mechanical_fuel(case: Case, p: Params, v_kn: float, d_km: float) -> dict:
     dt, src = case.drivetrain, case.source
+    pl = case.platform
     pf = dt.propulsion_factor
     hotel = p.p_hotel_kw + case.hotel_delta_kw
     legs = legs_per_year(p, v_kn, d_km, port_h=case.port_hours, avail=case.availability)
@@ -70,13 +72,13 @@ def _mechanical_fuel(case: Case, p: Params, v_kn: float, d_km: float) -> dict:
     energy_cost_leg = fuel_chem_kwh * src.supply_usd_per_kwh
 
     prop_capex = dt.prop_usd_per_kw * prop_power_kw(p, p.v_design_max_kn, pf)
-    annual_fixed = (p.hull_capex_usd * crf(p.discount_rate, p.hull_life_yr)
+    annual_fixed = (pl.hull_capex_usd * crf(p.discount_rate, pl.hull_life_yr)
                     + prop_capex * crf(p.discount_rate, dt.prop_life_yr)
                     + case.om_other_usd_yr
                     + case.crew_count * p.crew_cost_usd_yr
                     + dt.tug_usd_per_call * legs)
-    cargo_cap = p.gross_slots - case.overhead_slots
-    annual_teukm = legs * d_km * carried_teu(p, case.overhead_slots,
+    cargo_cap = pl.gross_capacity - case.overhead_slots
+    annual_teukm = legs * d_km * carried(pl, case.overhead_slots,
                                              energy_mass_t=src.energy_mass_t)
     return _result(v_kn, cargo_cap, annual_fixed, energy_cost_leg * legs,
                    annual_teukm, legs)
@@ -84,6 +86,7 @@ def _mechanical_fuel(case: Case, p: Params, v_kn: float, d_km: float) -> dict:
 
 def _mechanical_reactor(case: Case, p: Params, v_kn: float, d_km: float) -> dict:
     dt, src = case.drivetrain, case.source
+    pl = case.platform
     hotel = p.p_hotel_kw + case.hotel_delta_kw
     E_use = leg_useful_energy_kwh(p, v_kn, d_km, dt.propulsion_factor, hotel_kw=hotel)
     legs = legs_per_year(p, v_kn, d_km, port_h=case.port_hours, avail=case.availability)
@@ -92,19 +95,20 @@ def _mechanical_reactor(case: Case, p: Params, v_kn: float, d_km: float) -> dict
 
     reactor_capex = src.reactor_usd_per_kw * (
         prop_power_kw(p, p.v_design_max_kn, dt.propulsion_factor) + hotel)
-    annual_fixed = (p.hull_capex_usd * crf(p.discount_rate, p.hull_life_yr)
+    annual_fixed = (pl.hull_capex_usd * crf(p.discount_rate, pl.hull_life_yr)
                     + reactor_capex * crf(p.discount_rate, src.reactor_life_yr)
                     + case.om_other_usd_yr
                     + case.crew_count * p.crew_cost_usd_yr
                     + dt.tug_usd_per_call * legs)
-    cargo_cap = p.gross_slots - case.overhead_slots
-    annual_teukm = legs * d_km * carried_teu(p, case.overhead_slots, energy_mass_t=0.0)
+    cargo_cap = pl.gross_capacity - case.overhead_slots
+    annual_teukm = legs * d_km * carried(pl, case.overhead_slots, energy_mass_t=0.0)
     return _result(v_kn, cargo_cap, annual_fixed, energy_cost_leg * legs,
                    annual_teukm, legs)
 
 
 def _electric_battery(case: Case, p: Params, v_kn: float, d_km: float) -> dict:
     dt, src = case.drivetrain, case.source
+    pl = case.platform
     spec = src.battery
     pf = dt.propulsion_factor
     hotel = p.p_hotel_kw + case.hotel_delta_kw
@@ -121,10 +125,10 @@ def _electric_battery(case: Case, p: Params, v_kn: float, d_km: float) -> dict:
     battery_slots = installed_kwh / kwh_per_teu_eff
     battery_tonnes = installed_kwh / spec.pack_wh_per_kg
 
-    cargo_cap = p.gross_slots - case.overhead_slots - battery_slots
-    carried = carried_teu(p, case.overhead_slots, battery_slots,
-                          energy_mass_t=battery_tonnes)
-    if carried <= 0:
+    cargo_cap = pl.gross_capacity - case.overhead_slots - battery_slots
+    carried_units = carried(pl, case.overhead_slots, battery_slots,
+                            energy_mass_t=battery_tonnes)
+    if carried_units <= 0:
         return {"lcot": np.inf, "v": v_kn, "cargo_cap": cargo_cap,
                 "battery_slots": battery_slots, "battery_kwh": installed_kwh,
                 "battery_life": np.nan, "annual_fixed": np.inf,
@@ -137,13 +141,13 @@ def _electric_battery(case: Case, p: Params, v_kn: float, d_km: float) -> dict:
     battery_life = min(spec.calendar_life_yr, spec.cycle_life / legs)
     motor_capex = dt.prop_usd_per_kw * prop_power_kw(p, p.v_design_max_kn, pf)
     battery_capex = spec.usd_per_kwh * installed_kwh
-    annual_fixed = (p.hull_capex_usd * crf(p.discount_rate, p.hull_life_yr)
+    annual_fixed = (pl.hull_capex_usd * crf(p.discount_rate, pl.hull_life_yr)
                     + motor_capex * crf(p.discount_rate, dt.prop_life_yr)
                     + battery_capex * crf(p.discount_rate, battery_life)
                     + case.om_other_usd_yr
                     + case.crew_count * p.crew_cost_usd_yr
                     + dt.tug_usd_per_call * legs)
-    annual_teukm = legs * d_km * carried
+    annual_teukm = legs * d_km * carried_units
     return _result(v_kn, cargo_cap, annual_fixed, energy_cost_leg * legs,
                    annual_teukm, legs, battery_slots=battery_slots,
                    battery_kwh=installed_kwh, battery_life=battery_life)
@@ -151,6 +155,7 @@ def _electric_battery(case: Case, p: Params, v_kn: float, d_km: float) -> dict:
 
 def _electric_reactor(case: Case, p: Params, v_kn: float, d_km: float) -> dict:
     dt, src = case.drivetrain, case.source
+    pl = case.platform
     pf = dt.propulsion_factor
     hotel = p.p_hotel_kw + case.hotel_delta_kw
     legs = legs_per_year(p, v_kn, d_km, port_h=case.port_hours, avail=case.availability)
@@ -160,7 +165,7 @@ def _electric_reactor(case: Case, p: Params, v_kn: float, d_km: float) -> dict:
     bus_kwh = leg_input_energy_kwh(p, v_kn, d_km, dt.eta_drive, dt.eta_hotel,
                                    pf, hotel_kw=hotel)
     motor_capex = dt.prop_usd_per_kw * prop_power_kw(p, p.v_design_max_kn, pf)
-    hull_crf = p.hull_capex_usd * crf(p.discount_rate, p.hull_life_yr)
+    hull_crf = pl.hull_capex_usd * crf(p.discount_rate, pl.hull_life_yr)
     motor_crf = motor_capex * crf(p.discount_rate, dt.prop_life_yr)
     base_fixed = (case.om_other_usd_yr + case.crew_count * p.crew_cost_usd_yr
                   + dt.tug_usd_per_call * legs)
@@ -180,14 +185,15 @@ def _electric_reactor(case: Case, p: Params, v_kn: float, d_km: float) -> dict:
                         + motor_crf + base_fixed)
         extra = {}
 
-    cargo_cap = p.gross_slots - case.overhead_slots
-    annual_teukm = legs * d_km * carried_teu(p, case.overhead_slots, energy_mass_t=0.0)
+    cargo_cap = pl.gross_capacity - case.overhead_slots
+    annual_teukm = legs * d_km * carried(pl, case.overhead_slots, energy_mass_t=0.0)
     return _result(v_kn, cargo_cap, annual_fixed, energy_cost_leg * legs,
                    annual_teukm, legs, **extra)
 
 
 def _electric_tender(case: Case, p: Params, v_kn: float, d_km: float) -> dict:
     dt, src = case.drivetrain, case.source
+    pl = case.platform
     spec = src.battery
     pf = dt.propulsion_factor
     hotel = p.p_hotel_kw + case.hotel_delta_kw
@@ -212,9 +218,9 @@ def _electric_tender(case: Case, p: Params, v_kn: float, d_km: float) -> dict:
     battery_slots = installed_kwh / kwh_per_teu_eff
     battery_tonnes = installed_kwh / spec.pack_wh_per_kg
 
-    carried = carried_teu(p, case.overhead_slots, battery_slots,
-                          energy_mass_t=battery_tonnes)
-    if carried <= 0:
+    carried_units = carried(pl, case.overhead_slots, battery_slots,
+                            energy_mass_t=battery_tonnes)
+    if carried_units <= 0:
         return _mobile_infeasible(v_kn, battery_slots, installed_kwh)
 
     rt = spec.eta_charge * spec.eta_discharge
@@ -233,14 +239,14 @@ def _electric_tender(case: Case, p: Params, v_kn: float, d_km: float) -> dict:
 
     motor_capex = dt.prop_usd_per_kw * prop_power_kw(p, p.v_design_max_kn, pf)
     battery_capex = spec.usd_per_kwh * installed_kwh
-    annual_fixed = (p.hull_capex_usd * crf(p.discount_rate, p.hull_life_yr)
+    annual_fixed = (pl.hull_capex_usd * crf(p.discount_rate, pl.hull_life_yr)
                     + motor_capex * crf(p.discount_rate, dt.prop_life_yr)
                     + battery_capex * crf(p.discount_rate, battery_life)
                     + case.om_other_usd_yr
                     + case.crew_count * p.crew_cost_usd_yr
                     + dt.tug_usd_per_call * legs)
-    cargo_cap = p.gross_slots - case.overhead_slots - battery_slots
-    annual_teukm = legs * d_km * carried
+    cargo_cap = pl.gross_capacity - case.overhead_slots - battery_slots
+    annual_teukm = legs * d_km * carried_units
     ships_per_tender = escorts_per_yr / legs
     return _result(v_kn, cargo_cap, annual_fixed, energy_cost_leg * legs,
                    annual_teukm, legs, battery_slots=battery_slots,

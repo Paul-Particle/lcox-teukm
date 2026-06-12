@@ -1,18 +1,20 @@
 """
 cases.py — technology cases as compositions of model axes.
 
-The deferred refactor (see TODO.md appendix) decomposes every powertrain onto three
-orthogonal axes: **Platform** (cargo/route) × **Drivetrain** (energy→shaft) ×
-**EnergySource** (fuel / battery / reactor + logistics). This module introduces the
-Drivetrain and EnergySource axes as frozen dataclasses and composes the cases into a
-single registry that `cost.levelized_cost` consumes through one entry point — replacing
-the N hand-written `lcot_*` functions.
+Every powertrain is a composition of three orthogonal axes: **Platform** (cargo/route)
+× **Drivetrain** (energy→shaft) × **EnergySource** (fuel / battery / reactor + logistics),
+each a frozen dataclass. `build_cases(p)` composes them into a single `Case` registry that
+`cost.levelized_cost` consumes through one entry point — replacing the N hand-written
+`lcot_*` functions.
 
-**Platform is the third axis, not yet extracted.** Today every case runs on the same
-3000-TEU container ship, so the platform parameters still live in the flat `Params`
-(passed alongside the `Case` for now). Pulling them into a `Platform` dataclass is the
-next migration step — needed once bulk/chemical tonne·km platforms land, where the
-binding cargo metric becomes deadweight rather than slots.
+The **Platform** carries the cargo/capacity dimension: `gross_capacity` in `cargo_unit`s
+(TEU for a container ship; tonnes for a bulk/chemical carrier), the load factors, the
+deadweight budget, and the mass per cargo unit. This is what lets `sizing.carried`
+generalise from "displace TEU slots" (volume-bound) to "displace deadweight" (mass-bound)
+without branching — a bulk platform is data, not code. Today there is one platform (the
+3000-TEU container ship); other platform scalars (speeds, prop reference, efficiencies,
+crew rate, discount rate, route margins) still live in the flat `Params` and move onto the
+Platform only as bulk/chemical actually need to vary them.
 
 Per-(drivetrain, source) "cell" attributes that don't belong to either axis alone
 (crew count, accommodation hotel delta, non-crew O&M, slot overhead, port time,
@@ -26,6 +28,24 @@ from params import Params
 from units import KG_PER_TONNE
 from sizing import (BatterySpec, _elec_propulsion_factor, _reactor_design_power_kw,
                     _ceil_half_teu)
+
+
+@dataclass(frozen=True)
+class Platform:
+    """Hull + cargo/route. Holds the cargo-capacity dimension that makes the binding
+    metric platform-specific: a container ship is volume-bound (TEU slots) while a
+    bulk/chemical carrier is mass-bound (deadweight tonnes). `sizing.carried` reads
+    these to compute revenue cargo per leg in `cargo_unit`s."""
+    name: str
+    cargo_unit: str            # "TEU" | "tonne" — the capacity & LCOT denominator unit
+    gross_capacity: float      # hull capacity in cargo_unit (TEU slots / DWT tonnes)
+    unit_mass_t: float         # mass per cargo unit (t/TEU laden mix; ~1 for a tonne platform)
+    deadweight_t: float        # cargo + onboard-energy mass budget
+    load_factor: float
+    load_factor_imbalance: float
+    batt_empty_usable_frac: float
+    hull_capex_usd: float
+    hull_life_yr: float
 
 
 @dataclass(frozen=True)
@@ -70,6 +90,7 @@ class Case:
     label: str       # plot label
     color: str
     clip: bool       # battery ships whose LCOT blows up long-haul (line plots clip them)
+    platform: Platform
     drivetrain: Drivetrain
     source: EnergySource
     crew_count: float
@@ -99,6 +120,13 @@ def build_cases(p: Params):
                        turquois, very_dark_gray, light_blue)
 
     elec_pf = _elec_propulsion_factor(p)
+
+    # One platform today: the container ship (volume-bound, TEU). A bulk/chemical
+    # carrier would be another Platform with cargo_unit="tonne".
+    container = Platform(
+        "container", "TEU", p.gross_slots, p.cargo_t_per_teu, p.deadweight_t,
+        p.load_factor, p.load_factor_imbalance, p.batt_empty_usable_frac,
+        p.hull_capex_usd, p.hull_life_yr)
 
     mechanical_fossil = Drivetrain(
         "mechanical-fossil", "mechanical", p.fossil_propulsion_factor,
@@ -149,32 +177,32 @@ def build_cases(p: Params):
                               battery=_battery_spec(p, "battery"))
 
     return [
-        Case("fossil", "fossil", blue_black, False, mechanical_fossil, fuel,
+        Case("fossil", "fossil", blue_black, False, container, mechanical_fossil, fuel,
              p.crew_count_fossil, 0.0, p.om_fossil_other_usd_yr,
              p.fossil_overhead_slots, p.port_hours_per_call, p.availability),
-        Case("lfp", "battery-electric (LFP)", fca_blue, True, electric, lfp_src,
+        Case("lfp", "battery-electric (LFP)", fca_blue, True, container, electric, lfp_src,
              p.crew_count_elec, p.hotel_delta_elec_kw, p.om_elec_other_usd_yr,
              p.elec_fixed_overhead_slots, p.port_hours_elec, p.availability_elec),
-        Case("iron-air", "battery-electric (iron-air)", sand_yellow, True, electric,
-             ironair_src, p.crew_count_elec, p.hotel_delta_elec_kw,
+        Case("iron-air", "battery-electric (iron-air)", sand_yellow, True, container,
+             electric, ironair_src, p.crew_count_elec, p.hotel_delta_elec_kw,
              p.om_elec_other_usd_yr, p.elec_fixed_overhead_slots,
              p.port_hours_elec, p.availability_elec),
-        Case("nuclear", "nuclear (SMR direct)", green, False, mechanical_nuclear,
+        Case("nuclear", "nuclear (SMR direct)", green, False, container, mechanical_nuclear,
              nuc_direct, p.crew_count_nuclear, p.hotel_delta_nuclear_kw,
              p.om_nuclear_other_usd_yr, p.nuclear_overhead_slots,
              p.port_hours_per_call, p.availability),
         Case("nuc-ec", "nuclear-electric (containerized)", highlight_blue, False,
-             electric, nucc_src, p.crew_count_nuclear, p.hotel_delta_nuclear_kw,
+             container, electric, nucc_src, p.crew_count_nuclear, p.hotel_delta_nuclear_kw,
              p.nucc_om_other_usd_yr, nucc_overhead, p.port_hours_elec, p.availability),
-        Case("nuc-el", "nuclear-electric (leased)", turquois, False, electric,
+        Case("nuc-el", "nuclear-electric (leased)", turquois, False, container, electric,
              nucl_src, p.crew_count_nuclear, p.hotel_delta_nuclear_kw,
              p.nucc_om_other_usd_yr, nucc_overhead, p.port_hours_elec, p.availability),
         Case("nuc-ei", "nuclear-electric (integrated)", very_dark_gray, False,
-             electric, nuci_src, p.crew_count_nuclear, p.hotel_delta_nuclear_kw,
+             container, electric, nuci_src, p.crew_count_nuclear, p.hotel_delta_nuclear_kw,
              p.nuci_om_other_usd_yr, p.nuci_overhead_slots, p.port_hours_elec,
              p.availability),
-        Case("mobile", "mobile-reactor charge", light_blue, True, electric, tender_src,
-             p.crew_count_elec, p.hotel_delta_elec_kw, p.om_elec_other_usd_yr,
+        Case("mobile", "mobile-reactor charge", light_blue, True, container, electric,
+             tender_src, p.crew_count_elec, p.hotel_delta_elec_kw, p.om_elec_other_usd_yr,
              p.elec_fixed_overhead_slots, p.mob_port_hours_per_call, p.availability_elec),
     ]
 
