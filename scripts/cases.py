@@ -25,7 +25,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 from params import Params
-from units import KG_PER_TONNE
+import supply
 from sizing import (BatterySpec, _elec_propulsion_factor, _reactor_design_power_kw,
                     _ceil_half_teu)
 
@@ -101,10 +101,6 @@ class Case:
     availability: float
 
 
-def _fuel_chem_usd_per_kwh(p: Params) -> float:
-    return p.fuel_usd_per_t / KG_PER_TONNE / p.fuel_lhv_kwh_per_kg
-
-
 def _battery_spec(p: Params, prefix: str) -> BatterySpec:
     g = lambda s: getattr(p, f"{prefix}_{s}")
     return BatterySpec(g("usd_per_kwh"), g("kwh_per_teu"), g("dod"),
@@ -144,36 +140,38 @@ def build_cases(p: Params):
     design_kw = _reactor_design_power_kw(p)
     nucc_overhead = _ceil_half_teu(p.nucc_overhead_teu_per_mwe * design_kw / 1000.0)
 
+    # supply_usd_per_kwh comes from the supply-cost layer (supply.py) — the seam
+    # where upstream production models (refinery, e-fuel, LDES) plug in later.
     fuel = EnergySource("VLSFO", "fuel", "direct",
-                        supply_usd_per_kwh=_fuel_chem_usd_per_kwh(p),
+                        supply_usd_per_kwh=supply.vlsfo_chemical(p),
                         energy_mass_t=p.bunker_mass_t)
     lfp_src = EnergySource("LFP", "battery", "swap",
-                           supply_usd_per_kwh=p.elec_usd_per_kwh,
+                           supply_usd_per_kwh=supply.grid_electricity(p),
                            battery=_battery_spec(p, "battery"))
     ironair_src = EnergySource("iron-air", "battery", "swap",
-                               supply_usd_per_kwh=p.elec_usd_per_kwh,
+                               supply_usd_per_kwh=supply.grid_electricity(p),
                                battery=_battery_spec(p, "ironair"))
     nuc_direct = EnergySource("SMR-direct", "reactor", "owned",
-                              supply_usd_per_kwh=p.nuclear_fuel_usd_per_kwh_th,
+                              supply_usd_per_kwh=supply.reactor_thermal(p.nuclear_fuel_usd_per_kwh_th),
                               reactor_usd_per_kw=p.nuclear_usd_per_kw,
                               reactor_life_yr=p.nuclear_life_yr)
     nucc_src = EnergySource("SMR-containerized", "reactor", "owned",
-                            supply_usd_per_kwh=p.nucc_fuel_usd_per_kwh_th,
+                            supply_usd_per_kwh=supply.reactor_thermal(p.nucc_fuel_usd_per_kwh_th),
                             eta_generation=p.eta_nuclear,
                             reactor_usd_per_kw=p.nucc_usd_per_kw,
                             reactor_life_yr=p.nucc_life_yr)
     nucl_src = EnergySource("SMR-leased", "reactor", "leased",
-                            supply_usd_per_kwh=p.nucc_fuel_usd_per_kwh_th,
+                            supply_usd_per_kwh=supply.reactor_thermal(p.nucc_fuel_usd_per_kwh_th),
                             eta_generation=p.eta_nuclear,
                             reactor_usd_per_kw=p.nucc_usd_per_kw,
                             reactor_life_yr=p.nucc_life_yr)
     nuci_src = EnergySource("SMR-integrated", "reactor", "owned",
-                            supply_usd_per_kwh=p.nuci_fuel_usd_per_kwh_th,
+                            supply_usd_per_kwh=supply.reactor_thermal(p.nuci_fuel_usd_per_kwh_th),
                             eta_generation=p.eta_nuclear,
                             reactor_usd_per_kw=p.nuci_usd_per_kw,
                             reactor_life_yr=p.nuci_life_yr)
     tender_src = EnergySource("mobile-tender", "battery", "tender",
-                              supply_usd_per_kwh=p.elec_usd_per_kwh,
+                              supply_usd_per_kwh=supply.grid_electricity(p),
                               battery=_battery_spec(p, "battery"))
 
     return [

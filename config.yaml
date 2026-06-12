@@ -52,6 +52,7 @@ eta_aux_gen: 0.42            # fossil: aux genset fuel -> hotel electricity (bel
 fuel_usd_per_t: 550.0        # VLSFO
 fuel_lhv_kwh_per_kg: 11.1    # ~40 MJ/kg
 elec_usd_per_kwh: 0.09       # delivered industrial / shore power
+efuel_usd_per_kwh: 0.18      # PLACEHOLDER e-fuel $/kWh chem (supply.efuel_chemical); model TODO
 
 # ---- fossil powertrain ---------------------------------------------------
 engine_usd_per_kw: 400.0

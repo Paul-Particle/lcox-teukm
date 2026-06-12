@@ -112,15 +112,15 @@ output) — it replaced the legacy parity oracle once the shim was retired.
 
 ## Refactor wishes (captured during the build — design the axes to accommodate)
 
-- **Energy-supply-cost stubs — as EnergySource strategies, the analog of the tender.** Each new
-  supply is just another `EnergySource` whose $/kWh comes from a model rather than a constant —
-  exactly how the tender's `pricing="tender"` source gets its $/kWh from `_mobile_tender_usd_per_kwh`
-  instead of a flat price. The hook already exists: `EnergySource.supply_usd_per_kwh` carries the
-  primary-energy price (today the flat config value); promote it to a `supply_cost(p, ...)` strategy
-  and add sources for: iron-air / LDES as *grid-storage arbitrage* (charge cheap, levelize over
-  cycles), e-fuel (electrolyzer + DAC + synthesis CAPEX/efficiency → $/kWh), and a fossil refinery
-  placeholder. Each stub returns the current config number, with a TODO for the real model — so they
-  drop into the registry like any other source, no special-casing in `cost.py`.
+- **Energy-supply-cost layer — DONE (the seam is live; the upstream models are stubs).**
+  `supply.py` holds one function per supply (`vlsfo_chemical`, `grid_electricity`, `reactor_thermal`,
+  + `ldes_electricity`, `efuel_chemical`), and `build_cases` wires every `EnergySource.supply_usd_per_kwh`
+  through one — so supply cost is a named, pluggable strategy on the axis, the analog of the tender.
+  Each currently emits the config price; the TODO in each function says what the real model computes
+  (refinery; LDES arbitrage; electrolyzer+DAC+synthesis). Remaining: (a) flesh out a real model in any
+  stub; (b) ATTACH the not-yet-wired supplies to cases — an e-fuel ship (e-fuel source + a drivetrain;
+  `efuel_usd_per_kwh` placeholder exists) and an LDES-charged battery variant. Adding a case is a
+  registry row; it needs a drivetrain/platform choice and grows the golden output.
 - **Cargo-as-fuel (chemical tankers).** A chemical/e-fuel tanker can burn part of its own cargo as
   fuel. This is a **Platform × EnergySource coupling**: the energy source draws from cargo, so
   (a) the consumed mass is netted out of deliverable cargo (tonne·km denominator shrinks with

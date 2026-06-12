@@ -77,10 +77,13 @@ class Params:
     eta_aux_gen: float = 0.42          # fossil: auxiliary genset fuel -> hotel electricity (hotel
                                        # runs off aux diesels, not the main 2-stroke -> below eta_fossil)
 
-    # ---- energy prices
+    # ---- energy prices (supply-cost layer in supply.py reads these)
     fuel_usd_per_t: float = 550.0      # VLSFO
     fuel_lhv_kwh_per_kg: float = 11.1  # ~40 MJ/kg
     elec_usd_per_kwh: float = 0.09     # delivered industrial / shore power
+    efuel_usd_per_kwh: float = 0.18    # PLACEHOLDER e-fuel $/kWh chemical (supply.efuel_chemical);
+                                       # pending an electrolyzer+DAC+synthesis model. Not yet wired
+                                       # to a case.
 
     # ---- fossil powertrain
     engine_usd_per_kw: float = 400.0
