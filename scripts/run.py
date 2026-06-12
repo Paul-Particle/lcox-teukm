@@ -27,7 +27,7 @@ This file is the entry point only. The model is split across sibling modules:
     units.py     unit conversions (single source of truth)
     params.py    Params schema + load_params(config.yaml)
     finance.py   capital recovery factor
-    energy.py    ship physics (power, leg energy, cycles/year)
+    energy.py    ship physics (power, leg energy, legs/year)
     lcot.py      the cost models: fossil, LFP & iron-air battery (port swap),
                  onboard nuclear (direct-drive), two nuclear-electric variants
                  (containerized / integrated), and a battery ship charged at sea
