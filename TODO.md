@@ -5,7 +5,7 @@
   little/no commercial precedent — all engineering estimates. Highest-leverage,
   most uncertain: `mob_tender_*` (reactor/hull/O&M cost, parasitic), `mob_cable_v_cap_kn`,
   `mob_charge_power_kw`, `mob_rendezvous_spacing_h`, `nucc_unit_kw`, `nucc_usd_per_kw`.
-  Now swept in per-case tornados (`plot_tornados`: Li-ion, iron-air, mobile,
+  Now swept in per-case tornados (`plot_tornados`: LFP, iron-air, mobile,
   nuclear-electric), incl. `ironair_pack_wh_per_kg` and EEZ distance.
 - Mobile tender: rendezvous spacing is a fixed param; jointly optimizing it trades
   ship battery size vs tender count. Battery cycle-life accounting under frequent
@@ -23,11 +23,11 @@
   (`nucc_lease_usd_yr`) is an alternative.
 - **Battery mix for short journeys:** iron-air is power-limited (C/50) up to
   ~1500 km — its pack is sized by *sustained* cruise power, 2-6x the energy it
-  uses, and a finite Li-ion/supercap buffer can't relieve that (cruise power is
-  sustained, not peaky). So a **battery mix may be optimal by route**: Li-ion
+  uses, and a finite LFP/supercap buffer can't relieve that (cruise power is
+  sustained, not peaky). So a **battery mix may be optimal by route**: LFP
   (high power, modest energy) short-haul, iron-air (cheap bulk energy) long-haul
-  — explore choosing chemistry per route, or a physical Li-ion + iron-air split
-  (Li-ion carries cruise power, iron-air adds range only where energy binds).
+  — explore choosing chemistry per route, or a physical LFP + iron-air split
+  (LFP carries cruise power, iron-air adds range only where energy binds).
 
 ## Deferred — 3-axis platform refactor
 The big refactor (Platform × Drivetrain × Energy-source; bulk/chemical tonne·km

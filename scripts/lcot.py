@@ -4,7 +4,7 @@ lcot.py — levelized cost of transport (US$/TEU·km) for each powertrain.
 All four models share the same structure: annualize CAPEX, add fixed O&M and
 per-cycle energy cost, then divide by annual TEU·km of cargo moved.
 
-The two battery models (Li-ion, iron-air) share one implementation,
+The two battery models (LFP, iron-air) share one implementation,
 parameterized by a `BatterySpec` chemistry: the swappable battery is sized
 from the per-leg energy demand at D_max AND from peak power for
 duration-limited chemistries (iron-air's 100-h rating means the pack cannot
@@ -152,7 +152,7 @@ def _lcot_battery(p: Params, v_kn: float, d_km: float, spec: BatterySpec) -> dic
     grid_kwh = stored_kwh / spec.eta_charge
     energy_cost_leg = grid_kwh * p.elec_usd_per_kwh
 
-    # Cycle wear counted per leg, as for Li-ion before; slightly conservative
+    # Cycle wear counted per leg, as for LFP before; slightly conservative
     # when the pack is power-oversized and a leg is only a partial cycle.
     battery_life = min(spec.calendar_life_yr, spec.cycle_life / cyc)
     motor_capex = p.motor_usd_per_kw * prop_power_kw(p, p.v_design_max_kn, pf)
@@ -172,7 +172,7 @@ def _lcot_battery(p: Params, v_kn: float, d_km: float, spec: BatterySpec) -> dic
             "battery_kwh": installed_kwh, "battery_life": battery_life}
 
 
-def lcot_elec(p: Params, v_kn: float, d_km: float) -> dict:
+def lcot_lfp(p: Params, v_kn: float, d_km: float) -> dict:
     return _lcot_battery(p, v_kn, d_km, BatterySpec(
         p.battery_usd_per_kwh, p.battery_kwh_per_teu, p.battery_dod,
         p.battery_reserve, p.battery_cycle_life, p.battery_calendar_life_yr,

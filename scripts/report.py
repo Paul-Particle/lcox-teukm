@@ -12,7 +12,7 @@ from pathlib import Path
 import numpy as np
 
 from params import Params
-from lcot import (lcot_fossil, lcot_elec, lcot_ironair, lcot_nuclear,
+from lcot import (lcot_fossil, lcot_lfp, lcot_ironair, lcot_nuclear,
                   lcot_nuclear_elec_containerized, lcot_nuclear_elec_integrated,
                   lcot_mobile)
 from analysis import optimize_speed, crossover_dmax
@@ -30,7 +30,7 @@ from style import (
 # interest (viewers can still zoom).
 CASES = [
     ("fossil",   "fossil",                          lcot_fossil,  blue_black,     False),
-    ("li-ion",   "battery-electric (Li-ion)",       lcot_elec,    fca_blue,       True),
+    ("lfp",   "battery-electric (LFP)",       lcot_lfp,    fca_blue,       True),
     ("iron-air", "battery-electric (iron-air)",     lcot_ironair, sand_yellow,    True),
     ("nuclear",  "nuclear (SMR direct)",            lcot_nuclear, green,          False),
     ("nuc-ec",   "nuclear-electric (containerized)", lcot_nuclear_elec_containerized, highlight_blue, False),
@@ -42,7 +42,7 @@ Y_CAP_CENTS = 50.0
 # Sample hop lengths (km) shown in the per-ship breakdown table.
 SAMPLE_HOPS_KM = [200, 500, 1000, 2000, 4000]
 
-# Sensitivity sweep axes (Li-ion battery cost x electricity price).
+# Sensitivity sweep axes (LFP battery cost x electricity price).
 SENS_BATTERY_USD_PER_KWH = [250, 150, 80]
 SENS_ELEC_USD_PER_KWH = [0.09, 0.06, 0.03]
 
@@ -57,7 +57,7 @@ def print_base_header(p: Params) -> None:
     print("=" * 72)
     print("BASE CASE")
     print(f"  fuel ${p.fuel_usd_per_t}/t  |  elec ${p.elec_usd_per_kwh}/kWh  "
-          f"|  Li-ion ${p.battery_usd_per_kwh}/kWh  |  hull {p.gross_slots:.0f} TEU")
+          f"|  LFP ${p.battery_usd_per_kwh}/kWh  |  hull {p.gross_slots:.0f} TEU")
     print(f"  iron-air ${p.ironair_usd_per_kwh}/kWh @ "
           f"{p.ironair_eta_charge*p.ironair_eta_discharge*PERCENT_PER_FRACTION:.0f}% RTE  "
           f"|  SMR ${p.nuclear_usd_per_kw:.0f}/kW")
@@ -69,7 +69,7 @@ def print_energy_cost(p: Params) -> None:
     costs = {
         "fossil": (p.fuel_usd_per_t / KG_PER_TONNE / p.fuel_lhv_kwh_per_kg)
                   / p.eta_fossil,
-        "li-ion": p.elec_usd_per_kwh / (p.battery_eta_charge * p.battery_eta_discharge * p.eta_elec),
+        "lfp": p.elec_usd_per_kwh / (p.battery_eta_charge * p.battery_eta_discharge * p.eta_elec),
         "iron-air": p.elec_usd_per_kwh / (p.ironair_eta_charge * p.ironair_eta_discharge * p.eta_elec),
         "nuclear": p.nuclear_fuel_usd_per_kwh_th / p.eta_nuclear,
     }
@@ -116,17 +116,17 @@ def print_crossover(p: Params, d_grid) -> None:
 
 
 def print_sensitivity(p: Params, d_grid) -> None:
-    """Li-ion-vs-fossil crossover D_max vs battery cost and electricity price.
+    """LFP-vs-fossil crossover D_max vs battery cost and electricity price.
     (Iron-air and nuclear axes are out of scope for this table.)"""
     print("\n" + "=" * 72)
-    print("SENSITIVITY: Li-ion crossover D_max (km) vs battery cost & elec price")
+    print("SENSITIVITY: LFP crossover D_max (km) vs battery cost & elec price")
     print("=" * 72)
     print(f"{'':>14}" + "".join(f"  elec ${e:>4.2f}" for e in SENS_ELEC_USD_PER_KWH))
     for bc in SENS_BATTERY_USD_PER_KWH:
         row = f"batt ${bc:>3}/kWh "
         for ep in SENS_ELEC_USD_PER_KWH:
             pp = replace(p, battery_usd_per_kwh=bc, elec_usd_per_kwh=ep)
-            c = crossover_dmax(pp, d_grid, lcot_elec, lcot_fossil)
+            c = crossover_dmax(pp, d_grid, lcot_lfp, lcot_fossil)
             cell = "none" if c is None else (">6000" if np.isinf(c) else f"{c:.0f}")
             row += f"  {cell:>9}"
         print(row)
@@ -136,20 +136,20 @@ def print_hotel_sensitivity(p: Params, d_grid) -> None:
     """Hotel/reefer load sensitivity. Reefer power is the large, variable part
     of hotel load, and on a battery ship it is drawn from the (slot-displacing)
     battery, so reefer-heavy routes penalize the battery ships far more than
-    fossil. Shows LCOT at a representative D_max plus the Li-ion crossover.
+    fossil. Shows LCOT at a representative D_max plus the LFP crossover.
     A faithful model would couple reefer load to carried cargo and credit
     reefer revenue (reefers are high-value) — out of scope here (see TODO.md)."""
     d = SENS_HOTEL_DMAX_KM
     print("\n" + "=" * 72)
     print(f"SENSITIVITY: hotel/reefer load — LCOT (c/TEU·km) at D_max {d:.0f} km")
     print("=" * 72)
-    print(f"{'':>20}{'fossil':>9}{'li-ion':>9}{'iron-air':>9}{'li-ion x-over':>15}")
+    print(f"{'':>20}{'fossil':>9}{'lfp':>9}{'iron-air':>9}{'lfp x-over':>15}")
     for label, h in SENS_HOTEL_KW:
         pp = replace(p, p_hotel_kw=h)
         lf = optimize_speed(lcot_fossil,  pp, d)["lcot"] * CENTS_PER_USD
-        le = optimize_speed(lcot_elec,    pp, d)["lcot"] * CENTS_PER_USD
+        le = optimize_speed(lcot_lfp,    pp, d)["lcot"] * CENTS_PER_USD
         li = optimize_speed(lcot_ironair, pp, d)["lcot"] * CENTS_PER_USD
-        co = crossover_dmax(pp, d_grid, lcot_elec, lcot_fossil)
+        co = crossover_dmax(pp, d_grid, lcot_lfp, lcot_fossil)
         cox = "none" if co is None else (">6000" if np.isinf(co) else f"{co:.0f} km")
         tag = f"{label} {h:>4} kW"
         print(f"{tag:>20}{lf:>8.3f}c{le:>8.3f}c{li:>8.3f}c{cox:>15}")
@@ -259,7 +259,7 @@ def plot_lcot_vs_dmax(p: Params, out_dir: str) -> list:
         font=dict(family="Titillium Web", size=18, color=blue_black),
     )
     fig.add_annotation(
-        text=(f"Base case: Li-ion &#36;{p.battery_usd_per_kwh:.0f}/kWh, "
+        text=(f"Base case: LFP &#36;{p.battery_usd_per_kwh:.0f}/kWh, "
               f"iron-air &#36;{p.ironair_usd_per_kwh:.0f}/kWh @ "
               f"{p.ironair_eta_charge*p.ironair_eta_discharge*PERCENT_PER_FRACTION:.0f}% RTE, "
               f"electricity &#36;{p.elec_usd_per_kwh}/kWh, "
@@ -332,7 +332,7 @@ def plot_speed_vs_dmax(p: Params, out_dir: str) -> list:
         font=dict(family="Titillium Web", size=18, color=blue_black),
     )
     fig.add_annotation(
-        text=(f"Base case: Li-ion &#36;{p.battery_usd_per_kwh:.0f}/kWh, "
+        text=(f"Base case: LFP &#36;{p.battery_usd_per_kwh:.0f}/kWh, "
               f"iron-air &#36;{p.ironair_usd_per_kwh:.0f}/kWh, "
               f"electricity &#36;{p.elec_usd_per_kwh}/kWh, "
               f"SMR &#36;{p.nuclear_usd_per_kw:.0f}/kW"),
@@ -350,7 +350,7 @@ def plot_speed_vs_dmax(p: Params, out_dir: str) -> list:
 
 # (label, field, low, high) sweeps per case. The new cases' most uncertain
 # params dominate (mobile tender, iron-air mass density, modular reactor).
-SENS_LIION = [
+SENS_LFP = [
     ("battery cost ($/kWh)",             "battery_usd_per_kwh",    80,   350),
     ("electricity price ($/kWh)",        "elec_usd_per_kwh",       0.03, 0.15),
     ("battery energy density (kWh/TEU)", "battery_kwh_per_teu",    2000, 5000),
@@ -484,11 +484,11 @@ def plot_tornado(p: Params, d_km: float, out_dir: str, fn, sens,
 
 def plot_tornados(p: Params, d_km: float, out_dir: str) -> list:
     """Tornados for the cases whose parameters carry the most uncertainty —
-    Li-ion plus the speculative new cases (iron-air mass, mobile tender, modular
+    LFP plus the speculative new cases (iron-air mass, mobile tender, modular
     reactor). One PNG/HTML each."""
     saved = []
     for fn, sens, label, stem in [
-        (lcot_elec,    SENS_LIION,   "battery-electric (Li-ion)",        "tornado_liion"),
+        (lcot_lfp,    SENS_LFP,   "battery-electric (LFP)",        "tornado_lfp"),
         (lcot_ironair, SENS_IRONAIR, "battery-electric (iron-air)",      "tornado_ironair"),
         (lcot_mobile,  SENS_MOBILE,  "mobile-reactor charge",            "tornado_mobile"),
         (lcot_nuclear_elec_containerized, SENS_NUCELEC,
@@ -525,16 +525,16 @@ def plot_teu_tech_tradeoff(p: Params, d_km: float, out_dir: str) -> list:
              fn=lcot_fossil, params=p,
              lcot_c=None, teu_c=None),
         dict(label="Battery\n250 $/kWh", color=fca_blue, computed=True,
-             fn=lcot_elec, params=replace(p, battery_usd_per_kwh=250),
+             fn=lcot_lfp, params=replace(p, battery_usd_per_kwh=250),
              lcot_c=None, teu_c=None),
         dict(label="Battery\n150 $/kWh", color=highlight_blue, computed=True,
-             fn=lcot_elec, params=replace(p, battery_usd_per_kwh=150),
+             fn=lcot_lfp, params=replace(p, battery_usd_per_kwh=150),
              lcot_c=None, teu_c=None),
         dict(label="Battery\n80 $/kWh", color="#52B5D9", computed=True,
-             fn=lcot_elec, params=replace(p, battery_usd_per_kwh=80),
+             fn=lcot_lfp, params=replace(p, battery_usd_per_kwh=80),
              lcot_c=None, teu_c=None),
         dict(label="Battery 250 $/kWh\n5 MWh/TEU", color="#70D2F0", computed=True,
-             fn=lcot_elec,
+             fn=lcot_lfp,
              params=replace(p, battery_usd_per_kwh=250, battery_kwh_per_teu=5000),
              lcot_c=None, teu_c=None),
         dict(label="Iron-air\n30 $/kWh", color=sand_yellow, computed=True,

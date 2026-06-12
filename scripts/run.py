@@ -1,6 +1,6 @@
 """
 lcox-teukm — levelized cost of transport (LCOT, US$/TEU·km) for a container
-ship across powertrains: fossil; battery-electric (Li-ion and iron-air, port
+ship across powertrains: fossil; battery-electric (LFP and iron-air, port
 swap); onboard nuclear (direct-drive SMR); nuclear-electric (reactor -> motor,
 containerized or integrated); and a battery ship recharged at sea by a mobile
 nuclear tender.
@@ -28,7 +28,7 @@ This file is the entry point only. The model is split across sibling modules:
     params.py    Params schema + load_params(config.yaml)
     finance.py   capital recovery factor
     energy.py    ship physics (power, leg energy, cycles/year)
-    lcot.py      the cost models: fossil, Li-ion & iron-air battery (port swap),
+    lcot.py      the cost models: fossil, LFP & iron-air battery (port swap),
                  onboard nuclear (direct-drive), two nuclear-electric variants
                  (containerized / integrated), and a battery ship charged at sea
                  by a mobile nuclear tender. carried_teu now applies volume, mass

@@ -88,7 +88,7 @@ class Params:
     om_elec_usd_yr: float = 1.2e6      # NON-crew O&M: insurance, repairs (fewer moving parts), stores
     elec_fixed_overhead_slots: float = 30.0  # compact motors only (no big engine/tanks)
     # Electric-drive hull/propeller efficiency, itemized (the product scales
-    # propulsion power; shared by Li-ion, iron-air, nuclear-electric, mobile).
+    # propulsion power; shared by LFP, iron-air, nuclear-electric, mobile).
     # Source ranges: hull form up to -20%, coatings ~-3%, propeller/pods -15..20%,
     # wider motor eff -5..10%, weather/trim routing ~-8%; values are conservative-end.
     elec_hull_form_factor: float = 0.92    # optimized hull form
@@ -103,21 +103,22 @@ class Params:
                                            # TODO: linear ramp 0->1 over [frac*slack, slack] (TODO.md).
     battery_usd_per_kwh: float = 250.0     # installed, marinized system level
     battery_kwh_per_teu: float = 3000.0    # energy per battery container (3 MWh/TEU)
-    battery_pack_wh_per_kg: float = 160.0  # Li-ion system energy density -> battery mass (deadweight)
+    battery_pack_wh_per_kg: float = 130.0  # LFP system energy density (conservative; cells ~160-180,
+                                           # system/pack lower) -> battery mass (deadweight)
     battery_dod: float = 0.90              # usable depth of discharge
     battery_reserve: float = 0.20          # weather/safety margin on top of leg energy
     battery_cycle_life: float = 4000.0
     battery_calendar_life_yr: float = 12.0
-    battery_eta_charge: float = 0.97       # Li-ion grid -> stored
-    battery_eta_discharge: float = 0.98    # Li-ion stored -> delivered (round-trip ~0.95)
+    battery_eta_charge: float = 0.97       # LFP grid -> stored
+    battery_eta_discharge: float = 0.98    # LFP stored -> delivered (round-trip ~0.95)
     battery_min_discharge_h: float = 0.0   # rated discharge-duration floor; 0 = no power limit
 
     # ---- iron-air battery powertrain (Form Energy class; shares hull, motor,
-    # drivetrain, electricity price, and swap logistics with the Li-ion ship).
-    # Iron-air's ~5x mass per kWh IS now enforced via the deadweight constraint
+    # drivetrain, electricity price, and swap logistics with the LFP ship).
+    # Iron-air's ~4x mass per kWh IS now enforced via the deadweight constraint
     # (carried_teu), so its weight bites: mass-limited short-haul, infeasible long.
     ironair_usd_per_kwh: float = 30.0      # installed system (chemistry target <$20/kWh)
-    ironair_kwh_per_teu: float = 1500.0    # ~half Li-ion volumetric density per container
+    ironair_kwh_per_teu: float = 1500.0    # ~half LFP volumetric density per container
     ironair_dod: float = 0.95              # chemistry tolerates deep discharge
     ironair_reserve: float = 0.20          # weather/safety margin on top of leg energy
     ironair_cycle_life: float = 10000.0    # non-binding at 100-h rates
@@ -130,7 +131,7 @@ class Params:
     # Discharge fixed at C/50 (2x Form's ~C/100 design point): still >100x below the
     # ~3C passivation onset for additive-stabilized Fe electrodes, so efficiency barely moves.
     # Binding limits at this rate are heat rejection (~I·η, super-linear) and air-electrode O2 transport, not RTE.
-    ironair_pack_wh_per_kg: float = 30.0   # system density (~5x heavier than Li-ion); enforced as a
+    ironair_pack_wh_per_kg: float = 30.0   # system density (~4x heavier than LFP); enforced as a
                                            # deadweight constraint -> bites long-haul iron-air.
                                            # TODO: key uncertain input — sweep in the tornado
 

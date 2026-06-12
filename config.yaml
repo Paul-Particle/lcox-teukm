@@ -63,7 +63,7 @@ motor_life_yr: 25.0
 om_elec_usd_yr: 1.2e+6       # NON-crew O&M: insurance, repairs (fewer parts), stores
 elec_fixed_overhead_slots: 30.0  # compact motors only (no big engine/tanks)
 # Electric-drive hull/propeller efficiency, itemized (product scales propulsion power;
-# shared by Li-ion, iron-air, nuclear-electric, mobile). Conservative end of literature.
+# shared by LFP, iron-air, nuclear-electric, mobile). Conservative end of literature.
 elec_hull_form_factor: 0.92  # optimized hull form (up to -20%)
 elec_coating_factor: 0.98    # anti-fouling coatings (~-3%)
 elec_propeller_factor: 0.88  # larger low-RPM props on pods (-15..20%)
@@ -73,23 +73,23 @@ batt_empty_usable_frac: 0.40 # fraction of empty slack batteries may use before 
                              # cargo (DG/stability/access limits); 1.0 = use all slack first
 battery_usd_per_kwh: 250.0   # installed, marinized system level
 battery_kwh_per_teu: 3000.0  # energy per battery container (3 MWh/TEU)
-battery_pack_wh_per_kg: 160.0  # Li-ion system density -> battery mass (deadweight constraint)
+battery_pack_wh_per_kg: 130.0  # LFP system density (conservative) -> battery mass (deadweight)
 battery_dod: 0.90            # usable depth of discharge
 battery_reserve: 0.20        # weather/safety margin on top of leg energy
 battery_cycle_life: 4000.0
 battery_calendar_life_yr: 12.0
-battery_eta_charge: 0.97     # Li-ion grid -> stored
-battery_eta_discharge: 0.98  # Li-ion stored -> delivered (round-trip ~0.95)
+battery_eta_charge: 0.97     # LFP grid -> stored
+battery_eta_discharge: 0.98  # LFP stored -> delivered (round-trip ~0.95)
 battery_min_discharge_h: 0.0 # rated discharge-duration floor; 0 = no power limit
 
 # ---- iron-air battery powertrain ------------------------------------------
 # Form Energy class 100-hour chemistry; shares hull, motor, drivetrain,
-# electricity price, and swap logistics with the Li-ion ship. Sources: Form
+# electricity price, and swap logistics with the LFP ship. Sources: Form
 # Energy ISO-NE 2024 deck (~40% AC-AC RTE, 100-h product, 20-yr life), Utility
 # Dive (<$20/kWh chemistry target). Deadweight not enforced (model optimistic:
-# iron-air is ~5x heavier per kWh than Li-ion at system level).
+# iron-air is ~4x heavier per kWh than LFP at system level).
 ironair_usd_per_kwh: 30.0    # installed system; chemistry target <$20/kWh + marine premium
-ironair_kwh_per_teu: 1500.0  # ~half of Li-ion's 3 MWh/TEU (aqueous, lower density)
+ironair_kwh_per_teu: 1500.0  # ~half of LFP's 3 MWh/TEU (aqueous, lower density)
 ironair_dod: 0.95            # chemistry tolerates deep discharge; no published spec
 ironair_reserve: 0.20        # weather/safety margin on top of leg energy
 ironair_cycle_life: 10000.0  # electrode claims >10k; non-binding at 100-h rates
@@ -97,7 +97,7 @@ ironair_calendar_life_yr: 20.0
 ironair_eta_charge: 0.55     # iron-air grid -> stored; charge-limited chemistry
 ironair_eta_discharge: 0.82  # iron-air stored -> delivered (round-trip ~0.45 AC-AC; split approx.)
 ironair_min_discharge_h: 50.0  # C/50 sustained discharge (2x Form's C/100); see params.py rationale
-ironair_pack_wh_per_kg: 30.0 # ~5x heavier than Li-ion; enforced as deadweight (bites long-haul)
+ironair_pack_wh_per_kg: 30.0 # ~4x heavier than LFP; enforced as deadweight (bites long-haul)
 
 # ---- nuclear powertrain ----------------------------------------------------
 # Onboard SMR, no D_max-driven sizing. Sources: Lloyd's Register 2025

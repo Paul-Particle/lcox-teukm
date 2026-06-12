@@ -2,10 +2,10 @@
 
 A Tier-1 techno-economic model for container shipping decarbonization. It computes the
 **levelized cost of transport (LCOT)**, in US cents per TEU·km, for a container ship and
-compares four powertrains:
+compares several powertrains:
 
 - **Fossil** — conventional VLSFO-burning two-stroke.
-- **Battery-electric (Li-ion)** — with containerized battery swapping at port calls.
+- **Battery-electric (LFP)** — with containerized battery swapping at port calls.
 - **Battery-electric (iron-air)** — same swap concept with a Form-Energy-class 100-hour
   chemistry: very cheap per kWh but ~45% round-trip efficient and power-limited (the pack
   must be sized for peak draw × its 100 h discharge rating, not just leg energy), which
@@ -36,11 +36,11 @@ speed.
 
 The script reports:
 
-- Energy cost per useful kWh for all four powertrains.
+- Energy cost per useful kWh for every powertrain.
 - An LCOT breakdown (fixed vs. energy share, cargo capacity, battery size/life) at sample
   hop lengths.
 - The **crossover `D_max`** below which each battery ship is cheaper than fossil.
-- A sensitivity table of Li-ion crossover `D_max` vs. battery cost and electricity price.
+- A sensitivity table of LFP crossover `D_max` vs. battery cost and electricity price.
 - Interactive Plotly plots (LCOT vs. `D_max`, optimal speed vs. `D_max`, a sensitivity
   tornado, and a technology/cargo-capacity comparison) saved to `results/`.
 
@@ -55,7 +55,8 @@ The script reports:
 │   ├── params.py         # Params schema + load_params(config.yaml)
 │   ├── finance.py        # capital recovery factor
 │   ├── energy.py         # ship physics: power, leg energy, cycles/year
-│   ├── lcot.py           # the four cost models (fossil, Li-ion, iron-air, nuclear)
+│   ├── lcot.py           # cost models: fossil, LFP & iron-air battery, nuclear (direct
+│   │                     #   + electric), mobile-reactor tender
 │   ├── analysis.py       # speed optimization + crossover distance
 │   └── report.py         # console tables + plotting
 ├── results/              # generated plots (gitignored)
@@ -115,7 +116,7 @@ kW, time in hours, distance in km, speed in knots, mass in kg, money in US$.
 Case-specific caveats:
 
 - **Iron-air**: deadweight is not enforced for either battery chemistry (the model sizes
-  batteries by energy/power, not mass). Iron-air is roughly 5× heavier per kWh than Li-ion
+  batteries by energy/power, not mass). Iron-air is roughly 4× heavier per kWh than LFP
   at system level, so the model is optimistic for it. Cost and density values are based on
   announced targets (Form Energy), not delivered systems.
 - **Nuclear**: refueling and regulatory outages are assumed inside the shared
