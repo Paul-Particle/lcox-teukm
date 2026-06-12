@@ -127,15 +127,14 @@ nuci_fuel_usd_per_kwh_th: 0.012
 
 # ---- mobile nuclear reactor tender (charges battery ships at sea) -----------
 # Uncrewed micro-reactor tender (AMPERA-x class: thorium TRISO, subcritical, sCO2
-# ~50%, two-core ~30 MWe, no refuel for decades). Stays in international waters
-# (avoids the EEZ) for trivial licensing; lean build, asset-loss insurance.
-# Speculative — engineering estimates (sweep).
-mob_rendezvous_distance_nm: 200.0  # EEZ edge: ship crosses this no-charge zone on battery
+# ~50%, two-core ~30 MWe, no refuel for decades). Dedicated escort: the ship runs
+# untethered through coastal waters, then cables up at the border and crosses the
+# open ocean tethered to the tender. Speculative — engineering estimates (sweep).
+coastal_untethered_distance_nm: 12.0  # untethered battery run each end; 12 nm = UNCLOS minimum
+                                   # (set 200.0 to test a full-EEZ standoff)
+storm_survival_duration_h: 12.0    # worst-case at-sea disconnect; ship rides it out on battery
+cable_efficiency: 0.96             # tether transmission efficiency (ship bus / reactor output)
 mob_cable_v_cap_kn: 16.0           # max safe speed while cable-connected
-mob_charge_availability: 0.85      # fraction of underway time actually charging (sea state)
-mob_disconnect_reserve: 0.25       # extra battery to ride out a disconnected spell
-mob_rendezvous_spacing_h: 12.0     # ship-side: time between open-ocean top-ups; sets bridging battery
-mob_charge_power_kw: 25000.0       # cable/connector power limit (~reactor-limited)
 mob_tender_reactor_kw: 30000.0     # AMPERA two-core net electric (15 MWe x 2)
 mob_tender_parasitic_kw: 2500.0    # uncrewed; DP station-keeping + cooling (sCO2, no water)
 mob_tender_usd_per_kw: 7000.0      # microreactor NOAK ~$7k/kWe (FOAK $10-35k — sweep)
@@ -144,7 +143,7 @@ mob_tender_life_yr: 25.0
 mob_tender_om_usd_yr: 4.0e+6       # uncrewed: remote ops + asset-loss insurance; no crew/refuel
 mob_tender_fuel_usd_per_kwh_th: 0.012  # thorium core, multi-decade ~one-time (negligible)
 mob_tender_eta_nuclear: 0.45       # reactor thermal -> electric (sCO2 ~50%)
-mob_tender_idle_h: 5.0             # tender-side "port-time equivalent": non-charging hours per
-                                   # top-up (transit to + waiting for the next ship); sets utilization
+tender_idle_h: 5.0                 # tender-side "port-time equivalent": hours at the border between
+                                   # dropping one ship and picking up the next; sets utilization
 mob_tender_availability: 0.95      # decades without refuel, stays at sea; rare maintenance
 mob_port_hours_per_call: 12.0      # no battery swap in port -> shorter than 18

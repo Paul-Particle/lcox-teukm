@@ -4,10 +4,15 @@
 - **Mobile nuclear tender** and **nuclear-electric (containerized)** params have
   little/no commercial precedent — all engineering estimates. Highest-leverage,
   most uncertain: `mob_tender_*` (reactor/hull/O&M cost, parasitic), `mob_cable_v_cap_kn`,
-  `mob_charge_power_kw`, `mob_rendezvous_spacing_h`, `nucc_unit_kw`, `nucc_usd_per_kw`.
-  Now swept in per-case tornados (`plot_tornados`: LFP, iron-air, mobile,
-  nuclear-electric), incl. `ironair_pack_wh_per_kg` and EEZ distance.
-- **Mobile tender escort refactor:** The current code mathematically models a high-frequency "relay" top-up system, which conflicts with the intended Continuous Escort operational concept. A full refactor of `lcot_mobile` and its parameters is needed to correctly size the batteries for max(coastal transit, storm survival) and amortize the tender's cost over a dedicated ocean crossing cycle. (Future optimizations to implement later: consider the ability to ride out storms at reduced or zero speed to save battery, and the ability to charge batteries while steaming fast on the supplied nuclear power).
+  `coastal_untethered_distance_nm`, `storm_survival_duration_h`, `cable_efficiency`,
+  `nucc_unit_kw`, `nucc_usd_per_kw`. Now swept in per-case tornados (`plot_tornados`:
+  LFP, iron-air, mobile, nuclear-electric), incl. `ironair_pack_wh_per_kg`.
+- **Mobile tender escort refactor — DONE.** `lcot_mobile` now models the Dedicated
+  Escort concept: battery sized for `max(coastal transit, storm survival)`, tender cost
+  amortized over the bus energy pushed across the cable per ocean crossing, with a
+  reactor-net-power feasibility check. Future optimizations still open: ride out storms
+  at reduced/zero speed to shrink the pack; jointly optimize tethered cruise speed vs
+  battery size vs ships-per-tender (currently a fixed cable cap + ~1:1 escort ratio).
 - `lcot_mobile` duplicates the battery hull/motor/CAPEX/`carried` boilerplate; the
   3-axis refactor collapses it to "battery energy-source + at-sea-charge sizing
   strategy + tender price fn" — good motivation to do the refactor.

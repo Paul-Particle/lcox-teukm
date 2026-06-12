@@ -190,14 +190,14 @@ SENS_IRONAIR = [
     ("load factor",                   "load_factor",            0.65, 0.95),
 ]
 SENS_MOBILE = [
-    ("tender reactor CAPEX ($/kW)",       "mob_tender_usd_per_kw",      4000, 20000),
-    ("tender idle / top-up (h)",          "mob_tender_idle_h",          2,    12),
-    ("EEZ rendezvous distance (nm)",      "mob_rendezvous_distance_nm", 12,   200),
-    ("tender reactor size (kWe)",         "mob_tender_reactor_kw",      15000,45000),
-    ("charge availability",               "mob_charge_availability",    0.70, 0.95),
-    ("tender O&M ($/yr)",                 "mob_tender_om_usd_yr",       2e6,  10e6),
-    ("tender hull CAPEX ($M)",            "mob_tender_capex_hull_usd",  30e6, 100e6),
-    ("rendezvous spacing (h)",            "mob_rendezvous_spacing_h",   6,    24),
+    ("tender reactor CAPEX ($/kW)",       "mob_tender_usd_per_kw",           4000, 20000),
+    ("tender idle / escort (h)",          "tender_idle_h",                   2,    12),
+    ("coastal untethered dist. (nm)",     "coastal_untethered_distance_nm",  12,   200),
+    ("tender reactor size (kWe)",         "mob_tender_reactor_kw",           15000,45000),
+    ("storm survival (h)",                "storm_survival_duration_h",       6,    24),
+    ("tender O&M ($/yr)",                 "mob_tender_om_usd_yr",            2e6,  10e6),
+    ("tender hull CAPEX ($M)",            "mob_tender_capex_hull_usd",       30e6, 100e6),
+    ("cable efficiency",                  "cable_efficiency",                0.90, 0.99),
 ]
 SENS_NUCELEC = [
     ("reactor CAPEX ($/kW)",              "nucc_usd_per_kw",             4000, 20000),
