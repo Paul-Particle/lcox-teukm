@@ -29,6 +29,18 @@
   — explore choosing chemistry per route, or a physical LFP + iron-air split
   (LFP carries cruise power, iron-air adds range only where energy binds).
 
+## Data & itemization
+- **Tech-data library:** integrate a techno-economic reference dataset (published
+  reactor / battery / hull cost, efficiency, density figures) so param values are
+  sourced robustly *alongside* our own engineering estimates — tag each param with
+  source + uncertainty rather than relying on hand-curated comments.
+- **Full O&M & availability itemization:** O&M is only partly itemized — crew
+  (`crew_count_* x crew_cost_usd_yr`) + tugs + a single lumped non-crew residual
+  (`om_*_usd_yr` = insurance/repairs/lube/stores). Break that residual into its
+  components, per powertrain. Availability is per-powertrain (`availability` vs
+  `availability_elec`) but not decomposed; itemize planned maintenance /
+  refueling-or-bunkering / weather downtime so each driver is explicit.
+
 ## Deferred — 3-axis platform refactor
 The big refactor (Platform × Drivetrain × Energy-source; bulk/chemical tonne·km
 platforms; one `levelized_cost(case,v,d)`) is documented in the plan file but NOT
