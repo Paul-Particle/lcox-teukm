@@ -30,12 +30,16 @@ class Params:
                                        # berthing (swap assumed ~neutral; see TODO.md)
     availability: float = 0.95         # fraction of the year in service (fossil/nuclear)
     availability_elec: float = 0.97    # battery/electric-drive: lower drivetrain maintenance (EV-like)
-    deadweight_cargo_t: float = 38000.0  # cargo deadweight budget (t) for a FOSSIL ship, net of its
-                                         # bunkers/stores/ballast; batteries consume it (mass limit)
+    deadweight_t: float = 41000.0      # total deadweight for cargo + onboard energy carrier (t).
+                                       # Each ship subtracts its OWN energy-carrier mass (fossil
+                                       # bunkers, battery pack, nuclear ~0) -> cargo mass budget.
     cargo_t_per_teu: float = 12.0      # avg laden mass per TEU (full+empty mix); sets mass limit
-    bunker_mass_t: float = 3000.0      # fossil onboard fuel mass; battery/nuclear ships don't carry
-                                       # it, so they recover this as extra cargo deadweight.
-                                       # TODO: fixed — really scales with range/speed (TODO.md)
+    bunker_mass_t: float = 3000.0      # fossil onboard fuel mass — explicit deadweight it carries
+                                       # (battery/nuclear carry ~none). TODO: scales with range.
+    iso_container_max_gross_t: float = 30.0  # ISO 20ft max gross mass; caps energy per battery
+                                             # container -> dense, heavy chemistries (iron-air) need
+                                             # more (weight-limited) containers, displacing more cargo
+    iso_container_margin: float = 0.20       # tolerance over ISO max for marinized/reinforced units
 
     # ---- crew & port services (O&M itemized; see maneuverability credit) -------
     crew_cost_usd_yr: float = 90000.0  # loaded annual cost per crew member (rotation, benefits)
@@ -122,7 +126,10 @@ class Params:
     ironair_eta_discharge: float = 0.82    # iron-air stored -> delivered (round-trip ~0.45 AC-AC).
                                            # TODO: the charge/discharge split is approximate; only
                                            # the documented ~40-50% round-trip is well-sourced
-    ironair_min_discharge_h: float = 100.0 # 100-h class: max pack kW = installed kWh / 100 h
+    ironair_min_discharge_h: float = 50.0  # C/50 max sustained discharge: max pack kW = installed kWh / 50 h
+    # Discharge fixed at C/50 (2x Form's ~C/100 design point): still >100x below the
+    # ~3C passivation onset for additive-stabilized Fe electrodes, so efficiency barely moves.
+    # Binding limits at this rate are heat rejection (~I·η, super-linear) and air-electrode O2 transport, not RTE.
     ironair_pack_wh_per_kg: float = 30.0   # system density (~5x heavier than Li-ion); enforced as a
                                            # deadweight constraint -> bites long-haul iron-air.
                                            # TODO: key uncertain input — sweep in the tornado

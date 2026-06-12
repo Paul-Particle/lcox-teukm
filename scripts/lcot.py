@@ -28,7 +28,7 @@ from units import KG_PER_TONNE, KMH_PER_KNOT, HOURS_PER_YEAR, KM_PER_NM
 
 
 def carried_teu(p: Params, overhead_slots: float, battery_slots: float = 0.0,
-                battery_tonnes: float = 0.0, fuel_credit_t: float = 0.0) -> float:
+                energy_mass_t: float = 0.0) -> float:
     """Revenue cargo (TEU) carried per leg, round-trip averaged.
 
     Three capacity limits act together; carried = min(volume-limited, mass-limited):
@@ -36,19 +36,18 @@ def carried_teu(p: Params, overhead_slots: float, battery_slots: float = 0.0,
         Batteries occupy slots, but only `batt_empty_usable_frac` of the empty
         (1-load_factor) slack is battery-usable (DG segregation, stability,
         access); they fill that for free, then displace cargo 1:1.
-      - MASS: ships without bunkers (battery/nuclear) recover the fossil fuel
-        mass as cargo deadweight (`fuel_credit_t`); the battery's own deadweight
-        (`battery_tonnes`) eats into it. Limit = (deadweight_cargo_t +
-        fuel_credit_t - battery_tonnes) / cargo_t_per_teu TEU.
+      - MASS: each ship carries its OWN energy-carrier weight `energy_mass_t`
+        explicitly (fossil bunkers, battery pack, nuclear ~0), drawn from the
+        shared total `deadweight_t`. Limit = (deadweight_t - energy_mass_t) /
+        cargo_t_per_teu TEU.
       - POWER is handled in battery sizing, not here.
 
     Legs are ASYMMETRIC: `load_factor_imbalance` splits the mean load factor into
     a fuller headhaul and lighter backhaul; a fixed battery footprint bites the
-    fuller leg first. imbalance=0 with a non-binding deadweight reproduces the
-    old symmetric, volume-only result. May return <= 0 (pack swamps the ship);
-    callers treat that as infeasible."""
+    fuller leg first. May return <= 0 (pack swamps the ship); callers treat that
+    as infeasible."""
     cargo_slots = p.gross_slots - overhead_slots
-    mass_limited = (p.deadweight_cargo_t + fuel_credit_t - battery_tonnes) / p.cargo_t_per_teu
+    mass_limited = (p.deadweight_t - energy_mass_t) / p.cargo_t_per_teu
 
     def carried_dir(lf):
         demand = lf * cargo_slots
@@ -88,7 +87,8 @@ def lcot_fossil(p: Params, v_kn: float, d_km: float) -> dict:
                     + p.tug_usd_per_call * cyc)
 
     cargo_cap = p.gross_slots - p.fossil_overhead_slots
-    annual_teukm = cyc * d_km * carried_teu(p, p.fossil_overhead_slots)
+    annual_teukm = cyc * d_km * carried_teu(p, p.fossil_overhead_slots,
+                                            energy_mass_t=p.bunker_mass_t)
     annual_cost = annual_fixed + energy_cost_leg * cyc
     return {"lcot": annual_cost / annual_teukm, "v": v_kn, "cargo_cap": cargo_cap,
             "annual_fixed": annual_fixed, "annual_energy": energy_cost_leg * cyc,
@@ -128,12 +128,18 @@ def _lcot_battery(p: Params, v_kn: float, d_km: float, spec: BatterySpec) -> dic
     # trades against this since P ~ v^3).
     pack_power_kw = (prop_power_kw(p, v_kn, pf) + hotel) / p.eta_elec
     installed_kwh = max(installed_energy, pack_power_kw * spec.min_discharge_h)
-    battery_slots = installed_kwh / spec.kwh_per_teu
+    # ISO container gross-weight cap: a battery container can't exceed the ISO
+    # max (+ marinized margin), so a dense-but-heavy chemistry holds less energy
+    # per container -> more (weight-limited) containers, displacing more cargo.
+    max_kwh_per_teu = (p.iso_container_max_gross_t * (1 + p.iso_container_margin)
+                       * spec.pack_wh_per_kg)
+    kwh_per_teu_eff = min(spec.kwh_per_teu, max_kwh_per_teu)
+    battery_slots = installed_kwh / kwh_per_teu_eff
     battery_tonnes = installed_kwh / spec.pack_wh_per_kg   # kWh*1000Wh / (Wh/kg) / 1000 = t
 
     cargo_cap = p.gross_slots - p.elec_fixed_overhead_slots - battery_slots
     carried = carried_teu(p, p.elec_fixed_overhead_slots, battery_slots,
-                          battery_tonnes, fuel_credit_t=p.bunker_mass_t)
+                          energy_mass_t=battery_tonnes)
     if carried <= 0:  # pack leaves no room for paying cargo (volume or mass)
         return {"lcot": np.inf, "v": v_kn, "cargo_cap": cargo_cap,
                 "battery_slots": battery_slots, "battery_kwh": installed_kwh,
@@ -205,7 +211,7 @@ def lcot_nuclear(p: Params, v_kn: float, d_km: float) -> dict:
 
     cargo_cap = p.gross_slots - p.nuclear_overhead_slots
     annual_teukm = cyc * d_km * carried_teu(p, p.nuclear_overhead_slots,
-                                            fuel_credit_t=p.bunker_mass_t)
+                                            energy_mass_t=0.0)
     annual_cost = annual_fixed + energy_cost_leg * cyc
     return {"lcot": annual_cost / annual_teukm, "v": v_kn, "cargo_cap": cargo_cap,
             "annual_fixed": annual_fixed, "annual_energy": energy_cost_leg * cyc,
@@ -239,7 +245,7 @@ def _lcot_nuclear_elec(p: Params, v_kn: float, d_km: float, reactor_capex: float
                     + p.tug_usd_per_call_elec * cyc)
 
     cargo_cap = p.gross_slots - overhead_slots
-    annual_teukm = cyc * d_km * carried_teu(p, overhead_slots, fuel_credit_t=p.bunker_mass_t)
+    annual_teukm = cyc * d_km * carried_teu(p, overhead_slots, energy_mass_t=0.0)
     annual_cost = annual_fixed + energy_cost_leg * cyc
     return {"lcot": annual_cost / annual_teukm, "v": v_kn, "cargo_cap": cargo_cap,
             "annual_fixed": annual_fixed, "annual_energy": energy_cost_leg * cyc,
@@ -323,11 +329,14 @@ def lcot_mobile(p: Params, v_kn: float, d_km: float) -> dict:
     deadhead_kwh = pack_draw_kw * (p.mob_rendezvous_distance_nm * KM_PER_NM) / (v_kn * KMH_PER_KNOT)
     installed_energy = max(bridge_kwh, deadhead_kwh) * (1 + p.mob_disconnect_reserve) / p.battery_dod
     installed_kwh = max(installed_energy, pack_draw_kw * p.battery_min_discharge_h)
-    battery_slots = installed_kwh / p.battery_kwh_per_teu
+    max_kwh_per_teu = (p.iso_container_max_gross_t * (1 + p.iso_container_margin)
+                       * p.battery_pack_wh_per_kg)
+    kwh_per_teu_eff = min(p.battery_kwh_per_teu, max_kwh_per_teu)
+    battery_slots = installed_kwh / kwh_per_teu_eff
     battery_tonnes = installed_kwh / p.battery_pack_wh_per_kg
 
     carried = carried_teu(p, p.elec_fixed_overhead_slots, battery_slots,
-                          battery_tonnes, fuel_credit_t=p.bunker_mass_t)
+                          energy_mass_t=battery_tonnes)
     if carried <= 0:
         return {"lcot": np.inf, "v": v_kn, "cargo_cap": p.gross_slots - p.elec_fixed_overhead_slots - battery_slots,
                 "battery_slots": battery_slots, "battery_kwh": installed_kwh,

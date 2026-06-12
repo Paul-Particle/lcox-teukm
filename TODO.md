@@ -21,6 +21,13 @@
   single-shaft integrated case may not earn the full pod benefit — consider a
   separate factor. Containerized priced as owned (shorter life); a lease option
   (`nucc_lease_usd_yr`) is an alternative.
+- **Battery mix for short journeys:** iron-air is power-limited (C/50) up to
+  ~1500 km — its pack is sized by *sustained* cruise power, 2-6x the energy it
+  uses, and a finite Li-ion/supercap buffer can't relieve that (cruise power is
+  sustained, not peaky). So a **battery mix may be optimal by route**: Li-ion
+  (high power, modest energy) short-haul, iron-air (cheap bulk energy) long-haul
+  — explore choosing chemistry per route, or a physical Li-ion + iron-air split
+  (Li-ion carries cruise power, iron-air adds range only where energy binds).
 
 ## Deferred — 3-axis platform refactor
 The big refactor (Platform × Drivetrain × Energy-source; bulk/chemical tonne·km
