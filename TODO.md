@@ -91,8 +91,10 @@ dataclasses — `Platform` × `Drivetrain` × `EnergySource` (`scripts/cases.py`
 sizing/economics primitives live in `sizing.py`. `sizing.carried(platform, …)` generalizes the old
 `carried_teu` so the binding cargo metric is platform-specific (volume/TEU vs deadweight/tonne).
 Lease-vs-ownership and at-sea-charge are pricing/sizing strategies on the EnergySource axis.
-Behaviour is pinned by `scripts/regression_check.py` against `golden_output.txt` (the frozen console
-output) — it replaced the legacy parity oracle once the shim was retired.
+`scripts/smoke_check.py` is a lightweight sanity gate (report renders; every case finite & positive
+at sample hops). It replaced the byte-exact golden regression once the refactor was done and the
+model returned to active flux — a golden test fights every intended change, so it stopped earning
+its keep.
 
 **Still open / not yet done:**
 - **Config still flat.** `config.yaml` + `Params` remain a single flat namespace; the axes are built

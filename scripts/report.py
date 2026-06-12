@@ -212,7 +212,7 @@ def print_design_speed_sweep(p: Params) -> None:
 
 def print_report(p: Params) -> None:
     """The full console report, in order. Single source of the print sequence so
-    run.py (live) and regression_check.py (golden) can't drift apart."""
+    run.py (live) and smoke_check.py can't drift apart."""
     d_grid = np.linspace(100, 6000, 80)
     print_base_header(p)
     print_energy_cost(p)

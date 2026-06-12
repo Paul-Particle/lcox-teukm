@@ -10,8 +10,8 @@ scalar from the composed `Case` (see cases.py), using the shared primitives in
 The cargo/capacity dimension comes from `case.platform`; other platform scalars
 (speeds, prop reference, efficiencies, crew rate, discount rate, route margins)
 are still read from the flat `Params` `p` until a second platform needs them to
-differ. Behaviour is pinned by `scripts/regression_check.py` against
-`golden_output.txt`.
+differ. `scripts/smoke_check.py` is a lightweight sanity gate (renders + finite,
+positive LCOT per case) — not a byte-exact pin, since the model is in flux.
 """
 
 import functools
