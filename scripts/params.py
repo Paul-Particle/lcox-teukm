@@ -52,7 +52,6 @@ class Params:
                                        # speed; real engines droop at part-load, so slow-steaming
                                        # should favour electric over fossil (see TODO.md)
     eta_elec: float = 0.88             # battery pack -> useful (drivetrain); ~flat across speed
-    eta_charge: float = 0.95           # grid -> battery pack
     eta_nuclear: float = 0.30          # reactor thermal -> useful (marine PWR steam cycle)
 
     # ---- energy prices
@@ -91,7 +90,8 @@ class Params:
     battery_reserve: float = 0.20          # weather/safety margin on top of leg energy
     battery_cycle_life: float = 4000.0
     battery_calendar_life_yr: float = 12.0
-    battery_eta_rt: float = 1.0            # pack round-trip eff.; Li-ion losses sit in eta_charge
+    battery_eta_charge: float = 0.97       # Li-ion grid -> stored
+    battery_eta_discharge: float = 0.98    # Li-ion stored -> delivered (round-trip ~0.95)
     battery_min_discharge_h: float = 0.0   # rated discharge-duration floor; 0 = no power limit
 
     # ---- iron-air battery powertrain (Form Energy class; shares hull, motor,
@@ -104,7 +104,10 @@ class Params:
     ironair_reserve: float = 0.20          # weather/safety margin on top of leg energy
     ironair_cycle_life: float = 10000.0    # non-binding at 100-h rates
     ironair_calendar_life_yr: float = 20.0
-    ironair_eta_rt: float = 0.45           # electrochemical round-trip efficiency
+    ironair_eta_charge: float = 0.55       # iron-air grid -> stored; charge-limited chemistry
+    ironair_eta_discharge: float = 0.82    # iron-air stored -> delivered (round-trip ~0.45 AC-AC).
+                                           # TODO: the charge/discharge split is approximate; only
+                                           # the documented ~40-50% round-trip is well-sourced
     ironair_min_discharge_h: float = 100.0 # 100-h class: max pack kW = installed kWh / 100 h
     ironair_pack_wh_per_kg: float = 30.0   # system density (~5x heavier than Li-ion); enforced as a
                                            # deadweight constraint -> bites long-haul iron-air.

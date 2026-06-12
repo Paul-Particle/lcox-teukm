@@ -29,7 +29,6 @@ v_max_kn: 22.0
 # ---- conversion efficiencies ---------------------------------------------
 eta_fossil: 0.48             # fuel chemical -> useful (good 2-stroke)
 eta_elec: 0.88               # battery pack -> useful (drivetrain)
-eta_charge: 0.95             # grid -> battery pack
 eta_nuclear: 0.30            # reactor thermal -> useful (marine PWR steam ~25-30%)
 
 # ---- energy prices -------------------------------------------------------
@@ -59,7 +58,8 @@ battery_dod: 0.90            # usable depth of discharge
 battery_reserve: 0.20        # weather/safety margin on top of leg energy
 battery_cycle_life: 4000.0
 battery_calendar_life_yr: 12.0
-battery_eta_rt: 1.0          # pack round-trip eff.; Li-ion losses already in eta_charge
+battery_eta_charge: 0.97     # Li-ion grid -> stored
+battery_eta_discharge: 0.98  # Li-ion stored -> delivered (round-trip ~0.95)
 battery_min_discharge_h: 0.0 # rated discharge-duration floor; 0 = no power limit
 
 # ---- iron-air battery powertrain ------------------------------------------
@@ -74,7 +74,8 @@ ironair_dod: 0.95            # chemistry tolerates deep discharge; no published 
 ironair_reserve: 0.20        # weather/safety margin on top of leg energy
 ironair_cycle_life: 10000.0  # electrode claims >10k; non-binding at 100-h rates
 ironair_calendar_life_yr: 20.0
-ironair_eta_rt: 0.45         # ~40% AC-AC per Form; 40-50% in literature
+ironair_eta_charge: 0.55     # iron-air grid -> stored; charge-limited chemistry
+ironair_eta_discharge: 0.82  # iron-air stored -> delivered (round-trip ~0.45 AC-AC; split approx.)
 ironair_min_discharge_h: 100.0  # C/100: max pack power = installed kWh / 100 h
 ironair_pack_wh_per_kg: 30.0 # ~5x heavier than Li-ion; enforced as deadweight (bites long-haul)
 
