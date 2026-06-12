@@ -62,10 +62,14 @@ The script reports:
 │   ├── params.py         # Params schema + load_params(config.yaml)
 │   ├── finance.py        # capital recovery factor
 │   ├── energy.py         # ship physics: power, leg energy, legs/year
-│   ├── lcot.py           # cost models: fossil, LFP & iron-air battery, nuclear (direct
-│   │                     #   + electric), mobile-reactor tender
+│   ├── sizing.py         # shared sizing & economics primitives (cargo accounting,
+│   │                     #   battery/reactor/tender sizing & pricing)
+│   ├── cases.py          # the 3 axes (Platform × Drivetrain × EnergySource) + case registry
+│   ├── cost.py           # levelized_cost(case, p, v, d): one entry point for every case
 │   ├── analysis.py       # speed optimization + crossover distance
-│   └── report.py         # console tables + plotting
+│   ├── report.py         # console tables
+│   ├── plots.py          # Plotly figures
+│   └── regression_check.py  # golden-output regression test (vs golden_output.txt)
 ├── results/              # generated plots (gitignored)
 ├── pyproject.toml        # project + dependencies (numpy, plotly, pyyaml)
 ├── uv.lock               # pinned dependency versions
