@@ -4,12 +4,13 @@ BASE CASE
   iron-air $30.0/kWh @ 45% RTE  |  SMR $6000/kW
 ========================================================================
 
-Energy cost per USEFUL kWh:  fossil $0.103   lfp $0.108   iron-air $0.227   nuclear $0.040   (nuclear cheapest)
+Energy cost per USEFUL kWh:  fossil $0.103   e-methanol $0.375   lfp $0.108   iron-air $0.227   nuclear $0.040   (nuclear cheapest)
 
 Breakdown at sample hop lengths (speed optimized per ship):
   D_max     ship  v_opt      LCOT   $fixed  $energy  cargo  batt_TEU  batt_MWh batt_yr
 --------------------------------------------------------------------------------------
     200   fossil   12.3    8.911c      83%      17%   2880         0         0     nan
+    200    efuel    8.9   12.130c      67%      33%   2880         0         0     nan
     200      lfp   10.3    7.662c      88%      12%   2949        21        63    12.0
     200 iron-air    8.9    7.936c      78%      22%   2813       157       170    20.0
     200  nuclear   22.0   24.057c      93%       7%   2880         0         0     nan
@@ -18,6 +19,7 @@ Breakdown at sample hop lengths (speed optimized per ship):
     200   nuc-ei   22.0   19.977c      93%       7%   2860         0         0     nan
     200   mobile   13.1   15.248c      43%      57%   2928        42       126     9.5
     500   fossil   12.3    5.720c      73%      27%   2880         0         0     nan
+    500    efuel    8.9    8.940c      56%      44%   2880         0         0     nan
     500      lfp   10.2    6.443c      85%      15%   2918        52       156    12.0
     500 iron-air    9.2    5.716c      68%      32%   2801       169       182    20.0
     500  nuclear   22.0   13.345c      88%      12%   2880         0         0     nan
@@ -26,6 +28,7 @@ Breakdown at sample hop lengths (speed optimized per ship):
     500   nuc-ei   22.0   11.376c      88%      12%   2860         0         0     nan
     500   mobile   15.9   10.801c      40%      60%   2901        69       207    12.0
    1000   fossil   12.3    4.657c      67%      33%   2880         0         0     nan
+   1000    efuel    8.9    7.877c      50%      50%   2880         0         0     nan
    1000      lfp   10.1    7.196c      87%      13%   2867       103       308    12.0
    1000 iron-air    9.6    5.153c      62%      38%   2712       258       278    20.0
    1000  nuclear   22.0    9.774c      83%      17%   2880         0         0     nan
@@ -34,6 +37,7 @@ Breakdown at sample hop lengths (speed optimized per ship):
    1000   nuc-ei   22.0    8.510c      84%      16%   2860         0         0     nan
    1000   mobile   15.9    9.358c      36%      64%   2901        69       207    12.0
    2000   fossil   12.3    4.125c      63%      37%   2880         0         0     nan
+   2000    efuel    8.9    7.345c      46%      54%   2880         0         0     nan
    2000      lfp    9.9    9.804c      91%       9%   2769       201       602    12.0
    2000 iron-air    8.4    6.035c      66%      34%   2507       463       500    20.0
    2000  nuclear   22.0    7.989c      80%      20%   2880         0         0     nan
@@ -42,6 +46,7 @@ Breakdown at sample hop lengths (speed optimized per ship):
    2000   nuc-ei   22.0    7.076c      81%      19%   2860         0         0     nan
    2000   mobile   15.9    8.637c      34%      66%   2901        69       207    12.0
    4000   fossil   12.3    3.860c      60%      40%   2880         0         0     nan
+   4000    efuel    8.9    7.079c      44%      56%   2880         0         0     nan
    4000      lfp    9.6   15.911c      94%       6%   2578       392      1175    12.0
    4000 iron-air    6.9   15.915c      73%      27%   2117       853       922    20.0
    4000  nuclear   22.0    7.096c      77%      23%   2880         0         0     nan
