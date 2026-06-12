@@ -94,7 +94,8 @@ class BatterySpec:
     reserve: float
     cycle_life: float
     calendar_life_yr: float
-    eta_rt: float            # pack round-trip eff. (charger/grid losses live in eta_charge)
+    eta_charge: float        # grid -> stored energy
+    eta_discharge: float     # stored energy -> delivered to the drivetrain
     min_discharge_h: float   # max pack power = installed kWh / this; 0 disables
     pack_wh_per_kg: float    # system energy density -> battery mass (deadweight constraint)
 
@@ -126,7 +127,10 @@ def _lcot_battery(p: Params, v_kn: float, d_km: float, spec: BatterySpec) -> dic
                 "battery_life": np.nan, "annual_fixed": np.inf,
                 "annual_energy": np.inf, "teukm": 0.0, "cyc": cyc}
 
-    grid_kwh = pack_draw_leg / (spec.eta_rt * p.eta_charge)
+    # Energy chain: grid -> (charge) -> stored -> (discharge) -> delivered to the
+    # drivetrain (pack_draw_leg). grid_kwh is the energy actually drawn from the grid.
+    stored_kwh = pack_draw_leg / spec.eta_discharge
+    grid_kwh = stored_kwh / spec.eta_charge
     energy_cost_leg = grid_kwh * p.elec_usd_per_kwh
 
     # Cycle wear counted per leg, as for Li-ion before; slightly conservative
@@ -151,14 +155,16 @@ def lcot_elec(p: Params, v_kn: float, d_km: float) -> dict:
     return _lcot_battery(p, v_kn, d_km, BatterySpec(
         p.battery_usd_per_kwh, p.battery_kwh_per_teu, p.battery_dod,
         p.battery_reserve, p.battery_cycle_life, p.battery_calendar_life_yr,
-        p.battery_eta_rt, p.battery_min_discharge_h, p.battery_pack_wh_per_kg))
+        p.battery_eta_charge, p.battery_eta_discharge,
+        p.battery_min_discharge_h, p.battery_pack_wh_per_kg))
 
 
 def lcot_ironair(p: Params, v_kn: float, d_km: float) -> dict:
     return _lcot_battery(p, v_kn, d_km, BatterySpec(
         p.ironair_usd_per_kwh, p.ironair_kwh_per_teu, p.ironair_dod,
         p.ironair_reserve, p.ironair_cycle_life, p.ironair_calendar_life_yr,
-        p.ironair_eta_rt, p.ironair_min_discharge_h, p.ironair_pack_wh_per_kg))
+        p.ironair_eta_charge, p.ironair_eta_discharge,
+        p.ironair_min_discharge_h, p.ironair_pack_wh_per_kg))
 
 
 def lcot_nuclear(p: Params, v_kn: float, d_km: float) -> dict:
@@ -245,7 +251,7 @@ def _mobile_tender_usd_per_kwh(p: Params, inter_kwh: float):
     grid-side energy it delivers per year."""
     deliverable_kw = min(p.mob_charge_power_kw,
                          p.mob_tender_reactor_kw - p.mob_tender_parasitic_kw)
-    e_topup_grid = (inter_kwh * p.mob_charge_availability) / (p.battery_eta_rt * p.eta_charge)
+    e_topup_grid = (inter_kwh * p.mob_charge_availability) / (p.battery_eta_charge * p.battery_eta_discharge)
     charge_h = e_topup_grid / deliverable_kw
     transit_h = 2 * p.mob_rendezvous_distance_nm / p.mob_tender_transit_v_kn
     topups_per_yr = HOURS_PER_YEAR * p.mob_tender_availability / (charge_h + transit_h)
@@ -298,7 +304,7 @@ def lcot_mobile(p: Params, v_kn: float, d_km: float) -> dict:
                 "annual_energy": np.inf, "teukm": 0.0, "cyc": 0.0}
 
     tender_usd_per_kwh, topups_per_yr = _mobile_tender_usd_per_kwh(p, inter_kwh)
-    grid_kwh_leg = (E_use_leg / p.eta_elec) / (p.battery_eta_rt * p.eta_charge)
+    grid_kwh_leg = (E_use_leg / p.eta_elec) / (p.battery_eta_charge * p.battery_eta_discharge)
     energy_cost_leg = grid_kwh_leg * tender_usd_per_kwh
 
     # Cycle: charged underway, so no battery swap in port -> shorter port time.

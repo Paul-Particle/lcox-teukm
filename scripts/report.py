@@ -59,7 +59,7 @@ def print_base_header(p: Params) -> None:
     print(f"  fuel ${p.fuel_usd_per_t}/t  |  elec ${p.elec_usd_per_kwh}/kWh  "
           f"|  Li-ion ${p.battery_usd_per_kwh}/kWh  |  hull {p.gross_slots:.0f} TEU")
     print(f"  iron-air ${p.ironair_usd_per_kwh}/kWh @ "
-          f"{p.ironair_eta_rt*PERCENT_PER_FRACTION:.0f}% RTE  "
+          f"{p.ironair_eta_charge*p.ironair_eta_discharge*PERCENT_PER_FRACTION:.0f}% RTE  "
           f"|  SMR ${p.nuclear_usd_per_kw:.0f}/kW")
     print("=" * 72)
 
@@ -69,8 +69,8 @@ def print_energy_cost(p: Params) -> None:
     costs = {
         "fossil": (p.fuel_usd_per_t / KG_PER_TONNE / p.fuel_lhv_kwh_per_kg)
                   / p.eta_fossil,
-        "li-ion": p.elec_usd_per_kwh / (p.battery_eta_rt * p.eta_charge * p.eta_elec),
-        "iron-air": p.elec_usd_per_kwh / (p.ironair_eta_rt * p.eta_charge * p.eta_elec),
+        "li-ion": p.elec_usd_per_kwh / (p.battery_eta_charge * p.battery_eta_discharge * p.eta_elec),
+        "iron-air": p.elec_usd_per_kwh / (p.ironair_eta_charge * p.ironair_eta_discharge * p.eta_elec),
         "nuclear": p.nuclear_fuel_usd_per_kwh_th / p.eta_nuclear,
     }
     cheapest = min(costs, key=costs.get)
@@ -258,7 +258,7 @@ def plot_lcot_vs_dmax(p: Params, out_dir: str) -> list:
     fig.add_annotation(
         text=(f"Base case: Li-ion &#36;{p.battery_usd_per_kwh:.0f}/kWh, "
               f"iron-air &#36;{p.ironair_usd_per_kwh:.0f}/kWh @ "
-              f"{p.ironair_eta_rt*PERCENT_PER_FRACTION:.0f}% RTE, "
+              f"{p.ironair_eta_charge*p.ironair_eta_discharge*PERCENT_PER_FRACTION:.0f}% RTE, "
               f"electricity &#36;{p.elec_usd_per_kwh}/kWh, "
               f"SMR &#36;{p.nuclear_usd_per_kw:.0f}/kW"),
         xref="paper", yref="paper", x=0, xanchor="left",
