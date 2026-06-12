@@ -122,10 +122,9 @@ kW, time in hours, distance in km, speed in knots, mass in kg, money in US$.
 
 Case-specific caveats:
 
-- **Iron-air**: deadweight is not enforced for either battery chemistry (the model sizes
-  batteries by energy/power, not mass). Iron-air is roughly 4× heavier per kWh than LFP
-  at system level, so the model is optimistic for it. Cost and density values are based on
-  announced targets (Form Energy), not delivered systems.
+- **Iron-air**: the deadweight (mass) constraint *is* enforced — iron-air is roughly 4× heavier
+  per kWh than LFP at system level, so it is mass-limited at most ranges and infeasible long-haul.
+  Cost and density values are based on announced targets (Form Energy), not delivered systems.
 - **Nuclear**: refueling and regulatory outages are assumed inside the shared
   `availability`; incremental O&M (specialized crew, security, bespoke insurance) is the
   least-quantified input in the literature, and reactor CAPEX spans $750–8,000/kW depending
@@ -133,6 +132,58 @@ Case-specific caveats:
 
 > Note: this is a first-draft Tier-1 cut intended for order-of-magnitude comparison, not a
 > detailed naval-architecture or financial model.
+
+## Concept notes
+
+Two of the cases rest on operational concepts that aren't yet commercial; this is how the model
+treats them. The reactor in both is an **AMPERA-class** micro-reactor (thorium TRISO, subcritical,
+sCO₂ cycle ~50% thermal→electric, ~30 MWe net per two-core module in a footprint of two 40-ft
+containers plus shielding on all sides ≈ 36 TEU; refuels only every few decades).
+
+### Mobile nuclear tender (dedicated escort)
+
+An uncrewed nuclear tender recharges a battery-electric ship **at sea** rather than at port:
+
+1. The ship leaves port and sails untethered on battery through coastal/territorial waters
+   (`coastal_untethered_distance_nm`).
+2. At the regulatory border it meets the tender, which has just dropped its previous companion.
+3. They establish a power cable and cross the open ocean together; the tender supplies continuous
+   power to drive propulsion *and* recharge the battery, so the ship arrives at the far border fully
+   charged for its inbound coastal run. While tethered, ship speed is capped (`mob_cable_v_cap_kn`)
+   well below its free design speed, leaving ample bus headroom for the charging load.
+4. In severe sea states the cable is disconnected and the ship rides out the storm on battery
+   (`storm_survival_duration_h`).
+
+Modeling consequences: the battery is sized for the worst **untethered** stretch —
+`max(coastal transit energy, storm-survival energy)` — not the whole crossing, so it is far smaller
+than a port-swap pack. The tender is priced as a service: its annualized cost (hull + reactor CAPEX
++ O&M + fuel, including parasitic and cable losses) is levelized over the bus energy it pushes across
+the cable per year, where one escort occupies the crossing plus `tender_idle_h` waiting at the border.
+A feasibility check enforces that net reactor power (after parasitics) covers the tethered bus draw
+through `cable_efficiency`. The `ships/tender` ratio (≈1) is a face-validity diagnostic only; it does
+not feed back into LCOT. `coastal_untethered_distance_nm` defaults to the 12 nm UNCLOS territorial-sea
+minimum (Freedom-of-Navigation); set it to ~200 nm to test a full-EEZ regulatory standoff.
+
+### Leased containerized reactor (reactor-as-a-service)
+
+The containerized nuclear-electric ship can either **own** its reactor modules (amortized over their
+life on the ship's balance sheet) or **lease** them from a shared fleet pool:
+
+1. The ship loads one or more reactor modules at port just before heading to sea.
+2. The reactor powers the electric drivetrain across the ocean.
+3. On arrival the module is removed and returned to a shared pool, where it may wait
+   (`nucc_pool_idle_h`) before being loaded onto the next departing ship.
+
+Modeling consequences: the leased and owned cases are physically identical (same drivetrain, same slot
+overhead while a module is aboard). The only difference is financial — under the lease the reactor's
+CAPEX is recovered through a per-kWh service rate levelized over the reactor's **own** pool utilization
+(`nucc_pool_availability`, `nucc_pool_idle_h`), not one ship's duty cycle. Because a pooled reactor is
+not idle during the ship's port calls (it is powering another ship), its fixed cost spreads over more
+operating hours, so leasing is cheaper than owning by roughly the reclaimed port-idle fraction — a large
+win on short hops, negligible on long ones. The `ships/reactor` ratio (>1 ⇒ one reactor serves several
+ships) is a diagnostic only. Caveats: the lease recovers reactor CAPEX + fuel only (the model has no
+separate reactor-O&M line — it sits in the ship's non-crew residual, kept ship-side), and nuclear-
+specialist crew is not bundled into the lease (`crew_count_nuclear` is the ship's whole complement).
 
 ## Glossary
 
