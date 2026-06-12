@@ -18,18 +18,18 @@ class Params:
     # ---- shared hull / route (scale both ships, fixed to representative values)
     gross_slots: float = 3000.0        # nominal hull container capacity (TEU)
     load_factor: float = 0.80          # avg fraction of available slots filled
-    load_factor_imbalance: float = 0.0 # headhaul/backhaul split: head=LF*(1+imb), back=LF*(1-imb);
-                                       # 0 = symmetric. Mean preserved; fixed battery bites the
-                                       # fuller leg first (see carried_teu).
-                                       # TODO: a richer fill distribution than a 2-point head/back.
+    load_factor_imbalance: float = 0.2 # headhaul/backhaul split: head=LF*(1+imb), back=LF*(1-imb);
+                                       # default models real trade imbalance (head 0.96 / back 0.64
+                                       # at LF 0.8). 0 = symmetric; fixed battery bites the fuller
+                                       # leg first (carried_teu). TODO: richer fill distribution.
     hull_capex_usd: float = 45e6       # newbuild hull excl. propulsion
     discount_rate: float = 0.08
     hull_life_yr: float = 25.0
-    port_hours_per_call: float = 18.0  # cargo + (for electric) battery swap; assumed equal.
-                                       # TODO: per-powertrain berthing/maneuverability credit; swap
-                                       # adds time only for batteries in empty slots (see TODO.md)
-    availability: float = 0.95         # fraction of the year the ship is in service
-                                       # TODO: maybe higher for electric/iron-air (lower maintenance)
+    port_hours_per_call: float = 18.0  # fossil/nuclear-direct berthing + cargo (conventional)
+    port_hours_elec: float = 16.0      # electric-drive: pods/azimuth maneuverability -> faster
+                                       # berthing (swap assumed ~neutral; see TODO.md)
+    availability: float = 0.95         # fraction of the year in service (fossil/nuclear)
+    availability_elec: float = 0.97    # battery/electric-drive: lower drivetrain maintenance (EV-like)
     deadweight_cargo_t: float = 38000.0  # cargo deadweight budget (t) for a FOSSIL ship, net of its
                                          # bunkers/stores/ballast; batteries consume it (mass limit)
     cargo_t_per_teu: float = 12.0      # avg laden mass per TEU (full+empty mix); sets mass limit
@@ -37,14 +37,24 @@ class Params:
                                        # it, so they recover this as extra cargo deadweight.
                                        # TODO: fixed — really scales with range/speed (TODO.md)
 
+    # ---- crew & port services (O&M itemized; see maneuverability credit) -------
+    crew_cost_usd_yr: float = 90000.0  # loaded annual cost per crew member (rotation, benefits)
+    crew_count_fossil: float = 22.0
+    crew_count_elec: float = 20.0      # electric-drive: fewer engine-room engineers
+    crew_count_nuclear: float = 30.0   # reactor operators + security (also nuclear-electric)
+    tug_usd_per_call: float = 5000.0   # conventional berthing tug fees per port call
+    tug_usd_per_call_elec: float = 2000.0  # azimuth pods/thrusters -> much less tug assistance
+
     # ---- powertrain sizing reference (admiralty-style P ~ v^3)
     p_ref_kw: float = 20000.0          # propulsion power at v_ref
     v_ref_kn: float = 18.0
-    p_hotel_kw: float = 1500.0         # constant hotel/reefer load. TODO: reefer part is variable &
-                                       # battery-costly (reefer-heavy penalizes battery ships), crew
-                                       # part is powertrain-dependent — see hotel sensitivity/TODO.md
+    p_hotel_kw: float = 1500.0         # baseline hotel/reefer load (fossil). TODO: reefer part is
+                                       # variable & battery-costly (reefer-heavy penalizes battery
+                                       # ships) — see hotel sensitivity / TODO.md
+    hotel_delta_elec_kw: float = -150.0   # electric: a few fewer engine-room engineers (accommodation)
+    hotel_delta_nuclear_kw: float = 250.0 # nuclear: more crew + security + reactor auxiliaries
     v_design_max_kn: float = 22.0      # sizes the installed motor/engine
-    v_min_kn: float = 9.0              # TODO: check this minimum speed is justified
+    v_min_kn: float = 5.0              # minimum economic sailing speed
     v_max_kn: float = 22.0
 
     # ---- conversion efficiencies
@@ -62,22 +72,26 @@ class Params:
     # ---- fossil powertrain
     engine_usd_per_kw: float = 400.0
     engine_life_yr: float = 25.0
-    om_fossil_usd_yr: float = 3.5e6    # crew, insurance, repairs, lube (ex-fuel). TODO: crew not
-                                       # itemized/scaled; tug fees not modeled (see TODO.md)
+    om_fossil_usd_yr: float = 1.52e6   # NON-crew O&M: insurance, repairs, lube, stores (crew is now
+                                       # crew_count_fossil x crew_cost_usd_yr; tugs are separate)
     fossil_overhead_slots: float = 120.0  # engine room + bunkers, in slot-equivalents
-                                          # TODO: fossil may warrant its own (smaller) hull/prop
-                                          # efficiency factor once the design barrier is overcome
+    fossil_prop_power_factor: float = 0.95 # smaller hull-form/coating/routing gain fossil can adopt
+                                           # once the design barrier is overcome (vs electric's stack)
 
     # ---- electric powertrain
     motor_usd_per_kw: float = 120.0
     motor_life_yr: float = 25.0
-    om_elec_usd_yr: float = 3.0e6      # fewer moving parts, no fuel system (14% below fossil).
-                                       # TODO: add a maneuverability tug-saving credit (see TODO.md)
+    om_elec_usd_yr: float = 1.2e6      # NON-crew O&M: insurance, repairs (fewer moving parts), stores
     elec_fixed_overhead_slots: float = 30.0  # compact motors only (no big engine/tanks)
-    elec_prop_power_factor: float = 0.90   # hull/propeller/pod/coating/routing gains the
-                                           # electric drivetrain enables; scales propulsion
-                                           # power (shared by Li-ion + iron-air). Conservative
-                                           # 10% lump pending itemized calc — see TODO.md.
+    # Electric-drive hull/propeller efficiency, itemized (the product scales
+    # propulsion power; shared by Li-ion, iron-air, nuclear-electric, mobile).
+    # Source ranges: hull form up to -20%, coatings ~-3%, propeller/pods -15..20%,
+    # wider motor eff -5..10%, weather/trim routing ~-8%; values are conservative-end.
+    elec_hull_form_factor: float = 0.92    # optimized hull form
+    elec_coating_factor: float = 0.98      # anti-fouling coatings
+    elec_propeller_factor: float = 0.88    # larger low-RPM props on pods, cleaner flow
+    elec_wider_eff_factor: float = 0.96    # motor efficient across a wide speed range
+    elec_routing_factor: float = 0.96      # weather routing, trim/draft, on-time speed
     batt_empty_usable_frac: float = 0.40   # fraction of the empty (1-load_factor) slack that
                                            # batteries may occupy before displacing cargo;
                                            # <1 for dangerous-goods/stability/access limits.
@@ -119,29 +133,29 @@ class Params:
                                            # vendor targets as low as $750-2000/kW)
     nuclear_life_yr: float = 25.0
     nuclear_fuel_usd_per_kwh_th: float = 0.012  # HALEU fuel cycle, ~$12/MWh thermal
-    om_nuclear_usd_yr: float = 10.0e6      # specialized crew, security, insurance pools,
-                                           # regulatory; least-quantified parameter
+    om_nuclear_usd_yr: float = 7.3e6       # NON-crew O&M: security, bespoke insurance pools,
+                                           # regulatory (crew = crew_count_nuclear x crew_cost)
     nuclear_overhead_slots: float = 120.0  # reactor + shielding ~ conventional engine room
 
     # ---- nuclear-electric powertrains (reactor -> electricity -> electric motor;
-    # reuse eta_nuclear, eta_elec, motor_*, elec_prop_power_factor). End-to-end
+    # reuse eta_nuclear, eta_elec, motor_*, the electric prop-factor stack). End-to-end
     # useful eff = eta_nuclear*eta_elec (~0.26) vs 0.30 direct-drive, but unlocks
     # the electric-drive hull/prop gains and compact overhead.
     # TODO: nucc_* (modular marine reactor) cost/size are speculative — sweep them;
-    # the integrated single-shaft case may not earn the full pod benefit of
-    # elec_prop_power_factor (consider a separate factor).
+    # the integrated single-shaft case may not earn the full pod benefit of the
+    # electric prop-factor stack (consider a separate factor).
     # (a) containerized modular reactor units with a per-unit power cap:
     nucc_unit_kw: float = 15000.0          # net electric per reactor module
     nucc_usd_per_kw: float = 5000.0        # factory-built modular, below integrated
     nucc_life_yr: float = 15.0             # swappable/leased modules refreshed sooner
     nucc_overhead_slots_per_unit: float = 45.0  # module + shielding; scales with unit count
-    nucc_om_usd_yr: float = 8.0e6          # some O&M shifts to module lessor
+    nucc_om_usd_yr: float = 5.3e6          # NON-crew residual (crew = crew_count_nuclear x crew_cost)
     nucc_fuel_usd_per_kwh_th: float = 0.012     # HALEU, same cycle as direct-drive
     # (b) integrated single reactor:
     nuci_usd_per_kw: float = 6500.0        # adds generator + power electronics vs direct-drive
     nuci_life_yr: float = 30.0
     nuci_overhead_slots: float = 140.0     # reactor + shielding + switchboard
-    nuci_om_usd_yr: float = 10.0e6
+    nuci_om_usd_yr: float = 7.3e6          # NON-crew residual (crew = crew_count_nuclear x crew_cost)
     nuci_fuel_usd_per_kwh_th: float = 0.012
 
     # ---- mobile nuclear reactor tender (charges battery ships at sea) ----------

@@ -5,8 +5,8 @@
   little/no commercial precedent — all engineering estimates. Highest-leverage,
   most uncertain: `mob_tender_*` (reactor/hull/O&M cost, parasitic), `mob_cable_v_cap_kn`,
   `mob_charge_power_kw`, `mob_rendezvous_spacing_h`, `nucc_unit_kw`, `nucc_usd_per_kw`.
-  Add them (and `ironair_pack_wh_per_kg`) to the tornado sensitivity — it currently
-  sweeps only Li-ion params.
+  Now swept in per-case tornados (`plot_tornados`: Li-ion, iron-air, mobile,
+  nuclear-electric), incl. `ironair_pack_wh_per_kg` and EEZ distance.
 - Mobile tender: rendezvous spacing is a fixed param; jointly optimizing it trades
   ship battery size vs tender count. Battery cycle-life accounting under frequent
   shallow top-ups is approximate. Single capped cruise speed (no separate free-speed
@@ -26,22 +26,15 @@
 The big refactor (Platform × Drivetrain × Energy-source; bulk/chemical tonne·km
 platforms; one `levelized_cost(case,v,d)`) is documented in the plan file but NOT
 done. The mass + asymmetry work here on the flat model carries concepts the refactor
-will formalize on the platform axis. Plot also needs work: 7 trace labels crowd the
-right edge of `lcot_vs_dmax` — consider faceting or a real legend.
+will formalize on the platform axis.
 
 
 ## Powertrain-specific efficiency (P-v curve)
-- `elec_prop_power_factor` (0.90) is a **conservative single lump** for the
-  hull-form, anti-fouling-coating, larger-low-RPM-propeller/pod, wider-motor-
-  efficiency-curve, and weather/trim-routing gains the electric drivetrain
-  enables. Replace with an itemized, sourced calculation (hull form ~−20%,
-  coatings ~−3%, propeller/pods ~−15–20%, wider eff. ~−5–10%, ops ~−8%; these
-  compound, so the realistic factor is well below 0.90 — current value is
-  deliberately cautious).
-- Fossil may warrant a **smaller** hull-design improvement of its own: the
-  barrier cited for optimized hulls is extra design/shipyard coordination, and
-  if that is overcome for electric ships it is no longer a blocker for fossil
-  either. Add a (smaller) `fossil_prop_power_factor < 1.0` when itemizing.
+- **Done — itemized electric factor:** `elec_hull_form/coating/propeller/
+  wider_eff/routing` factors compound (~0.73 via `_elec_prop_factor`), replacing
+  the 0.90 lump. Values at the conservative end of the literature ranges.
+- **Done — fossil factor:** `fossil_prop_power_factor` (0.95) — the smaller
+  hull/coating/routing gain fossil can adopt once the design barrier is overcome.
 - Slow-steaming asymmetry: `eta_fossil`/`eta_elec` are currently **constant in
   speed**, so both ships get the identical ideal cube-law energy-vs-speed and
   fossil slow-steaming is over-credited. Real engines droop at part-load while
@@ -61,41 +54,31 @@ bundles three components with different behaviour:
   model ignores); both are out of scope for now. A hotel-load sensitivity
   (reefer-light / base / reefer-heavy) is in `print_hotel_sensitivity` to
   surface the effect without overfitting.
-- **Accommodation / crew** — small; electric may shed a few engine-room
-  engineers (slightly lower), nuclear likely needs more crew + security
-  (slightly higher). Consider a small per-powertrain hotel delta later.
+- **Done — accommodation/crew:** per-powertrain hotel delta
+  (`hotel_delta_elec_kw` -150, `hotel_delta_nuclear_kw` +250) — electric sheds a
+  few engine-room engineers, nuclear adds crew + security.
 - **Ship systems** (pumps, ventilation, nav) — roughly constant, no powertrain
   dependence.
 
 Already correct: hotel is time-based (`x sail_hours`), so slow steaming raises
 hotel energy per leg and partially offsets the cube-law savings.
 
-## Maneuverability credit (electric / podded ships)
-Option to credit the superior low-speed maneuverability of electric ships
-(azimuth pods/thrusters) — faster, easier berthing and less tug assistance.
-Two hooks:
-- **Port time**: make `port_hours_per_call` per-powertrain (lower for electric)
-  for the berthing/maneuverability saving. NOTE — battery swap itself adds ~no
-  time when a battery *replaces cargo* (offload-depleted + onload-charged = the
-  2 crane moves a cargo slot already needs; uniform battery boxes may crane
-  faster). Added swap time scales only with batteries in *empty* slots
-  (`B_empty` below), minus any charged onboard via a modest plug. Shorter port
-  time raises cycles/year, most impactful short-haul where port time dominates
-  the cycle, i.e. exactly where battery ships compete.
-- **O&M / tugs**: reduced tugboat fees. Tug/port fees are **not currently
-  modeled** (om_* is crew/insurance/repairs/lube only). Add an explicit
-  tug-cost-per-call parameter (lower for electric) rather than folding it into
-  `om_elec`, so the credit is visible.
-
-Related: crew salaries are bundled in `om_*_usd_yr`, not itemized or scaled by
-headcount. Itemizing O&M (crew / insurance / repairs / tugs / ...) would let
-the "fewer engineers" and tug credits be modeled explicitly instead of via the
-single 14% electric-vs-fossil O&M gap.
+## Maneuverability credit (electric / podded ships) — DONE
+- **Port time:** per-powertrain `port_hours_elec` (16 h vs 18) — pods/azimuth
+  give electric-drive ships faster berthing.
+- **Tugs:** `tug_usd_per_call` (5000, conventional) vs `tug_usd_per_call_elec`
+  (2000), charged per cycle; electric needs far less tug assistance.
+- **Crew salary:** O&M itemized — `om_*_usd_yr` is now the non-crew residual and
+  crew is `crew_count_* x crew_cost_usd_yr` explicitly (fossil 22 / elec 20 /
+  nuclear 30), so the "fewer engineers" credit is visible and tunable.
+Remaining: the swap-vs-empty-slot port-time nuance is still ignored (the elec
+port time assumes swap ~neutral) — see Cargo demand / empty-slot usability.
 
 ## Parameter checks
-- `availability` (0.95) is shared; consider raising it for electric/iron-air —
-  lower drivetrain maintenance than combustion, à la EV vs ICE.
-- `v_min_kn` (9 kn): check the minimum sailing speed is justified (probably fine).
+- **Done — availability:** `availability_elec` (0.97) for battery/electric-drive
+  ships vs 0.95 (fossil/nuclear), reflecting lower drivetrain maintenance.
+- **Done — min speed:** `v_min_kn` lowered to 5 kn (lets the power-bound iron-air
+  and battery ships slow-steam further — notably makes long-haul iron-air feasible).
 
 ## Cargo demand & load factor
 Carried cargo (`carried_teu` in `scripts/lcot.py`) is the round-trip average of
@@ -103,7 +86,7 @@ per-direction `min(volume-limited, mass-limited)`, where volume demand =
 `load_factor x (gross_slots - overhead)` and batteries displace cargo only after
 the usable empty slack.
 
-**Done — asymmetric legs:** `load_factor_imbalance` (default 0 = symmetric) splits
+**Done — asymmetric legs (now default 0.2):** `load_factor_imbalance` splits
 the mean LF into headhaul `LF·(1+imb)` and backhaul `LF·(1-imb)`; a fixed battery
 footprint eats the fuller leg first. (`mean(min(demand_dir, capacity))`.) Future:
 a richer fill distribution instead of a two-point head/back split.

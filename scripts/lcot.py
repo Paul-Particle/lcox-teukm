@@ -63,18 +63,29 @@ def carried_teu(p: Params, overhead_slots: float, battery_slots: float = 0.0,
     return 0.5 * (carried_dir(lf_head) + carried_dir(lf_back))
 
 
+def _elec_prop_factor(p: Params) -> float:
+    """Electric-drive hull/propeller efficiency: the itemized component factors
+    compounded (hull form x coating x propeller/pods x wider-eff x routing)."""
+    return (p.elec_hull_form_factor * p.elec_coating_factor
+            * p.elec_propeller_factor * p.elec_wider_eff_factor
+            * p.elec_routing_factor)
+
+
 def lcot_fossil(p: Params, v_kn: float, d_km: float) -> dict:
-    E_use = leg_useful_energy_kwh(p, v_kn, d_km)
+    pf = p.fossil_prop_power_factor
+    E_use = leg_useful_energy_kwh(p, v_kn, d_km, pf)
     cyc = cycles_per_year(p, v_kn, d_km)
 
     fuel_chem_kwh = E_use / p.eta_fossil
     fuel_cost_per_kwh_chem = p.fuel_usd_per_t / KG_PER_TONNE / p.fuel_lhv_kwh_per_kg
     energy_cost_leg = fuel_chem_kwh * fuel_cost_per_kwh_chem
 
-    engine_capex = p.engine_usd_per_kw * prop_power_kw(p, p.v_design_max_kn)
+    engine_capex = p.engine_usd_per_kw * prop_power_kw(p, p.v_design_max_kn, pf)
     annual_fixed = (p.hull_capex_usd * crf(p.discount_rate, p.hull_life_yr)
                     + engine_capex * crf(p.discount_rate, p.engine_life_yr)
-                    + p.om_fossil_usd_yr)
+                    + p.om_fossil_usd_yr
+                    + p.crew_count_fossil * p.crew_cost_usd_yr
+                    + p.tug_usd_per_call * cyc)
 
     cargo_cap = p.gross_slots - p.fossil_overhead_slots
     annual_teukm = cyc * d_km * carried_teu(p, p.fossil_overhead_slots)
@@ -101,11 +112,13 @@ class BatterySpec:
 
 
 def _lcot_battery(p: Params, v_kn: float, d_km: float, spec: BatterySpec) -> dict:
-    # Electric drivetrain enables hull/propeller efficiency gains; scales the
-    # propulsion P-v curve, so it cuts both leg energy and the installed motor.
-    pf = p.elec_prop_power_factor
-    E_use = leg_useful_energy_kwh(p, v_kn, d_km, pf)
-    cyc = cycles_per_year(p, v_kn, d_km)
+    # Electric drivetrain enables hull/propeller efficiency gains (itemized) and
+    # sheds a few engine-room crew (hotel delta), maneuvers better (faster
+    # berthing, fewer tugs), and needs less drivetrain maintenance (uptime).
+    pf = _elec_prop_factor(p)
+    hotel = p.p_hotel_kw + p.hotel_delta_elec_kw
+    E_use = leg_useful_energy_kwh(p, v_kn, d_km, pf, hotel_kw=hotel)
+    cyc = cycles_per_year(p, v_kn, d_km, port_h=p.port_hours_elec, avail=p.availability_elec)
 
     pack_draw_leg = E_use / p.eta_elec
     installed_energy = pack_draw_leg * (1 + spec.reserve) / spec.dod
@@ -113,7 +126,7 @@ def _lcot_battery(p: Params, v_kn: float, d_km: float, spec: BatterySpec) -> dic
     # the steady cruise draw at v (not v_design_max — the ship can install a
     # big motor, but the pack physically cannot supply it; the speed optimizer
     # trades against this since P ~ v^3).
-    pack_power_kw = (prop_power_kw(p, v_kn, pf) + p.p_hotel_kw) / p.eta_elec
+    pack_power_kw = (prop_power_kw(p, v_kn, pf) + hotel) / p.eta_elec
     installed_kwh = max(installed_energy, pack_power_kw * spec.min_discharge_h)
     battery_slots = installed_kwh / spec.kwh_per_teu
     battery_tonnes = installed_kwh / spec.pack_wh_per_kg   # kWh*1000Wh / (Wh/kg) / 1000 = t
@@ -141,7 +154,9 @@ def _lcot_battery(p: Params, v_kn: float, d_km: float, spec: BatterySpec) -> dic
     annual_fixed = (p.hull_capex_usd * crf(p.discount_rate, p.hull_life_yr)
                     + motor_capex * crf(p.discount_rate, p.motor_life_yr)
                     + battery_capex * crf(p.discount_rate, battery_life)
-                    + p.om_elec_usd_yr)
+                    + p.om_elec_usd_yr
+                    + p.crew_count_elec * p.crew_cost_usd_yr
+                    + p.tug_usd_per_call_elec * cyc)
 
     annual_teukm = cyc * d_km * carried
     annual_cost = annual_fixed + energy_cost_leg * cyc
@@ -168,7 +183,10 @@ def lcot_ironair(p: Params, v_kn: float, d_km: float) -> dict:
 
 
 def lcot_nuclear(p: Params, v_kn: float, d_km: float) -> dict:
-    E_use = leg_useful_energy_kwh(p, v_kn, d_km)
+    # Nuclear carries more crew + security (hotel delta) but is direct-drive
+    # (no electric hull/prop gains, conventional berthing/tugs).
+    hotel = p.p_hotel_kw + p.hotel_delta_nuclear_kw
+    E_use = leg_useful_energy_kwh(p, v_kn, d_km, hotel_kw=hotel)
     cyc = cycles_per_year(p, v_kn, d_km)
 
     energy_cost_leg = (E_use / p.eta_nuclear) * p.nuclear_fuel_usd_per_kwh_th
@@ -178,10 +196,12 @@ def lcot_nuclear(p: Params, v_kn: float, d_km: float) -> dict:
     # propulsion only, with auxiliary gensets implicit in its O&M). Refueling
     # and regulatory outages are assumed inside the shared `availability`.
     reactor_capex = p.nuclear_usd_per_kw * (prop_power_kw(p, p.v_design_max_kn)
-                                            + p.p_hotel_kw)
+                                            + hotel)
     annual_fixed = (p.hull_capex_usd * crf(p.discount_rate, p.hull_life_yr)
                     + reactor_capex * crf(p.discount_rate, p.nuclear_life_yr)
-                    + p.om_nuclear_usd_yr)
+                    + p.om_nuclear_usd_yr
+                    + p.crew_count_nuclear * p.crew_cost_usd_yr
+                    + p.tug_usd_per_call * cyc)
 
     cargo_cap = p.gross_slots - p.nuclear_overhead_slots
     annual_teukm = cyc * d_km * carried_teu(p, p.nuclear_overhead_slots,
@@ -198,11 +218,14 @@ def _lcot_nuclear_elec(p: Params, v_kn: float, d_km: float, reactor_capex: float
                        om_usd_yr: float, fuel_usd_per_kwh_th: float) -> dict:
     """Shared body for the nuclear-electric cases: reactor -> electricity ->
     electric motor. End-to-end useful eff = eta_nuclear*eta_elec; the electric
-    drivetrain earns the hull/prop factor and uses motor (not reactor-direct)
-    CAPEX. Callers supply the reactor CAPEX/overhead (containerized vs integrated)."""
-    pf = p.elec_prop_power_factor
-    E_use = leg_useful_energy_kwh(p, v_kn, d_km, pf)
-    cyc = cycles_per_year(p, v_kn, d_km)
+    drivetrain earns the electric hull/prop factor + maneuverability (faster
+    berthing, fewer tugs), but carries nuclear crew + security (hotel delta,
+    crew count) and reactor-paced uptime. Callers supply the reactor
+    CAPEX/overhead (containerized vs integrated)."""
+    pf = _elec_prop_factor(p)
+    hotel = p.p_hotel_kw + p.hotel_delta_nuclear_kw
+    E_use = leg_useful_energy_kwh(p, v_kn, d_km, pf, hotel_kw=hotel)
+    cyc = cycles_per_year(p, v_kn, d_km, port_h=p.port_hours_elec)
 
     thermal_kwh = E_use / (p.eta_elec * p.eta_nuclear)
     energy_cost_leg = thermal_kwh * fuel_usd_per_kwh_th
@@ -211,7 +234,9 @@ def _lcot_nuclear_elec(p: Params, v_kn: float, d_km: float, reactor_capex: float
     annual_fixed = (p.hull_capex_usd * crf(p.discount_rate, p.hull_life_yr)
                     + reactor_capex * crf(p.discount_rate, reactor_life_yr)
                     + motor_capex * crf(p.discount_rate, p.motor_life_yr)
-                    + om_usd_yr)
+                    + om_usd_yr
+                    + p.crew_count_nuclear * p.crew_cost_usd_yr
+                    + p.tug_usd_per_call_elec * cyc)
 
     cargo_cap = p.gross_slots - overhead_slots
     annual_teukm = cyc * d_km * carried_teu(p, overhead_slots, fuel_credit_t=p.bunker_mass_t)
@@ -224,8 +249,9 @@ def _lcot_nuclear_elec(p: Params, v_kn: float, d_km: float, reactor_capex: float
 
 def _reactor_design_power_kw(p: Params) -> float:
     """Electric-side power the onboard reactor plant must supply at design speed."""
-    pf = p.elec_prop_power_factor
-    return (prop_power_kw(p, p.v_design_max_kn, pf) + p.p_hotel_kw) / p.eta_elec
+    pf = _elec_prop_factor(p)
+    hotel = p.p_hotel_kw + p.hotel_delta_nuclear_kw
+    return (prop_power_kw(p, p.v_design_max_kn, pf) + hotel) / p.eta_elec
 
 
 def lcot_nuclear_elec_containerized(p: Params, v_kn: float, d_km: float) -> dict:
@@ -275,15 +301,16 @@ def lcot_mobile(p: Params, v_kn: float, d_km: float) -> dict:
     the on-battery deadhead to the meeting point), so it is far smaller than the
     port-swap battery ship. Energy is priced at the tender fleet's levelized
     $/kWh. Speed is capped by the floating charging cable."""
-    pf = p.elec_prop_power_factor
+    pf = _elec_prop_factor(p)
+    hotel = p.p_hotel_kw + p.hotel_delta_elec_kw
     # Cable speed cap: infeasible above the cap (optimizer pins at the cap).
     if v_kn > p.mob_cable_v_cap_kn:
         return {"lcot": np.inf, "v": v_kn, "cargo_cap": 0.0, "battery_slots": 0.0,
                 "battery_kwh": 0.0, "battery_life": np.nan, "annual_fixed": np.inf,
                 "annual_energy": np.inf, "teukm": 0.0, "cyc": 0.0}
 
-    E_use_leg = leg_useful_energy_kwh(p, v_kn, d_km, pf)
-    pack_draw_kw = (prop_power_kw(p, v_kn, pf) + p.p_hotel_kw) / p.eta_elec
+    E_use_leg = leg_useful_energy_kwh(p, v_kn, d_km, pf, hotel_kw=hotel)
+    pack_draw_kw = (prop_power_kw(p, v_kn, pf) + hotel) / p.eta_elec
 
     # The battery covers the worst single un-charged stretch (it recharges in
     # between), not the sum of all of them:
@@ -311,9 +338,10 @@ def lcot_mobile(p: Params, v_kn: float, d_km: float) -> dict:
     grid_kwh_leg = (E_use_leg / p.eta_elec) / (p.battery_eta_charge * p.battery_eta_discharge)
     energy_cost_leg = grid_kwh_leg * tender_usd_per_kwh
 
-    # Cycle: charged underway, so no battery swap in port -> shorter port time.
+    # Cycle: charged underway, so no battery swap in port -> shorter port time;
+    # electric-drive uptime (availability_elec).
     sail_h = d_km / (v_kn * KMH_PER_KNOT)
-    cyc = HOURS_PER_YEAR * p.availability / (sail_h + p.mob_port_hours_per_call)
+    cyc = HOURS_PER_YEAR * p.availability_elec / (sail_h + p.mob_port_hours_per_call)
 
     # Small pack cycles once per top-up; account for partial cycles per leg.
     topups_per_leg = max(1.0, sail_h / p.mob_rendezvous_spacing_h)
@@ -324,7 +352,9 @@ def lcot_mobile(p: Params, v_kn: float, d_km: float) -> dict:
     annual_fixed = (p.hull_capex_usd * crf(p.discount_rate, p.hull_life_yr)
                     + motor_capex * crf(p.discount_rate, p.motor_life_yr)
                     + battery_capex * crf(p.discount_rate, battery_life)
-                    + p.om_elec_usd_yr)
+                    + p.om_elec_usd_yr
+                    + p.crew_count_elec * p.crew_cost_usd_yr
+                    + p.tug_usd_per_call_elec * cyc)
 
     cargo_cap = p.gross_slots - p.elec_fixed_overhead_slots - battery_slots
     annual_teukm = cyc * d_km * carried

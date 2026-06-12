@@ -20,14 +20,24 @@ def prop_power_kw(p: Params, v_kn: float, prop_factor: float = 1.0) -> float:
 
 
 def leg_useful_energy_kwh(p: Params, v_kn: float, d_km: float,
-                          prop_factor: float = 1.0) -> float:
-    """Useful energy at the propeller + hotel load over one leg of length d_km."""
+                          prop_factor: float = 1.0, hotel_kw: float = None) -> float:
+    """Useful energy at the propeller + hotel load over one leg of length d_km.
+    hotel_kw defaults to p.p_hotel_kw; pass a per-powertrain value to vary it."""
+    if hotel_kw is None:
+        hotel_kw = p.p_hotel_kw
     sail_h = d_km / (v_kn * KMH_PER_KNOT)
-    return (prop_power_kw(p, v_kn, prop_factor) + p.p_hotel_kw) * sail_h
+    return (prop_power_kw(p, v_kn, prop_factor) + hotel_kw) * sail_h
 
 
-def cycles_per_year(p: Params, v_kn: float, d_km: float) -> float:
-    """Number of D_max legs completed per year, given sailing + port time."""
+def cycles_per_year(p: Params, v_kn: float, d_km: float,
+                    port_h: float = None, avail: float = None) -> float:
+    """Number of D_max legs completed per year, given sailing + port time.
+    port_h/avail default to the shared Params values; pass per-powertrain
+    values for maneuverability (faster berthing) and lower-maintenance uptime."""
+    if port_h is None:
+        port_h = p.port_hours_per_call
+    if avail is None:
+        avail = p.availability
     sail_h = d_km / (v_kn * KMH_PER_KNOT)
-    cycle_h = sail_h + p.port_hours_per_call
-    return HOURS_PER_YEAR * p.availability / cycle_h
+    cycle_h = sail_h + port_h
+    return HOURS_PER_YEAR * avail / cycle_h
