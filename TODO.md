@@ -128,3 +128,58 @@ batteries should not get the full `(1-L)·cargo_slots` slack for free.
 - **Couple to swap time:** the batteries-in-empty-slots count
   (`B_empty = max(0, B - θ·slack)`-ish) is exactly what adds port/swap time —
   feed the same quantity into the maneuverability port-time term above.
+
+---
+
+# Appendix — deferred 3-axis refactor design
+
+Preserved from the planning pass (the plan file lives outside the repo). The
+goal: support bulk carriers & chemical tankers (tonne·km, not just TEU·km) and
+let every powertrain compose cleanly. Most cases are recombinations along three
+orthogonal axes: **Platform** (cargo/route) × **Drivetrain** (energy→shaft) ×
+**Energy-source/logistics**. Today all three are baked into one flat `Params` +
+one `lcot_*(p,v,d)->dict` per case.
+
+**Target:** a cost model = `compose(Platform, Drivetrain, EnergySource)`, with a
+single shared `levelized_cost(case, v, d)` instead of N `lcot_*` functions.
+
+- **Three frozen dataclasses** —
+  - `Platform`: `name`, `cargo_unit` ("TEU"/"tonne"), `gross_capacity`,
+    `load_factor`, hull capex/life, port hours, availability, `batt_usable_frac`,
+    + a `displace(overhead, storage)` strategy fn.
+  - `Drivetrain`: `eta`, `prop_power_factor`, prop capex/life, om, overhead.
+  - `EnergySource`: `kind` ∈ fuel/battery/reactor, price, `BatterySpec|None`,
+    reactor capex/life, + a `size_storage` strategy fn.
+  Composed by a `Case` namedtuple registry in a new `cases.py` (one row per case).
+
+- **`carried_teu` generalizes** to `carried(demand, capacity)` — *identical
+  arithmetic*, but the kWh→capacity-unit mapping is platform-specific: container
+  displaces **volume** (TEU via `kwh_per_teu`); bulk/chemical displace
+  **deadweight** (tonnes via `pack_wh_per_kg`). The mass constraint added now on
+  the flat model is the same idea — the refactor just makes it the primary
+  binding metric on tonne·km platforms.
+
+- **Config → nested YAML** (`platforms:` / `drivetrains:` / `sources:`), with a
+  section-validating loader preserving the strict reject-unknown-keys behaviour
+  per section (string allow-list for `name`/`kind`/`cargo_unit`, numeric coercion
+  otherwise).
+
+- **Overhead & O&M are per-(platform,drivetrain) cells** — keep drivetrain
+  defaults + a per-case override map in `cases.py` (a nuclear bulk carrier's O&M
+  ≠ a nuclear container ship's).
+
+- **Mixed cargo units** → plots/crossover **facet by platform** (can't share a
+  TEU·km / tonne·km axis); `crossover_dmax` asserts same `cargo_unit`. Dict keys
+  generalize `teukm→unitkm`, `battery_*→storage_*`, add `cargo_unit`.
+
+- **Migration order (runnable + parity-gated each step):** snapshot baseline
+  stdout → add axis dataclasses + nested loader *alongside* the flat `Params`
+  (adapter) → write `levelized_cost` + `cases.py` for the container cases →
+  parity-test vs old `lcot_*` on a v×d grid (match to ~1e-9; **no formula tweaks
+  during the refactor**) → switch `analysis.py`/`report.py` to consume `Case` →
+  delete the flat-`Params` shim → restructure config → then add bulk/chemical
+  platforms (data only).
+
+**Bulk/chemical economics** (DWT, hull capex, load factors, port economics,
+cargo-value notes) were deliberately left as placeholders — research them when
+the platforms are actually populated.
