@@ -386,9 +386,13 @@ def lcot_mobile(p: Params, v_kn: float, d_km: float) -> dict:
     cargo_cap = p.gross_slots - p.elec_fixed_overhead_slots - battery_slots
     annual_teukm = cyc * d_km * carried
     annual_cost = annual_fixed + energy_cost_leg * cyc
-    # One tender is a dedicated escort: ships served = its escorts/yr / this
-    # ship's legs/yr (>1 because the tender also covers each ship's coastal/port
-    # time by escorting another ship's crossing).
+    # DIAGNOSTIC ONLY — not a cost driver. Energy is priced as a service: each
+    # leg pays bus_kwh_leg at the tender's levelized rate, which already bakes in
+    # exactly one idle/rendezvous period (tender_idle_h) plus the tethered
+    # crossing. This ratio is a face-validity readout: ships one tender can keep
+    # pace with = its escorts/yr / this ship's legs/yr. >=1 confirms a single
+    # dedicated tender suffices; <1 would flag that a ship's cadence outruns one
+    # tender (a real constraint, but it never feeds back into LCOT here).
     ships_per_tender = escorts_per_yr / cyc
     return {"lcot": annual_cost / annual_teukm, "v": v_kn, "cargo_cap": cargo_cap,
             "annual_fixed": annual_fixed, "annual_energy": energy_cost_leg * cyc,
