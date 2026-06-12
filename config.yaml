@@ -45,6 +45,8 @@ v_max_kn: 22.0
 eta_fossil: 0.48             # fuel chemical -> useful (good 2-stroke)
 eta_elec: 0.88               # battery pack -> useful (drivetrain)
 eta_nuclear: 0.30            # reactor thermal -> useful (marine PWR steam ~25-30%)
+eta_hotel: 0.97              # source bus -> hotel (bypasses drive motor on electric ships)
+eta_aux_gen: 0.42            # fossil: aux genset fuel -> hotel electricity (below main-engine eta)
 
 # ---- energy prices -------------------------------------------------------
 fuel_usd_per_t: 550.0        # VLSFO
