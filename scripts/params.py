@@ -173,15 +173,16 @@ class Params:
     # sCO2 ~50%, two-core ~30 MWe, no refuel for decades, containerized). Stays in
     # international waters (avoids the EEZ) for trivial licensing; lean open-ocean
     # build, asset-loss insurance. Speculative — engineering estimates (sweep).
-    mob_rendezvous_distance_nm: float = 200.0  # EEZ edge: the ship crosses this no-charge coastal
-                                               # zone on battery (tender stays in intl waters)
-    mob_cable_v_cap_kn: float = 16.0           # max safe speed while cable-connected (< free max)
-    mob_charge_availability: float = 0.85      # fraction of underway time actually charging (sea state)
-    mob_disconnect_reserve: float = 0.25       # extra battery to ride out a disconnected spell
-    mob_rendezvous_spacing_h: float = 12.0     # SHIP-side: sailing time between its open-ocean top-ups;
-                                               # sets the bridging battery only. TODO: fixed; jointly
-                                               # optimizing trades battery size vs tender count
-    mob_charge_power_kw: float = 25000.0       # cable/connector power limit (~reactor-limited)
+    # Dedicated-escort model: the ship sails untethered through coastal waters,
+    # meets the tender at the regulatory border, and they cable up to cross the
+    # open ocean together (tender drives propulsion + recharges the coastal drain).
+    coastal_untethered_distance_nm: float = 12.0  # untethered battery run at each end. 12 nm = UNCLOS
+                                               # territorial-sea limit (Freedom-of-Navigation minimum);
+                                               # set 200.0 to test a full-EEZ standoff. Sweep it.
+    storm_survival_duration_h: float = 12.0    # worst-case at-sea cable disconnect (severe sea state);
+                                               # ship rides it out on battery. Sizes pack if > coastal.
+    cable_efficiency: float = 0.96             # tether electrical transmission efficiency (bus / reactor)
+    mob_cable_v_cap_kn: float = 16.0           # max safe speed while cable-connected (< free design max)
     mob_tender_reactor_kw: float = 30000.0     # AMPERA two-core net electric (15 MWe x 2)
     mob_tender_parasitic_kw: float = 2500.0    # uncrewed; DP station-keeping + cooling (sCO2, no water)
     mob_tender_usd_per_kw: float = 7000.0      # microreactor NOAK ~$7k/kWe (FOAK $10-35k — sweep)
@@ -191,9 +192,9 @@ class Params:
                                                # no refuel, few port calls
     mob_tender_fuel_usd_per_kwh_th: float = 0.012  # thorium core, multi-decade ~one-time (negligible)
     mob_tender_eta_nuclear: float = 0.45       # reactor thermal -> electric (sCO2 ~50%)
-    mob_tender_idle_h: float = 5.0             # TENDER-side "port-time equivalent": non-charging hours
-                                               # per top-up (transit to + waiting for next ship); sets
-                                               # utilization. Estimate — sweep it.
+    tender_idle_h: float = 5.0                 # TENDER-side "port-time equivalent": hours at the border
+                                               # between dropping one ship and picking up the next; sets
+                                               # tender utilization. Estimate — sweep it.
     mob_tender_availability: float = 0.95      # decades without refuel, stays at sea; rare maintenance
     mob_port_hours_per_call: float = 12.0      # no battery swap in port -> shorter than 18
 

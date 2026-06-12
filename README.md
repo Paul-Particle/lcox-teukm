@@ -15,10 +15,13 @@ compares several powertrains:
 - **Nuclear-electric (containerized / integrated)** — onboard reactor driving an electric motor
   (reactor → electricity → propeller). Slightly lower end-to-end efficiency than direct-drive, but
   earns the electric-drive hull/prop gains; modular containerized units vs a single integrated plant.
-- **Mobile-reactor charge** — a battery-electric ship recharged **at sea** by a fleet of mobile
-  nuclear tenders (underway escort top-ups) instead of port swaps. The pack only bridges the gap
-  between rendezvous (plus a sea-state disconnect reserve), so it is far smaller; energy is priced
-  at the tender fleet's levelized $/kWh, and speed is capped by the floating charging cable.
+- **Mobile-reactor charge** — a battery-electric ship recharged **at sea** by a dedicated uncrewed
+  nuclear tender instead of port swaps. The ship runs untethered on battery through coastal waters,
+  then cables up to the tender at the regulatory border and crosses the open ocean tethered (the
+  tender drives propulsion *and* recharges the coastal drain). The pack only covers the worst
+  untethered stretch — the coastal transit or a storm-survival disconnect — so it is far smaller
+  than a port-swap battery ship; energy is priced at the tender's levelized $/kWh, and speed while
+  tethered is capped by the floating charging cable.
 
 Cargo accounting applies **volume (slots), mass (deadweight) and power** constraints together, and
 supports **asymmetric headhaul/backhaul legs** (`load_factor_imbalance`).
@@ -150,7 +153,7 @@ Maritime / model terms used in the code and outputs:
 - **C-rate / C/50** — discharge rate relative to capacity; C/50 means full discharge over 50 h (iron-air is power-limited).
 - **Battery swapping** — exchanging depleted containerized battery packs for charged ones at port, rather than plugging in.
 - **Tender** — a support vessel; here the mobile nuclear reactor that recharges battery ships at sea.
-- **EEZ** — Exclusive Economic Zone, to ~200 nm offshore; the mobile tender stays in international waters beyond it for easier licensing, so the ship crosses the EEZ on battery.
+- **EEZ** — Exclusive Economic Zone, to ~200 nm offshore. The mobile tender stays clear of a regulatory standoff (`coastal_untethered_distance_nm`: the 12 nm UNCLOS territorial-sea minimum by default, or the full ~200 nm EEZ as a conservative test), so the ship crosses that coastal band untethered on battery before meeting the tender.
 - **nm / knot** — nautical mile (1.852 km) / one nautical mile per hour.
 - **VLSFO** — very low sulfur fuel oil, the conventional marine fuel.
 - **SMR / HALEU** — small modular reactor; high-assay low-enriched uranium fuel.

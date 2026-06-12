@@ -276,59 +276,70 @@ def lcot_nuclear_elec_integrated(p: Params, v_kn: float, d_km: float) -> dict:
                               p.nuci_fuel_usd_per_kwh_th)
 
 
-def _mobile_tender_usd_per_kwh(p: Params, inter_kwh: float):
-    """Explicit tender-fleet economics -> levelized $/kWh delivered, plus the
-    top-ups/yr one tender can serve. Per top-up the tender spends `charge_h`
-    delivering energy plus `mob_tender_idle_h` NOT charging — it cannot line up
-    its next ship immediately, so it transits to and waits for the next one.
-    That idle is the tender's "port-time equivalent" and is what limits its
-    utilization. Annualized cost (hull + reactor CAPEX + O&M + HALEU fuel incl.
-    parasitic) is divided by the grid-side energy delivered per year."""
-    deliverable_kw = min(p.mob_charge_power_kw,
-                         p.mob_tender_reactor_kw - p.mob_tender_parasitic_kw)
-    e_topup_grid = (inter_kwh * p.mob_charge_availability) / (p.battery_eta_charge * p.battery_eta_discharge)
-    charge_h = e_topup_grid / deliverable_kw
-    topups_per_yr = HOURS_PER_YEAR * p.mob_tender_availability / (charge_h + p.mob_tender_idle_h)
-    annual_kwh = topups_per_yr * e_topup_grid
-    parasitic_kwh_yr = p.mob_tender_parasitic_kw * topups_per_yr * charge_h
+def _mobile_infeasible(v_kn: float, battery_slots: float = 0.0,
+                       battery_kwh: float = 0.0) -> dict:
+    """Standard infeasible-result dict for the mobile-escort case."""
+    return {"lcot": np.inf, "v": v_kn, "cargo_cap": 0.0,
+            "battery_slots": battery_slots, "battery_kwh": battery_kwh,
+            "battery_life": np.nan, "annual_fixed": np.inf,
+            "annual_energy": np.inf, "teukm": 0.0, "cyc": 0.0}
+
+
+def _mobile_tender_usd_per_kwh(p: Params, tethered_h: float, bus_kwh_leg: float):
+    """Dedicated-escort tender economics: levelized $/kWh (at the ship's bus) and
+    escorts/yr per tender. A tender escorts one open-ocean crossing (`tethered_h`)
+    then waits `tender_idle_h` at the border for the next ship. Its annualized
+    cost (hull + reactor CAPEX + O&M + fuel, incl. parasitic and cable losses) is
+    amortized over the bus energy it pushes across the cable per year."""
+    escorts_per_yr = (HOURS_PER_YEAR * p.mob_tender_availability
+                      / (tethered_h + p.tender_idle_h))
+    annual_bus_kwh = escorts_per_yr * bus_kwh_leg          # energy delivered to ship buses
+    annual_gen_kwh = annual_bus_kwh / p.cable_efficiency   # reactor output (cable losses)
+    parasitic_kwh_yr = p.mob_tender_parasitic_kw * escorts_per_yr * tethered_h
 
     tender_capex = (p.mob_tender_capex_hull_usd
                     + p.mob_tender_usd_per_kw * p.mob_tender_reactor_kw)
     tender_fixed = tender_capex * crf(p.discount_rate, p.mob_tender_life_yr) + p.mob_tender_om_usd_yr
-    tender_fuel = ((annual_kwh + parasitic_kwh_yr) / p.mob_tender_eta_nuclear
+    tender_fuel = ((annual_gen_kwh + parasitic_kwh_yr) / p.mob_tender_eta_nuclear
                    ) * p.mob_tender_fuel_usd_per_kwh_th
-    usd_per_kwh = (tender_fixed + tender_fuel) / annual_kwh
-    return usd_per_kwh, topups_per_yr
+    usd_per_kwh = (tender_fixed + tender_fuel) / annual_bus_kwh
+    return usd_per_kwh, escorts_per_yr
 
 
 def lcot_mobile(p: Params, v_kn: float, d_km: float) -> dict:
-    """Battery-electric ship recharged at sea by a mobile nuclear tender
-    (underway escort top-ups). Reuses the electric drivetrain; the pack only
-    bridges the gap between rendezvous (plus a sea-state disconnect reserve and
-    the on-battery deadhead to the meeting point), so it is far smaller than the
-    port-swap battery ship. Energy is priced at the tender fleet's levelized
-    $/kWh. Speed is capped by the floating charging cable."""
+    """Battery-electric ship recharged at sea by a dedicated nuclear escort.
+
+    The ship sails untethered on battery power through coastal/territorial
+    waters at each end (`coastal_untethered_distance_nm`), then meets an
+    uncrewed nuclear tender at the regulatory border. The two cable up and
+    cross the open ocean together: the tender drives propulsion directly AND
+    recharges the battery drained on the outbound coastal leg, so the ship
+    arrives at the far border fully charged for its inbound coastal run.
+
+    The pack is therefore sized for the worst untethered stretch — the coastal
+    transit, or a storm-survival disconnect mid-ocean — not the whole crossing,
+    so it is far smaller than a port-swap battery ship. Energy is priced at the
+    tender's levelized $/kWh (at the ship's bus). Speed while tethered is capped
+    by the floating charging cable (`mob_cable_v_cap_kn`)."""
     pf = _elec_propulsion_factor(p)
     hotel = p.p_hotel_kw + p.hotel_delta_elec_kw
     # Cable speed cap: infeasible above the cap (optimizer pins at the cap).
     if v_kn > p.mob_cable_v_cap_kn:
-        return {"lcot": np.inf, "v": v_kn, "cargo_cap": 0.0, "battery_slots": 0.0,
-                "battery_kwh": 0.0, "battery_life": np.nan, "annual_fixed": np.inf,
-                "annual_energy": np.inf, "teukm": 0.0, "cyc": 0.0}
+        return _mobile_infeasible(v_kn)
 
-    E_use_leg = leg_useful_energy_kwh(p, v_kn, d_km, pf, hotel_kw=hotel)
     pack_draw_kw = (prop_power_kw(p, v_kn, pf) + hotel) / p.eta_elec
+    coastal_km = p.coastal_untethered_distance_nm * KM_PER_NM
+    coastal_h = coastal_km / (v_kn * KMH_PER_KNOT)
+    tethered_km = d_km - 2 * coastal_km
+    if tethered_km <= 0:           # hop too short to reach open water — no escort leg
+        return _mobile_infeasible(v_kn)
+    tethered_h = tethered_km / (v_kn * KMH_PER_KNOT)
 
-    # The battery covers the worst single un-charged stretch (it recharges in
-    # between), not the sum of all of them:
-    #  - open-ocean bridging: the un-charged share of one rendezvous window;
-    #  - EEZ crossing: the no-charge coastal zone the tender stays clear of for
-    #    licensing. The ship recharges in the open ocean between its two EEZ
-    #    crossings, so the binding stretch is ONE crossing, not the round trip.
-    inter_kwh = pack_draw_kw * p.mob_rendezvous_spacing_h
-    bridge_kwh = inter_kwh * (1 - p.mob_charge_availability)
-    deadhead_kwh = pack_draw_kw * (p.mob_rendezvous_distance_nm * KM_PER_NM) / (v_kn * KMH_PER_KNOT)
-    installed_energy = max(bridge_kwh, deadhead_kwh) * (1 + p.mob_disconnect_reserve) / p.battery_dod
+    # Battery = worst-case untethered draw: one coastal transit, or a mid-ocean
+    # storm disconnect at the tethered cruise speed — whichever is larger.
+    coastal_kwh = pack_draw_kw * coastal_h
+    storm_kwh = pack_draw_kw * p.storm_survival_duration_h
+    installed_energy = max(coastal_kwh, storm_kwh) * (1 + p.weather_reserve) / p.battery_dod
     installed_kwh = max(installed_energy, pack_draw_kw * p.battery_min_discharge_h)
     max_kwh_per_teu = (p.iso_container_max_gross_t * (1 + p.iso_container_margin)
                        * p.battery_pack_wh_per_kg)
@@ -339,23 +350,29 @@ def lcot_mobile(p: Params, v_kn: float, d_km: float) -> dict:
     carried = carried_teu(p, p.elec_fixed_overhead_slots, battery_slots,
                           energy_mass_t=battery_tonnes)
     if carried <= 0:
-        return {"lcot": np.inf, "v": v_kn, "cargo_cap": p.gross_slots - p.elec_fixed_overhead_slots - battery_slots,
-                "battery_slots": battery_slots, "battery_kwh": installed_kwh,
-                "battery_life": np.nan, "annual_fixed": np.inf,
-                "annual_energy": np.inf, "teukm": 0.0, "cyc": 0.0}
+        return _mobile_infeasible(v_kn, battery_slots, installed_kwh)
 
-    tender_usd_per_kwh, topups_per_yr = _mobile_tender_usd_per_kwh(p, inter_kwh)
-    grid_kwh_leg = (E_use_leg / p.eta_elec) / (p.battery_eta_charge * p.battery_eta_discharge)
-    energy_cost_leg = grid_kwh_leg * tender_usd_per_kwh
+    # Energy the tender pushes across the cable per leg: tethered propulsion
+    # supplied directly, plus the recharge of the two coastal drains (which the
+    # ship banked/will draw through the battery round-trip).
+    rt = p.battery_eta_charge * p.battery_eta_discharge
+    bus_kwh_leg = pack_draw_kw * tethered_h + (pack_draw_kw * 2 * coastal_h) / rt
+
+    # Power bottleneck: net reactor power (after parasitics) must cover the
+    # tethered bus draw, delivered through the cable.
+    required_gen_kw = (bus_kwh_leg / tethered_h) / p.cable_efficiency
+    if required_gen_kw > p.mob_tender_reactor_kw - p.mob_tender_parasitic_kw:
+        return _mobile_infeasible(v_kn, battery_slots, installed_kwh)
+
+    tender_usd_per_kwh, escorts_per_yr = _mobile_tender_usd_per_kwh(p, tethered_h, bus_kwh_leg)
+    energy_cost_leg = bus_kwh_leg * tender_usd_per_kwh
 
     # Cycle: charged underway, so no battery swap in port -> shorter port time;
     # electric-drive uptime (availability_elec).
     sail_h = d_km / (v_kn * KMH_PER_KNOT)
     cyc = HOURS_PER_YEAR * p.availability_elec / (sail_h + p.mob_port_hours_per_call)
-
-    # Small pack cycles once per top-up; account for partial cycles per leg.
-    topups_per_leg = max(1.0, sail_h / p.mob_rendezvous_spacing_h)
-    battery_life = min(p.battery_calendar_life_yr, p.battery_cycle_life / (cyc * topups_per_leg))
+    # One full charge/discharge per leg (drained coastal, refilled underway).
+    battery_life = min(p.battery_calendar_life_yr, p.battery_cycle_life / cyc)
 
     motor_capex = p.motor_usd_per_kw * prop_power_kw(p, p.v_design_max_kn, pf)
     battery_capex = p.battery_usd_per_kwh * installed_kwh
@@ -369,8 +386,10 @@ def lcot_mobile(p: Params, v_kn: float, d_km: float) -> dict:
     cargo_cap = p.gross_slots - p.elec_fixed_overhead_slots - battery_slots
     annual_teukm = cyc * d_km * carried
     annual_cost = annual_fixed + energy_cost_leg * cyc
-    # ships one tender serves = its top-ups/yr / a single ship's top-ups/yr
-    ships_per_tender = topups_per_yr / (cyc * topups_per_leg)
+    # One tender is a dedicated escort: ships served = its escorts/yr / this
+    # ship's legs/yr (>1 because the tender also covers each ship's coastal/port
+    # time by escorting another ship's crossing).
+    ships_per_tender = escorts_per_yr / cyc
     return {"lcot": annual_cost / annual_teukm, "v": v_kn, "cargo_cap": cargo_cap,
             "annual_fixed": annual_fixed, "annual_energy": energy_cost_leg * cyc,
             "teukm": annual_teukm, "cyc": cyc, "battery_slots": battery_slots,
