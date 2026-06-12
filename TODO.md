@@ -11,6 +11,12 @@
   ship battery size vs tender count. Battery cycle-life accounting under frequent
   shallow top-ups is approximate. Single capped cruise speed (no separate free-speed
   deadhead leg).
+- Mobile tender EEZ energy: the outbound EEZ crossing could be topped from *port
+  shore power* (~$0.09/kWh) before departure rather than the tender (~$0.35/kWh);
+  pricing the whole leg at the tender rate is mildly pessimistic for mobile.
+- `lcot_mobile` duplicates the battery hull/motor/CAPEX/`carried` boilerplate; the
+  3-axis refactor collapses it to "battery energy-source + at-sea-charge sizing
+  strategy + tender price fn" — good motivation to do the refactor.
 - Nuclear-electric: `elec_prop_power_factor` (pod gains) applied to both; the
   single-shaft integrated case may not earn the full pod benefit — consider a
   separate factor. Containerized priced as owned (shorter life); a lease option

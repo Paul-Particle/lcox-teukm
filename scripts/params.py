@@ -145,26 +145,32 @@ class Params:
     nuci_fuel_usd_per_kwh_th: float = 0.012
 
     # ---- mobile nuclear reactor tender (charges battery ships at sea) ----------
-    # Battery-electric ship recharged underway by a fleet of mobile nuclear
-    # tenders (escort top-ups) instead of port swaps. Speculative — no commercial
-    # precedent; all values engineering estimates (flag in TODO, sweep in tornado).
-    mob_rendezvous_distance_nm: float = 12.0   # ship deadheads to meet tender (port~0/12nm/EEZ~200)
+    # Uncrewed micro-reactor tender (AMPERA-x class: thorium TRISO, subcritical,
+    # sCO2 ~50%, two-core ~30 MWe, no refuel for decades, containerized). Stays in
+    # international waters (avoids the EEZ) for trivial licensing; lean open-ocean
+    # build, asset-loss insurance. Speculative — engineering estimates (sweep).
+    mob_rendezvous_distance_nm: float = 200.0  # EEZ edge: the ship crosses this no-charge coastal
+                                               # zone on battery (tender stays in intl waters)
     mob_cable_v_cap_kn: float = 16.0           # max safe speed while cable-connected (< free max)
     mob_charge_availability: float = 0.85      # fraction of underway time actually charging (sea state)
     mob_disconnect_reserve: float = 0.25       # extra battery to ride out a disconnected spell
-    mob_rendezvous_spacing_h: float = 12.0     # sailing time between top-ups (sets bridging battery).
-                                               # TODO: fixed; jointly optimizing trades battery vs tenders
-    mob_charge_power_kw: float = 30000.0       # cable/connector charging power limit
-    mob_tender_reactor_kw: float = 60000.0     # tender reactor net electric output
-    mob_tender_parasitic_kw: float = 6000.0    # station-keeping/cooling/hotel (reduces deliverable)
-    mob_tender_usd_per_kw: float = 7000.0      # tender reactor+marinization (above onboard SMR)
-    mob_tender_capex_hull_usd: float = 120.0e6 # purpose-built DP charging vessel, ex-reactor
+    mob_rendezvous_spacing_h: float = 12.0     # SHIP-side: sailing time between its open-ocean top-ups;
+                                               # sets the bridging battery only. TODO: fixed; jointly
+                                               # optimizing trades battery size vs tender count
+    mob_charge_power_kw: float = 25000.0       # cable/connector power limit (~reactor-limited)
+    mob_tender_reactor_kw: float = 30000.0     # AMPERA two-core net electric (15 MWe x 2)
+    mob_tender_parasitic_kw: float = 2500.0    # uncrewed; DP station-keeping + cooling (sCO2, no water)
+    mob_tender_usd_per_kw: float = 7000.0      # microreactor NOAK ~$7k/kWe (FOAK $10-35k — sweep)
+    mob_tender_capex_hull_usd: float = 50.0e6  # small uncrewed DP vessel, ex-reactor (lean build)
     mob_tender_life_yr: float = 25.0
-    mob_tender_om_usd_yr: float = 14.0e6       # nuclear crew + security + DP vessel ops
-    mob_tender_fuel_usd_per_kwh_th: float = 0.012  # HALEU, as onboard
-    mob_tender_eta_nuclear: float = 0.30       # reactor thermal -> electric
-    mob_tender_transit_v_kn: float = 16.0      # tender cruise between ships
-    mob_tender_availability: float = 0.90      # tender uptime (refuel/maintenance)
+    mob_tender_om_usd_yr: float = 4.0e6        # UNCREWED: remote ops + asset-loss insurance; no crew,
+                                               # no refuel, few port calls
+    mob_tender_fuel_usd_per_kwh_th: float = 0.012  # thorium core, multi-decade ~one-time (negligible)
+    mob_tender_eta_nuclear: float = 0.45       # reactor thermal -> electric (sCO2 ~50%)
+    mob_tender_idle_h: float = 5.0             # TENDER-side "port-time equivalent": non-charging hours
+                                               # per top-up (transit to + waiting for next ship); sets
+                                               # utilization. Estimate — sweep it.
+    mob_tender_availability: float = 0.95      # decades without refuel, stays at sea; rare maintenance
     mob_port_hours_per_call: float = 12.0      # no battery swap in port -> shorter than 18
 
 
