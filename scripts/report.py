@@ -30,6 +30,10 @@ SENS_ELEC_USD_PER_KWH = [0.09, 0.06, 0.03]
 SENS_HOTEL_KW = [("reefer-light", 1000), ("base", 1500), ("reefer-heavy", 3000)]
 SENS_HOTEL_DMAX_KM = 1000
 
+# Design/service-speed sweep for the reactor cases (knots) and its D_max.
+SENS_DESIGN_SPEED_KN = [8, 10, 12, 14, 16, 18, 20, 22]
+SENS_DESIGN_DMAX_KM = 2000
+
 
 def print_base_header(p: Params) -> None:
     print("=" * 72)
@@ -179,3 +183,43 @@ def print_reactor_lease(p: Params) -> None:
               f"{'$'+format(r['lease_usd_per_kwh'],'.3f'):>12} {r['ships_per_reactor']:>15.1f} "
               f"{r['lcot']*CENTS_PER_USD:>8.3f}c")
     print("  * diagnostic only: reactor priced as a per-kWh service, not a fleet ratio")
+
+
+def print_design_speed_sweep(p: Params) -> None:
+    """Reactor-case LCOT vs *service* speed. The model sizes installed power at
+    v_design_max but optimizes cruise separately — the fossil slow-steaming
+    paradigm, which wastes reactor CAPEX (∝ power ∝ v³) when a ~free-fuel ship
+    cruises slower than its plant. Here design speed and the cruise cap are coupled
+    (size for the service speed, then sail it), exposing each reactor case's own
+    size/speed optimum that the fixed 22 kn design hides. (Tier-1: the ~15%
+    sea/weather power margin on top of service speed is not modeled.)"""
+    d = SENS_DESIGN_DMAX_KM
+    targets = ["nuclear", "nuc-ec", "nuc-ei"]
+    print("\n" + "=" * 72)
+    print(f"DESIGN-SPEED SWEEP: reactor LCOT (c/TEU·km) vs service speed, D_max {d:.0f} km")
+    print("=" * 72)
+    print(f"{'v_service':>10}" + "".join(f"{t:>12}" for t in targets))
+    for vd in SENS_DESIGN_SPEED_KN:
+        pp = replace(p, v_design_max_kn=vd, v_max_kn=vd)
+        cm = cases_by_name(pp)
+        cells = ""
+        for t in targets:
+            r = optimize_speed(cost_fn(cm[t]), pp, d)
+            cells += (f"{r['lcot']*CENTS_PER_USD:>11.3f}c" if np.isfinite(r["lcot"])
+                      else f"{'—':>12}")
+        print(f"{vd:>8.0f}kn{cells}")
+
+
+def print_report(p: Params) -> None:
+    """The full console report, in order. Single source of the print sequence so
+    run.py (live) and regression_check.py (golden) can't drift apart."""
+    d_grid = np.linspace(100, 6000, 80)
+    print_base_header(p)
+    print_energy_cost(p)
+    print_breakdown(p)
+    print_crossover(p, d_grid)
+    print_sensitivity(p, d_grid)
+    print_hotel_sensitivity(p, d_grid)
+    print_mobile_fleet(p)
+    print_reactor_lease(p)
+    print_design_speed_sweep(p)

@@ -17,13 +17,15 @@ refactor is sketched in the appendix.
   Installed power (engine/motor/reactor) is sized at `v_design_max_kn` (22 kn)
   while the optimizer picks a slower cruise — the fossil slow-steaming paradigm
   (cheap to slow down, save fuel). But nuclear has ~free fuel, so a reactor sized
-  for 22 kn is wasted CAPEX if it cruises slower. Real practice sizes installed
-  power from a *service speed* + ~15% sea/weather margin. At minimum **sweep
-  `v_design_max`**; better, model a service-speed + margin basis and let nuclear's
-  own speed/sizing optimum emerge. The AMPERA re-base makes this urgent: ~32 MWe
-  design demand just exceeds one 30 MWe module, forcing 2 modules (60 MWe, 87%
-  overshoot) — a small drop in design speed would land under 30 MWe and roughly
-  halve containerized reactor CAPEX + overhead.
+  for 22 kn is wasted CAPEX if it cruises slower.
+  - **Surfaced (`print_design_speed_sweep`):** sweeps the *service* speed with
+    design coupled to the cruise cap — reactor LCOT bottoms out near **12–14 kn**,
+    ~25–30% below the fixed 22 kn design, so sizing for a lower service speed is a
+    big, currently-hidden win. Confirms the paradigm is wrong, not just suspect.
+  - **Still open:** make it endogenous — let the model choose service speed and add
+    a ~15% sea/weather power margin on top, rather than a fixed `v_design_max`; and
+    note the AMPERA module granularity (a small drop under 30 MWe → 1 module, ~halving
+    containerized reactor CAPEX + overhead) interacts with the chosen service speed.
 - **Marginal reactor CAPEX vs size.** `nuclear_usd_per_kw` / `nucc_*` / `nuci_*`
   / `mob_tender_usd_per_kw` are flat $/kW. At these sizes (tens of MW) the marginal
   $/kW likely varies a lot with size (scale economies; step changes at module
