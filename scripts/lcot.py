@@ -245,16 +245,17 @@ def lcot_nuclear_elec_integrated(p: Params, v_kn: float, d_km: float) -> dict:
 
 def _mobile_tender_usd_per_kwh(p: Params, inter_kwh: float):
     """Explicit tender-fleet economics -> levelized $/kWh delivered, plus the
-    top-ups/yr one tender can serve. A tender alternates charging a ship
-    (`charge_h`) and transiting to the next (`transit_h`); its annualized cost
-    (hull + reactor CAPEX + O&M + HALEU fuel incl. parasitic) is divided by the
-    grid-side energy it delivers per year."""
+    top-ups/yr one tender can serve. Per top-up the tender spends `charge_h`
+    delivering energy plus `mob_tender_idle_h` NOT charging — it cannot line up
+    its next ship immediately, so it transits to and waits for the next one.
+    That idle is the tender's "port-time equivalent" and is what limits its
+    utilization. Annualized cost (hull + reactor CAPEX + O&M + HALEU fuel incl.
+    parasitic) is divided by the grid-side energy delivered per year."""
     deliverable_kw = min(p.mob_charge_power_kw,
                          p.mob_tender_reactor_kw - p.mob_tender_parasitic_kw)
     e_topup_grid = (inter_kwh * p.mob_charge_availability) / (p.battery_eta_charge * p.battery_eta_discharge)
     charge_h = e_topup_grid / deliverable_kw
-    transit_h = 2 * p.mob_rendezvous_distance_nm / p.mob_tender_transit_v_kn
-    topups_per_yr = HOURS_PER_YEAR * p.mob_tender_availability / (charge_h + transit_h)
+    topups_per_yr = HOURS_PER_YEAR * p.mob_tender_availability / (charge_h + p.mob_tender_idle_h)
     annual_kwh = topups_per_yr * e_topup_grid
     parasitic_kwh_yr = p.mob_tender_parasitic_kw * topups_per_yr * charge_h
 
@@ -284,13 +285,16 @@ def lcot_mobile(p: Params, v_kn: float, d_km: float) -> dict:
     E_use_leg = leg_useful_energy_kwh(p, v_kn, d_km, pf)
     pack_draw_kw = (prop_power_kw(p, v_kn, pf) + p.p_hotel_kw) / p.eta_elec
 
-    # Battery sized to bridge a rendezvous gap (only the un-charged share, plus a
-    # disconnect reserve) and the on-battery deadhead to/from the meeting point.
+    # The battery covers the worst single un-charged stretch (it recharges in
+    # between), not the sum of all of them:
+    #  - open-ocean bridging: the un-charged share of one rendezvous window;
+    #  - EEZ crossing: the no-charge coastal zone the tender stays clear of for
+    #    licensing. The ship recharges in the open ocean between its two EEZ
+    #    crossings, so the binding stretch is ONE crossing, not the round trip.
     inter_kwh = pack_draw_kw * p.mob_rendezvous_spacing_h
-    bridge_kwh = inter_kwh * (1 - p.mob_charge_availability) * (1 + p.mob_disconnect_reserve)
-    deadhead_km = 2 * p.mob_rendezvous_distance_nm * KM_PER_NM
-    deadhead_kwh = pack_draw_kw * deadhead_km / (v_kn * KMH_PER_KNOT)
-    installed_energy = (bridge_kwh + deadhead_kwh) / p.battery_dod
+    bridge_kwh = inter_kwh * (1 - p.mob_charge_availability)
+    deadhead_kwh = pack_draw_kw * (p.mob_rendezvous_distance_nm * KM_PER_NM) / (v_kn * KMH_PER_KNOT)
+    installed_energy = max(bridge_kwh, deadhead_kwh) * (1 + p.mob_disconnect_reserve) / p.battery_dod
     installed_kwh = max(installed_energy, pack_draw_kw * p.battery_min_discharge_h)
     battery_slots = installed_kwh / p.battery_kwh_per_teu
     battery_tonnes = installed_kwh / p.battery_pack_wh_per_kg
