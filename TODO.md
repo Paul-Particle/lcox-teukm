@@ -125,3 +125,26 @@ deliberate non-DRY duplication across the new cases is what motivates this).
 
 **Bulk/chemical economics** (DWT, hull capex, load factors, port economics, cargo-value notes) were
 deliberately left as placeholders — research them when the platforms are actually populated.
+
+## Refactor wishes (captured during the build — design the axes to accommodate)
+
+- **Energy-supply-cost stubs — as EnergySource strategies, the analog of the tender.** Each new
+  supply is just another `EnergySource` whose $/kWh comes from a model rather than a constant —
+  exactly how the tender's `pricing="tender"` source gets its $/kWh from `_mobile_tender_usd_per_kwh`
+  instead of a flat price. The hook already exists: `EnergySource.supply_usd_per_kwh` carries the
+  primary-energy price (today the flat config value); promote it to a `supply_cost(p, ...)` strategy
+  and add sources for: iron-air / LDES as *grid-storage arbitrage* (charge cheap, levelize over
+  cycles), e-fuel (electrolyzer + DAC + synthesis CAPEX/efficiency → $/kWh), and a fossil refinery
+  placeholder. Each stub returns the current config number, with a TODO for the real model — so they
+  drop into the registry like any other source, no special-casing in `cost.py`.
+- **Cargo-as-fuel (chemical tankers).** A chemical/e-fuel tanker can burn part of its own cargo as
+  fuel. This is a **Platform × EnergySource coupling**: the energy source draws from cargo, so
+  (a) the consumed mass is netted out of deliverable cargo (tonne·km denominator shrinks with
+  distance/speed), and (b) the fuel is priced at the cargo commodity price (opportunity cost),
+  not a separate bunker price. Needs the energy chain to feed back into `carried(...)`.
+- **External scenario table (OPTIONAL — only if it doesn't overload the config story).** A
+  `scenarios.csv` (or `scenarios:` YAML block) alongside `config.yaml`: a row per named scenario
+  layering parameter overrides on the base config, so a sweep of named cases ("2030 NOAK reactor",
+  "high VLSFO", "EEZ standoff") runs without editing YAML. Loader reads base then applies each row;
+  report/plots iterate scenarios. Defer unless it earns its keep — the user flagged not wanting to
+  bloat the config.
