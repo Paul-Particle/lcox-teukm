@@ -41,6 +41,24 @@
   `availability_elec`) but not decomposed; itemize planned maintenance /
   refueling-or-bunkering / weather downtime so each driver is explicit.
 
+## Design speed & reactor sizing
+- **Design speed is fixed high, cruise is swept low — wrong paradigm for nuclear.**
+  Installed power (engine/motor/reactor) is sized at `v_design_max_kn` (22 kn)
+  while the optimizer picks a slower cruise. That's the fossil slow-steaming
+  paradigm (cheap to slow down, save fuel) — but nuclear has ~free fuel and a
+  reactor sized for 22 kn is wasted CAPEX if it ever cruises slower. Real
+  practice sizes installed power from a *service speed* + ~15% sea/weather power
+  margin, not from the optimizer's cruise. At minimum **sweep `v_design_max`**
+  (it strongly drives reactor CAPEX); better, model a service-speed + margin
+  basis and let nuclear's own speed/sizing optimum emerge rather than inheriting
+  the fossil one.
+- **Marginal reactor CAPEX vs size.** `nuclear_usd_per_kw` / `nucc_*` / `nuci_*`
+  / `mob_tender_usd_per_kw` are flat $/kW. At the absolute sizes here (tens of
+  MW) the marginal $/kW likely varies a lot with size (economies of scale, or
+  step changes at module boundaries / large single units). Model reactor CAPEX
+  as a size-dependent curve, not a constant $/kW — probably material to the
+  nuclear and tender results.
+
 ## Deferred — 3-axis platform refactor
 The big refactor (Platform × Drivetrain × Energy-source; bulk/chemical tonne·km
 platforms; one `levelized_cost(case,v,d)`) is documented in the plan file but NOT

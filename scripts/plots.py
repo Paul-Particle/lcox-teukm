@@ -93,7 +93,7 @@ def _dmax_line_plot(p: Params, out_dir: str, *, title: str, subtitle: str,
         template=fca_template,
         title=dict(text=title, x=geom["title_x"]),
         xaxis_title="D_max  —  longest hop between swap ports (km, log scale)",
-        hovermode="x unified",
+        hovermode="closest",  # only the hovered line (x-unified is too crowded at 7 traces)
         showlegend=True,
         legend=dict(x=0.985, xanchor="right", y=legend_y,
                     yanchor="top" if legend_y >= 0.9 else "middle",
