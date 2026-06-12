@@ -161,6 +161,12 @@ class Params:
     nucc_overhead_slots_per_unit: float = 45.0  # module + shielding; scales with unit count
     nucc_om_usd_yr: float = 5.3e6          # NON-crew residual (crew = crew_count_nuclear x crew_cost)
     nucc_fuel_usd_per_kwh_th: float = 0.012     # HALEU, same cycle as direct-drive
+    # (a2) leased containerized reactor (Reactor-as-a-Service): same modules as (a),
+    # but CAPEX recovered via a per-kWh rate levelized over the reactor's POOL
+    # utilization, not one ship's duty cycle. Speculative — sweep.
+    nucc_pool_idle_h: float = 8.0          # reactor wait in the shared pool between ship
+                                           # assignments (< ship port time -> the pooling benefit)
+    nucc_pool_availability: float = 0.92   # leased reactor's own uptime (maintenance/refuel rota)
     # (b) integrated single reactor:
     nuci_usd_per_kw: float = 6500.0        # adds generator + power electronics vs direct-drive
     nuci_life_yr: float = 30.0

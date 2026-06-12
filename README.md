@@ -12,9 +12,13 @@ compares several powertrains:
   pins its optimal speed near the minimum.
 - **Nuclear (onboard SMR, direct-drive)** — reactor CAPEX per kW, cheap HALEU fuel, high fixed
   O&M; no D_max-driven sizing, so its LCOT depends on D_max only through port-call frequency.
-- **Nuclear-electric (containerized / integrated)** — onboard reactor driving an electric motor
-  (reactor → electricity → propeller). Slightly lower end-to-end efficiency than direct-drive, but
-  earns the electric-drive hull/prop gains; modular containerized units vs a single integrated plant.
+- **Nuclear-electric (containerized / leased / integrated)** — onboard reactor driving an electric
+  motor (reactor → electricity → propeller). Slightly lower end-to-end efficiency than direct-drive,
+  but earns the electric-drive hull/prop gains; modular containerized units vs a single integrated
+  plant. The **leased** variant is the same containerized hardware as a reactor-as-a-service: the
+  reactor's CAPEX is recovered through a per-kWh rate levelized over the reactor's own *pool*
+  utilization, so the ship isn't charged for the reactor sitting idle during its port calls — a win
+  that's large on short hops (lots of reclaimed port-idle) and negligible on long ones.
 - **Mobile-reactor charge** — a battery-electric ship recharged **at sea** by a dedicated uncrewed
   nuclear tender instead of port swaps. The ship runs untethered on battery through coastal waters,
   then cables up to the tender at the regulatory border and crosses the open ocean tethered (the

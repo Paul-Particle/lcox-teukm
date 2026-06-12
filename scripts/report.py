@@ -13,11 +13,11 @@ import numpy as np
 from params import Params
 from lcot import (lcot_fossil, lcot_lfp, lcot_ironair, lcot_nuclear,
                   lcot_nuclear_elec_containerized, lcot_nuclear_elec_integrated,
-                  lcot_mobile)
+                  lcot_nuclear_elec_leased, lcot_mobile)
 from analysis import optimize_speed, crossover_dmax
 from units import CENTS_PER_USD, PERCENT_PER_FRACTION, KWH_PER_MWH, KG_PER_TONNE
 from style import (fca_blue, blue_black, highlight_blue, sand_yellow, green,
-                   very_dark_gray, light_blue)
+                   very_dark_gray, light_blue, turquois)
 
 # All technology cases, in display order:
 # (table_name, plot_label, cost model fn, color, clip)
@@ -30,6 +30,7 @@ CASES = [
     ("iron-air", "battery-electric (iron-air)",     lcot_ironair, sand_yellow,    True),
     ("nuclear",  "nuclear (SMR direct)",            lcot_nuclear, green,          False),
     ("nuc-ec",   "nuclear-electric (containerized)", lcot_nuclear_elec_containerized, highlight_blue, False),
+    ("nuc-el",   "nuclear-electric (leased)",       lcot_nuclear_elec_leased, turquois, False),
     ("nuc-ei",   "nuclear-electric (integrated)",   lcot_nuclear_elec_integrated, very_dark_gray, False),
     ("mobile",   "mobile-reactor charge",           lcot_mobile,  light_blue,     True),
 ]
@@ -169,3 +170,23 @@ def print_mobile_fleet(p: Params) -> None:
               f"{'$'+format(r['tender_usd_per_kwh'],'.3f'):>12} {r['ships_per_tender']:>13.1f} "
               f"{r['lcot']*CENTS_PER_USD:>8.3f}c")
     print("  * diagnostic only: tender priced as a per-kWh service, not a fleet ratio")
+
+
+def print_reactor_lease(p: Params) -> None:
+    """Leased containerized nuclear-electric: the reactor-as-a-service $/kWh that
+    prices each leg, at sample hop lengths. `ships/reactor` is a face-validity
+    diagnostic (>1 means one pooled reactor powers several ships, the pooling
+    leverage); it does not feed back into LCOT — the reactor is priced per kWh."""
+    print("\n" + "=" * 72)
+    print("REACTOR LEASE POOL (containerized nuclear-electric, as-a-service)")
+    print("=" * 72)
+    print(f"{'D_max':>7} {'v_opt':>6} {'$/kWh lease':>12} {'ships/reactor*':>15} {'LCOT':>9}")
+    for d in SAMPLE_HOPS_KM:
+        r = optimize_speed(lcot_nuclear_elec_leased, p, d)
+        if not np.isfinite(r["lcot"]):
+            print(f"{d:>7.0f} {'—':>6} {'—':>12} {'—':>15} {'infeasible':>9}")
+            continue
+        print(f"{d:>7.0f} {r['v']:>6.1f} "
+              f"{'$'+format(r['lease_usd_per_kwh'],'.3f'):>12} {r['ships_per_reactor']:>15.1f} "
+              f"{r['lcot']*CENTS_PER_USD:>8.3f}c")
+    print("  * diagnostic only: reactor priced as a per-kWh service, not a fleet ratio")
