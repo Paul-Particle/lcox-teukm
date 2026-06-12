@@ -357,7 +357,7 @@ SENS_LIION = [
     ("discount rate",                    "discount_rate",          0.05, 0.12),
     ("load factor",                      "load_factor",            0.65, 0.95),
     ("hull CAPEX ($M)",                  "hull_capex_usd",         30e6, 60e6),
-    ("O&M electric ($/yr)",              "om_elec_usd_yr",         2e6,  4e6),
+    ("non-crew O&M ($/yr)",              "om_elec_usd_yr",         0.6e6, 2e6),
     ("battery cycle life",               "battery_cycle_life",     2000, 6000),
 ]
 SENS_IRONAIR = [
@@ -385,7 +385,7 @@ SENS_NUCELEC = [
     ("reactor module size (kWe)",         "nucc_unit_kw",                10000,20000),
     ("reactor life (yr)",                 "nucc_life_yr",                10,   30),
     ("overhead / module (TEU)",           "nucc_overhead_slots_per_unit",30,   70),
-    ("O&M ($/yr)",                        "nucc_om_usd_yr",              5e6,  12e6),
+    ("non-crew O&M ($/yr)",               "nucc_om_usd_yr",             3e6,  8e6),
     ("reactor->elec eff",                 "eta_nuclear",                 0.25, 0.40),
     ("discount rate",                     "discount_rate",               0.05, 0.12),
     ("load factor",                       "load_factor",                 0.65, 0.95),
