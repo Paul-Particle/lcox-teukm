@@ -14,8 +14,9 @@ discount_rate: 0.08
 hull_life_yr: 25.0
 port_hours_per_call: 18.0    # cargo + (for electric) battery swap; assumed equal
 availability: 0.95           # fraction of the year the ship is in service
-deadweight_cargo_t: 38000.0  # cargo deadweight budget (t); batteries consume it (mass constraint)
+deadweight_cargo_t: 38000.0  # cargo deadweight budget (t) for a FOSSIL ship, net of bunkers
 cargo_t_per_teu: 12.0        # avg laden mass per TEU (full+empty mix)
+bunker_mass_t: 3000.0        # fossil onboard fuel mass; battery/nuclear recover it as cargo DWT
 
 # ---- powertrain sizing reference (admiralty-style P ~ v^3) ---------------
 p_ref_kw: 20000.0            # propulsion power at v_ref

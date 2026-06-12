@@ -21,26 +21,37 @@ class Params:
     load_factor_imbalance: float = 0.0 # headhaul/backhaul split: head=LF*(1+imb), back=LF*(1-imb);
                                        # 0 = symmetric. Mean preserved; fixed battery bites the
                                        # fuller leg first (see carried_teu).
+                                       # TODO: a richer fill distribution than a 2-point head/back.
     hull_capex_usd: float = 45e6       # newbuild hull excl. propulsion
     discount_rate: float = 0.08
     hull_life_yr: float = 25.0
-    port_hours_per_call: float = 18.0  # cargo + (for electric) battery swap; assumed equal
+    port_hours_per_call: float = 18.0  # cargo + (for electric) battery swap; assumed equal.
+                                       # TODO: per-powertrain berthing/maneuverability credit; swap
+                                       # adds time only for batteries in empty slots (see TODO.md)
     availability: float = 0.95         # fraction of the year the ship is in service
-    deadweight_cargo_t: float = 38000.0  # cargo deadweight budget (t), net of fuel/stores/ballast;
-                                         # batteries consume it -> mass constraint on carried cargo
+                                       # TODO: maybe higher for electric/iron-air (lower maintenance)
+    deadweight_cargo_t: float = 38000.0  # cargo deadweight budget (t) for a FOSSIL ship, net of its
+                                         # bunkers/stores/ballast; batteries consume it (mass limit)
     cargo_t_per_teu: float = 12.0      # avg laden mass per TEU (full+empty mix); sets mass limit
+    bunker_mass_t: float = 3000.0      # fossil onboard fuel mass; battery/nuclear ships don't carry
+                                       # it, so they recover this as extra cargo deadweight.
+                                       # TODO: fixed — really scales with range/speed (TODO.md)
 
     # ---- powertrain sizing reference (admiralty-style P ~ v^3)
     p_ref_kw: float = 20000.0          # propulsion power at v_ref
     v_ref_kn: float = 18.0
-    p_hotel_kw: float = 1500.0         # constant hotel/reefer load
+    p_hotel_kw: float = 1500.0         # constant hotel/reefer load. TODO: reefer part is variable &
+                                       # battery-costly (reefer-heavy penalizes battery ships), crew
+                                       # part is powertrain-dependent — see hotel sensitivity/TODO.md
     v_design_max_kn: float = 22.0      # sizes the installed motor/engine
-    v_min_kn: float = 9.0
+    v_min_kn: float = 9.0              # TODO: check this minimum speed is justified
     v_max_kn: float = 22.0
 
     # ---- conversion efficiencies
-    eta_fossil: float = 0.48           # fuel chemical -> useful (good 2-stroke)
-    eta_elec: float = 0.88             # battery pack -> useful (drivetrain)
+    eta_fossil: float = 0.48           # fuel chemical -> useful (good 2-stroke). TODO: constant in
+                                       # speed; real engines droop at part-load, so slow-steaming
+                                       # should favour electric over fossil (see TODO.md)
+    eta_elec: float = 0.88             # battery pack -> useful (drivetrain); ~flat across speed
     eta_charge: float = 0.95           # grid -> battery pack
     eta_nuclear: float = 0.30          # reactor thermal -> useful (marine PWR steam cycle)
 
@@ -52,13 +63,17 @@ class Params:
     # ---- fossil powertrain
     engine_usd_per_kw: float = 400.0
     engine_life_yr: float = 25.0
-    om_fossil_usd_yr: float = 3.5e6    # crew, insurance, repairs, lube (ex-fuel)
+    om_fossil_usd_yr: float = 3.5e6    # crew, insurance, repairs, lube (ex-fuel). TODO: crew not
+                                       # itemized/scaled; tug fees not modeled (see TODO.md)
     fossil_overhead_slots: float = 120.0  # engine room + bunkers, in slot-equivalents
+                                          # TODO: fossil may warrant its own (smaller) hull/prop
+                                          # efficiency factor once the design barrier is overcome
 
     # ---- electric powertrain
     motor_usd_per_kw: float = 120.0
     motor_life_yr: float = 25.0
-    om_elec_usd_yr: float = 3.0e6      # fewer moving parts, no fuel system
+    om_elec_usd_yr: float = 3.0e6      # fewer moving parts, no fuel system (14% below fossil).
+                                       # TODO: add a maneuverability tug-saving credit (see TODO.md)
     elec_fixed_overhead_slots: float = 30.0  # compact motors only (no big engine/tanks)
     elec_prop_power_factor: float = 0.90   # hull/propeller/pod/coating/routing gains the
                                            # electric drivetrain enables; scales propulsion
@@ -67,7 +82,8 @@ class Params:
     batt_empty_usable_frac: float = 0.40   # fraction of the empty (1-load_factor) slack that
                                            # batteries may occupy before displacing cargo;
                                            # <1 for dangerous-goods/stability/access limits.
-                                           # 1.0 = batteries use all slack first. See TODO.md.
+                                           # 1.0 = batteries use all slack first. Hard cap;
+                                           # TODO: linear ramp 0->1 over [frac*slack, slack] (TODO.md).
     battery_usd_per_kwh: float = 250.0     # installed, marinized system level
     battery_kwh_per_teu: float = 3000.0    # energy per battery container (3 MWh/TEU)
     battery_pack_wh_per_kg: float = 160.0  # Li-ion system energy density -> battery mass (deadweight)
@@ -80,8 +96,8 @@ class Params:
 
     # ---- iron-air battery powertrain (Form Energy class; shares hull, motor,
     # drivetrain, electricity price, and swap logistics with the Li-ion ship).
-    # Deadweight is not enforced for either chemistry; iron-air's ~5x mass per
-    # kWh makes the model optimistic for it (see README).
+    # Iron-air's ~5x mass per kWh IS now enforced via the deadweight constraint
+    # (carried_teu), so its weight bites: mass-limited short-haul, infeasible long.
     ironair_usd_per_kwh: float = 30.0      # installed system (chemistry target <$20/kWh)
     ironair_kwh_per_teu: float = 1500.0    # ~half Li-ion volumetric density per container
     ironair_dod: float = 0.95              # chemistry tolerates deep discharge
@@ -90,8 +106,9 @@ class Params:
     ironair_calendar_life_yr: float = 20.0
     ironair_eta_rt: float = 0.45           # electrochemical round-trip efficiency
     ironair_min_discharge_h: float = 100.0 # 100-h class: max pack kW = installed kWh / 100 h
-    ironair_pack_wh_per_kg: float = 30.0   # system density (~5x heavier than Li-ion); now enforced
-                                           # as a deadweight constraint -> bites long-haul iron-air
+    ironair_pack_wh_per_kg: float = 30.0   # system density (~5x heavier than Li-ion); enforced as a
+                                           # deadweight constraint -> bites long-haul iron-air.
+                                           # TODO: key uncertain input — sweep in the tornado
 
     # ---- nuclear powertrain (onboard SMR; no D_max-driven sizing)
     nuclear_usd_per_kw: float = 6000.0     # installed reactor + steam plant + drivetrain,
@@ -107,6 +124,9 @@ class Params:
     # reuse eta_nuclear, eta_elec, motor_*, elec_prop_power_factor). End-to-end
     # useful eff = eta_nuclear*eta_elec (~0.26) vs 0.30 direct-drive, but unlocks
     # the electric-drive hull/prop gains and compact overhead.
+    # TODO: nucc_* (modular marine reactor) cost/size are speculative — sweep them;
+    # the integrated single-shaft case may not earn the full pod benefit of
+    # elec_prop_power_factor (consider a separate factor).
     # (a) containerized modular reactor units with a per-unit power cap:
     nucc_unit_kw: float = 15000.0          # net electric per reactor module
     nucc_usd_per_kw: float = 5000.0        # factory-built modular, below integrated
@@ -129,7 +149,8 @@ class Params:
     mob_cable_v_cap_kn: float = 16.0           # max safe speed while cable-connected (< free max)
     mob_charge_availability: float = 0.85      # fraction of underway time actually charging (sea state)
     mob_disconnect_reserve: float = 0.25       # extra battery to ride out a disconnected spell
-    mob_rendezvous_spacing_h: float = 12.0     # sailing time between top-ups (sets bridging battery)
+    mob_rendezvous_spacing_h: float = 12.0     # sailing time between top-ups (sets bridging battery).
+                                               # TODO: fixed; jointly optimizing trades battery vs tenders
     mob_charge_power_kw: float = 30000.0       # cable/connector charging power limit
     mob_tender_reactor_kw: float = 60000.0     # tender reactor net electric output
     mob_tender_parasitic_kw: float = 6000.0    # station-keeping/cooling/hotel (reduces deliverable)

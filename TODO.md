@@ -103,11 +103,16 @@ footprint eats the fuller leg first. (`mean(min(demand_dir, capacity))`.) Future
 a richer fill distribution instead of a two-point head/back split.
 
 **Done — mass/deadweight constraint:** carried also limited by
-`(deadweight_cargo_t - battery_tonnes)/cargo_t_per_teu`; battery mass =
-`installed_kwh / pack_wh_per_kg`. This makes iron-air's weight bite (it's
-mass-limited at all ranges and infeasible long-haul). `ironair_pack_wh_per_kg`
-(30 Wh/kg) is a key uncertain input — sweep it. Power constraint already exists
-(`*_min_discharge_h`); volume = slots (`*_kwh_per_teu`).
+`(deadweight_cargo_t + fuel_credit - battery_tonnes)/cargo_t_per_teu`; battery
+mass = `installed_kwh / pack_wh_per_kg`. Battery/nuclear ships recover the fossil
+bunker mass (`bunker_mass_t`) they don't carry (`fuel_credit`); fossil gets none
+(its fuel is already netted out of `deadweight_cargo_t`). This makes iron-air's
+weight bite (mass-limited at all ranges, infeasible long-haul). Uncertain inputs
+to sweep: `ironair_pack_wh_per_kg` (30 Wh/kg), `bunker_mass_t`. Power constraint
+already exists (`*_min_discharge_h`); volume = slots (`*_kwh_per_teu`).
+Refinement: `bunker_mass_t` is a fixed constant — really it scales with range/
+speed (longer voyages carry more fuel, tightening fossil's own mass budget too);
+fossil's mass constraint is currently never binding.
 
 **Decided (per-ship demand):** demand is `load_factor x (gross - that ship's
 overhead)`, not a single freight task shared across powertrains. Load factor is
