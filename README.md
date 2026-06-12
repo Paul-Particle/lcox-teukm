@@ -57,7 +57,7 @@ The script reports:
 │   ├── units.py          # unit conversions — single source of truth
 │   ├── params.py         # Params schema + load_params(config.yaml)
 │   ├── finance.py        # capital recovery factor
-│   ├── energy.py         # ship physics: power, leg energy, cycles/year
+│   ├── energy.py         # ship physics: power, leg energy, legs/year
 │   ├── lcot.py           # cost models: fossil, LFP & iron-air battery, nuclear (direct
 │   │                     #   + electric), mobile-reactor tender
 │   ├── analysis.py       # speed optimization + crossover distance
