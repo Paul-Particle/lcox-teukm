@@ -17,9 +17,8 @@ from pathlib import Path
 import numpy as np
 
 from params import Params
-from lcot import (lcot_fossil, lcot_lfp, lcot_ironair, lcot_nuclear,
-                  lcot_nuclear_elec_containerized, lcot_nuclear_elec_leased,
-                  lcot_mobile)
+from cases import build_cases, cases_by_name
+from cost import cost_fn
 from analysis import optimize_speed
 from units import CENTS_PER_USD, PERCENT_PER_FRACTION
 from style import (
@@ -27,7 +26,6 @@ from style import (
     sand_yellow, green, very_dark_gray,
     header_geometry, apply_dot, apply_logo, add_trace_label, inject_titillium_font,
 )
-from report import CASES
 
 # Log-spaced D_max grid shared by the line plots (short hops need the room).
 DD_GRID = np.geomspace(30, 6000, 160)
@@ -138,14 +136,14 @@ def plot_lcot_vs_dmax(p: Params, out_dir: str) -> list:
     series, fossil_max = [], 0.0
     hover = ("D_max %{x:.0f} km<br>LCOT %{y:.3f} c/TEU·km"
              "<br>v_opt %{customdata:.1f} kn<extra>%{fullData.name}</extra>")
-    for name, label, fn, color, clip in CASES:
-        results = [optimize_speed(fn, p, d) for d in DD_GRID]
+    for case in build_cases(p):
+        results = [optimize_speed(cost_fn(case), p, d) for d in DD_GRID]
         ys = [r["lcot"] * CENTS_PER_USD for r in results]
-        if clip:
+        if case.clip:
             ys = [min(y, Y_CAP_CENTS) for y in ys]
-        if name == "fossil":
+        if case.name == "fossil":
             fossil_max = max(ys)
-        series.append((label, color, ys, [r["v"] for r in results]))
+        series.append((case.label, case.color, ys, [r["v"] for r in results]))
 
     return _dmax_line_plot(
         p, out_dir, title="Levelized cost of transport vs inter-swap distance",
@@ -157,8 +155,9 @@ def plot_speed_vs_dmax(p: Params, out_dir: str) -> list:
     """Optimum speed vs D_max for all ships — battery ships slow at long range
     to shrink the pack; the power-bound iron-air ship sits near the minimum."""
     hover = "D_max %{x:.0f} km  →  v_opt %{y:.1f} kn<extra>%{fullData.name}</extra>"
-    series = [(label, color, [optimize_speed(fn, p, d)["v"] for d in DD_GRID], None)
-              for _, label, fn, color, _ in CASES]
+    series = [(case.label, case.color,
+               [optimize_speed(cost_fn(case), p, d)["v"] for d in DD_GRID], None)
+              for case in build_cases(p)]
     return _dmax_line_plot(
         p, out_dir, title="Optimal speed vs inter-swap distance",
         subtitle="knots", yaxis_title="knots", series=series, hover=hover,
@@ -221,24 +220,29 @@ SENS_NUCLEASE = [
 ]
 
 
-def plot_tornado(p: Params, d_km: float, out_dir: str, fn, sens,
+def plot_tornado(p: Params, d_km: float, out_dir: str, case_name: str, sens,
                  case_label: str, stem: str) -> list:
-    """Sensitivity tornado for one case `fn` at fixed D_max: each parameter's
-    LCOT swing from its low to high value, sorted by total swing (most
-    influential on top). Low-value bar blue, high-value sand; both from 0."""
+    """Sensitivity tornado for one case at fixed D_max: each parameter's LCOT
+    swing from its low to high value, sorted by total swing (most influential on
+    top). Low-value bar blue, high-value sand; both from 0. The case is rebuilt
+    from each perturbed Params, since case scalars (supply price, reactor sizing)
+    derive from it."""
     try:
         import plotly.graph_objects as go
     except Exception as e:
         print("plot skipped:", e)
         return []
 
-    base_lcot = optimize_speed(fn, p, d_km)["lcot"] * CENTS_PER_USD
+    def _lcot(pp):
+        return optimize_speed(cost_fn(cases_by_name(pp)[case_name]), pp, d_km)["lcot"] * CENTS_PER_USD
+
+    base_lcot = _lcot(p)
     if not np.isfinite(base_lcot):
         print(f"tornado skipped ({stem}): base infeasible at {d_km:.0f} km")
         return []
 
     def _delta(field, val):
-        r = optimize_speed(fn, replace(p, **{field: val}), d_km)["lcot"] * CENTS_PER_USD
+        r = _lcot(replace(p, **{field: val}))
         return r - base_lcot if np.isfinite(r) else np.nan
 
     rows = []
@@ -316,16 +320,14 @@ def plot_tornados(p: Params, d_km: float, out_dir: str) -> list:
     LFP plus the speculative new cases (iron-air mass, mobile tender, modular
     reactor). One PNG/HTML each."""
     saved = []
-    for fn, sens, label, stem in [
-        (lcot_lfp,     SENS_LFP,     "battery-electric (LFP)",           "tornado_lfp"),
-        (lcot_ironair, SENS_IRONAIR, "battery-electric (iron-air)",      "tornado_ironair"),
-        (lcot_mobile,  SENS_MOBILE,  "mobile-reactor charge",            "tornado_mobile"),
-        (lcot_nuclear_elec_containerized, SENS_NUCELEC,
-         "nuclear-electric (containerized)", "tornado_nucelec"),
-        (lcot_nuclear_elec_leased, SENS_NUCLEASE,
-         "nuclear-electric (leased)", "tornado_nuclease"),
+    for case_name, sens, label, stem in [
+        ("lfp",      SENS_LFP,     "battery-electric (LFP)",           "tornado_lfp"),
+        ("iron-air", SENS_IRONAIR, "battery-electric (iron-air)",      "tornado_ironair"),
+        ("mobile",   SENS_MOBILE,  "mobile-reactor charge",            "tornado_mobile"),
+        ("nuc-ec",   SENS_NUCELEC, "nuclear-electric (containerized)", "tornado_nucelec"),
+        ("nuc-el",   SENS_NUCLEASE, "nuclear-electric (leased)",       "tornado_nuclease"),
     ]:
-        saved += plot_tornado(p, d_km, out_dir, fn, sens, label, stem)
+        saved += plot_tornado(p, d_km, out_dir, case_name, sens, label, stem)
     return saved
 
 
@@ -344,30 +346,31 @@ def plot_teu_tech_tradeoff(p: Params, d_km: float, out_dir: str) -> list:
         print("plot skipped:", e)
         return []
 
-    # Each entry: label, bar color, computed flag, fn, Params, lcot_c, teu_c.
+    # Each entry: label, bar color, computed flag, case name, Params, lcot_c, teu_c.
+    # The case is rebuilt from each entry's (perturbed) Params at compute time.
     cases = [
         dict(label="Fossil\n(baseline)", color=blue_black, computed=True,
-             fn=lcot_fossil, params=p, lcot_c=None, teu_c=None),
+             name="fossil", params=p, lcot_c=None, teu_c=None),
         dict(label="Battery\n250 $/kWh", color=fca_blue, computed=True,
-             fn=lcot_lfp, params=replace(p, battery_usd_per_kwh=250),
+             name="lfp", params=replace(p, battery_usd_per_kwh=250),
              lcot_c=None, teu_c=None),
         dict(label="Battery\n150 $/kWh", color=highlight_blue, computed=True,
-             fn=lcot_lfp, params=replace(p, battery_usd_per_kwh=150),
+             name="lfp", params=replace(p, battery_usd_per_kwh=150),
              lcot_c=None, teu_c=None),
         dict(label="Battery\n80 $/kWh", color="#52B5D9", computed=True,
-             fn=lcot_lfp, params=replace(p, battery_usd_per_kwh=80),
+             name="lfp", params=replace(p, battery_usd_per_kwh=80),
              lcot_c=None, teu_c=None),
         dict(label="Battery 250 $/kWh\n5 MWh/TEU", color="#70D2F0", computed=True,
-             fn=lcot_lfp,
+             name="lfp",
              params=replace(p, battery_usd_per_kwh=250, battery_kwh_per_teu=5000),
              lcot_c=None, teu_c=None),
         dict(label="Iron-air\n30 $/kWh", color=sand_yellow, computed=True,
-             fn=lcot_ironair, params=p, lcot_c=None, teu_c=None),
+             name="iron-air", params=p, lcot_c=None, teu_c=None),
         dict(label="Nuclear SMR\n6000 $/kW", color=green, computed=True,
-             fn=lcot_nuclear, params=p, lcot_c=None, teu_c=None),
+             name="nuclear", params=p, lcot_c=None, teu_c=None),
         # Placeholder — replace with model results when available
         dict(label="H₂ fuel cell\n(placeholder)", color=very_dark_gray,
-             computed=False, fn=None, params=None, lcot_c=None, teu_c=None),
+             computed=False, name=None, params=None, lcot_c=None, teu_c=None),
     ]
 
     case_labels, lcots, teus, colors = [], [], [], []
@@ -375,7 +378,8 @@ def plot_teu_tech_tradeoff(p: Params, d_km: float, out_dir: str) -> list:
         case_labels.append(c["label"])
         colors.append(c["color"])
         if c["computed"]:
-            r = optimize_speed(c["fn"], c["params"], d_km)
+            case = cases_by_name(c["params"])[c["name"]]
+            r = optimize_speed(cost_fn(case), c["params"], d_km)
             lcots.append(r["lcot"] * CENTS_PER_USD)
             teus.append(max(r["cargo_cap"], 0))
         else:

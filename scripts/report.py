@@ -2,8 +2,9 @@
 report.py — console-table output for the model results.
 
 All number formatting and unit-for-display conversions live here so the model
-modules stay free of presentation concerns. The `CASES` registry (defined here)
-is the single list of powertrains shown; plotting lives in plots.py.
+modules stay free of presentation concerns. The set of powertrains shown comes
+from `cases.build_cases`; cost is computed through `cost.levelized_cost` (bound
+per case with `cost.cost_fn`); plotting lives in plots.py.
 """
 
 from dataclasses import replace
@@ -11,29 +12,10 @@ from dataclasses import replace
 import numpy as np
 
 from params import Params
-from lcot import (lcot_fossil, lcot_lfp, lcot_ironair, lcot_nuclear,
-                  lcot_nuclear_elec_containerized, lcot_nuclear_elec_integrated,
-                  lcot_nuclear_elec_leased, lcot_mobile)
+from cases import build_cases, cases_by_name
+from cost import cost_fn
 from analysis import optimize_speed, crossover_dmax
 from units import CENTS_PER_USD, PERCENT_PER_FRACTION, KWH_PER_MWH, KG_PER_TONNE
-from style import (fca_blue, blue_black, highlight_blue, sand_yellow, green,
-                   very_dark_gray, light_blue, turquois)
-
-# All technology cases, in display order:
-# (table_name, plot_label, cost model fn, color, clip)
-# `clip` marks the battery ships, whose LCOT blows up at long D_max and is
-# capped in the line plots so it doesn't flatten the region of interest; it
-# also flags the cases that have a meaningful D_max crossover vs fossil.
-CASES = [
-    ("fossil",   "fossil",                          lcot_fossil,  blue_black,     False),
-    ("lfp",      "battery-electric (LFP)",          lcot_lfp,     fca_blue,       True),
-    ("iron-air", "battery-electric (iron-air)",     lcot_ironair, sand_yellow,    True),
-    ("nuclear",  "nuclear (SMR direct)",            lcot_nuclear, green,          False),
-    ("nuc-ec",   "nuclear-electric (containerized)", lcot_nuclear_elec_containerized, highlight_blue, False),
-    ("nuc-el",   "nuclear-electric (leased)",       lcot_nuclear_elec_leased, turquois, False),
-    ("nuc-ei",   "nuclear-electric (integrated)",   lcot_nuclear_elec_integrated, very_dark_gray, False),
-    ("mobile",   "mobile-reactor charge",           lcot_mobile,  light_blue,     True),
-]
 
 # Sample hop lengths (km) shown in the per-ship breakdown table.
 SAMPLE_HOPS_KM = [200, 500, 1000, 2000, 4000]
@@ -84,8 +66,9 @@ def print_breakdown(p: Params) -> None:
     print(hdr)
     print("-" * len(hdr))
     for d in SAMPLE_HOPS_KM:
-        for name, _, fn, _, _ in CASES:
-            r = optimize_speed(fn, p, d)
+        for case in build_cases(p):
+            name = case.name
+            r = optimize_speed(cost_fn(case), p, d)
             finite = np.isfinite(r["lcot"])
             fixed_share = (r["annual_fixed"] / (r["annual_fixed"] + r["annual_energy"])
                            if finite else float("nan"))
@@ -101,14 +84,15 @@ def print_breakdown(p: Params) -> None:
 def print_crossover(p: Params, d_grid) -> None:
     """Crossover vs the fossil incumbent, per battery case."""
     print()
-    for name, _, fn, _, clip in CASES:
-        if not clip:  # the battery cases are the ones with a D_max crossover
+    fossil = cases_by_name(p)["fossil"]
+    for case in build_cases(p):
+        if not case.clip:  # the battery cases are the ones with a D_max crossover
             continue
-        co = crossover_dmax(p, d_grid, fn, lcot_fossil)
+        co = crossover_dmax(p, d_grid, cost_fn(case), cost_fn(fossil))
         msg = ("never cheaper in base case" if co is None
                else f"cheaper than fossil below {co:.0f} km" if np.isfinite(co)
                else "always cheaper than fossil")
-        print(f"Crossover D_max: {name} {msg}")
+        print(f"Crossover D_max: {case.name} {msg}")
 
 
 def print_sensitivity(p: Params, d_grid) -> None:
@@ -122,7 +106,8 @@ def print_sensitivity(p: Params, d_grid) -> None:
         row = f"batt ${bc:>3}/kWh "
         for ep in SENS_ELEC_USD_PER_KWH:
             pp = replace(p, battery_usd_per_kwh=bc, elec_usd_per_kwh=ep)
-            c = crossover_dmax(pp, d_grid, lcot_lfp, lcot_fossil)
+            cm = cases_by_name(pp)
+            c = crossover_dmax(pp, d_grid, cost_fn(cm["lfp"]), cost_fn(cm["fossil"]))
             cell = "none" if c is None else (">6000" if np.isinf(c) else f"{c:.0f}")
             row += f"  {cell:>9}"
         print(row)
@@ -142,10 +127,11 @@ def print_hotel_sensitivity(p: Params, d_grid) -> None:
     print(f"{'':>20}{'fossil':>9}{'lfp':>9}{'iron-air':>9}{'lfp x-over':>15}")
     for label, h in SENS_HOTEL_KW:
         pp = replace(p, p_hotel_kw=h)
-        lf = optimize_speed(lcot_fossil,  pp, d)["lcot"] * CENTS_PER_USD
-        le = optimize_speed(lcot_lfp,    pp, d)["lcot"] * CENTS_PER_USD
-        li = optimize_speed(lcot_ironair, pp, d)["lcot"] * CENTS_PER_USD
-        co = crossover_dmax(pp, d_grid, lcot_lfp, lcot_fossil)
+        cm = cases_by_name(pp)
+        lf = optimize_speed(cost_fn(cm["fossil"]),   pp, d)["lcot"] * CENTS_PER_USD
+        le = optimize_speed(cost_fn(cm["lfp"]),      pp, d)["lcot"] * CENTS_PER_USD
+        li = optimize_speed(cost_fn(cm["iron-air"]), pp, d)["lcot"] * CENTS_PER_USD
+        co = crossover_dmax(pp, d_grid, cost_fn(cm["lfp"]), cost_fn(cm["fossil"]))
         cox = "none" if co is None else (">6000" if np.isinf(co) else f"{co:.0f} km")
         tag = f"{label} {h:>4} kW"
         print(f"{tag:>20}{lf:>8.3f}c{le:>8.3f}c{li:>8.3f}c{cox:>15}")
@@ -161,8 +147,9 @@ def print_mobile_fleet(p: Params) -> None:
     print("=" * 72)
     print(f"{'D_max':>7} {'v_opt':>6} {'batt_MWh':>9} {'$/kWh deliv':>12} "
           f"{'ships/tender*':>13} {'LCOT':>9}")
+    mobile = cases_by_name(p)["mobile"]
     for d in SAMPLE_HOPS_KM:
-        r = optimize_speed(lcot_mobile, p, d)
+        r = optimize_speed(cost_fn(mobile), p, d)
         if not np.isfinite(r["lcot"]):
             print(f"{d:>7.0f} {'—':>6} {'—':>9} {'—':>12} {'—':>13} {'infeasible':>9}")
             continue
@@ -181,8 +168,9 @@ def print_reactor_lease(p: Params) -> None:
     print("REACTOR LEASE POOL (containerized nuclear-electric, as-a-service)")
     print("=" * 72)
     print(f"{'D_max':>7} {'v_opt':>6} {'$/kWh lease':>12} {'ships/reactor*':>15} {'LCOT':>9}")
+    leased = cases_by_name(p)["nuc-el"]
     for d in SAMPLE_HOPS_KM:
-        r = optimize_speed(lcot_nuclear_elec_leased, p, d)
+        r = optimize_speed(cost_fn(leased), p, d)
         if not np.isfinite(r["lcot"]):
             print(f"{d:>7.0f} {'—':>6} {'—':>12} {'—':>15} {'infeasible':>9}")
             continue

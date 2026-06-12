@@ -24,7 +24,8 @@ from typing import Optional
 
 from params import Params
 from units import KG_PER_TONNE
-from lcot import BatterySpec, _elec_propulsion_factor, _reactor_design_power_kw, _ceil_half_teu
+from sizing import (BatterySpec, _elec_propulsion_factor, _reactor_design_power_kw,
+                    _ceil_half_teu)
 
 
 @dataclass(frozen=True)
@@ -176,3 +177,10 @@ def build_cases(p: Params):
              p.crew_count_elec, p.hotel_delta_elec_kw, p.om_elec_other_usd_yr,
              p.elec_fixed_overhead_slots, p.mob_port_hours_per_call, p.availability_elec),
     ]
+
+
+def cases_by_name(p: Params) -> dict:
+    """`build_cases(p)` keyed by `Case.name` — for the perturbation consumers
+    (sensitivity / hotel / tornados) that rebuild from a modified Params and pick
+    out specific cases."""
+    return {c.name: c for c in build_cases(p)}

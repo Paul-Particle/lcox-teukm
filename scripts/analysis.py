@@ -7,11 +7,11 @@ vs the fossil incumbent).
 import numpy as np
 
 from params import Params
-from lcot import lcot_fossil, lcot_lfp
 
 
 def optimize_speed(fn, p: Params, d_km: float, n: int = 141) -> dict:
-    """Grid-search the speed that minimizes LCOT for cost model `fn` at D_max."""
+    """Grid-search the speed that minimizes LCOT for cost model `fn` at D_max.
+    `fn` is any `fn(p, v, d) -> dict` callable — bind a `Case` with `cost.cost_fn`."""
     speeds = np.linspace(p.v_min_kn, p.v_max_kn, n)
     best = None
     for v in speeds:
@@ -21,10 +21,10 @@ def optimize_speed(fn, p: Params, d_km: float, n: int = 141) -> dict:
     return best
 
 
-def crossover_dmax(p: Params, d_grid, fn_a=lcot_lfp, fn_b=lcot_fossil) -> float:
-    """Smallest D_max where `fn_a` stops being cheaper than `fn_b` (defaults:
-    LFP battery vs fossil). None if fn_a never wins; inf ('always') if it
-    wins across the whole grid."""
+def crossover_dmax(p: Params, d_grid, fn_a, fn_b) -> float:
+    """Smallest D_max where `fn_a` stops being cheaper than `fn_b` (e.g. a battery
+    case vs fossil). None if fn_a never wins; inf ('always') if it wins across the
+    whole grid. `fn_a`/`fn_b` are `fn(p, v, d) -> dict` callables (use `cost.cost_fn`)."""
     diff = []
     for d in d_grid:
         b = optimize_speed(fn_b, p, d)["lcot"]
