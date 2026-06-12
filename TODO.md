@@ -80,51 +80,35 @@ refactor is sketched in the appendix.
 
 ---
 
-# Appendix — deferred 3-axis platform refactor
+# 3-axis platform refactor — status
 
-The big refactor: support bulk carriers & chemical tankers (tonne·km, not just TEU·km) and
-let every powertrain compose cleanly. Most cases are recombinations along three orthogonal
-axes: **Platform** (cargo/route) × **Drivetrain** (energy→shaft) × **Energy-source/logistics**.
-Today all three are baked into one flat `Params` + one `lcot_*(p,v,d)->dict` per case (the
-deliberate non-DRY duplication across the new cases is what motivates this).
+**DONE (parity-/golden-gated).** Every powertrain is now a composition of three frozen
+dataclasses — `Platform` × `Drivetrain` × `EnergySource` (`scripts/cases.py`) — assembled by
+`build_cases(p)` into a `Case` registry and costed through one entry point,
+`cost.levelized_cost(case, p, v, d)`. The hand-written `lcot_*` functions are gone; the shared
+sizing/economics primitives live in `sizing.py`. `sizing.carried(platform, …)` generalizes the old
+`carried_teu` so the binding cargo metric is platform-specific (volume/TEU vs deadweight/tonne).
+Lease-vs-ownership and at-sea-charge are pricing/sizing strategies on the EnergySource axis.
+Behaviour is pinned by `scripts/regression_check.py` against `golden_output.txt` (the frozen console
+output) — it replaced the legacy parity oracle once the shim was retired.
 
-**Target:** a cost model = `compose(Platform, Drivetrain, EnergySource)`, with a single shared
-`levelized_cost(case, v, d)` instead of N `lcot_*` functions.
-
-- **Three frozen dataclasses** —
-  - `Platform`: `name`, `cargo_unit` ("TEU"/"tonne"), `gross_capacity`, `load_factor`, hull
-    capex/life, port hours, availability, `batt_usable_frac`, + a `displace(overhead, storage)` fn.
-  - `Drivetrain`: `eta`, `propulsion_factor`, prop capex/life, om, overhead.
-  - `EnergySource`: `kind` ∈ fuel/battery/reactor, price, `BatterySpec|None`, reactor capex/life,
-    + a `size_storage` strategy fn. **Lease-vs-ownership and at-sea-charge become pricing/sizing
-    strategies on this axis** (the mobile tender and leased reactor are early instances).
-  Composed by a `Case` namedtuple registry in a new `cases.py` (one row per case).
-
-- **`carried_teu` generalizes** to `carried(demand, capacity)` — *identical arithmetic*, but the
-  kWh→capacity-unit mapping is platform-specific: container displaces **volume** (TEU via
-  `kwh_per_teu`); bulk/chemical displace **deadweight** (tonnes via `pack_wh_per_kg`). The mass
-  constraint added on the flat model is the same idea — the refactor makes it the primary binding
-  metric on tonne·km platforms.
-
-- **Config → nested YAML** (`platforms:` / `drivetrains:` / `sources:`), with a section-validating
-  loader preserving the strict reject-unknown-keys behaviour per section (string allow-list for
-  `name`/`kind`/`cargo_unit`, numeric coercion otherwise).
-
-- **Overhead & O&M are per-(platform,drivetrain) cells** — keep drivetrain defaults + a per-case
-  override map in `cases.py` (a nuclear bulk carrier's O&M ≠ a nuclear container ship's).
-
-- **Mixed cargo units** → plots/crossover **facet by platform** (can't share a TEU·km / tonne·km
-  axis); `crossover_dmax` asserts same `cargo_unit`. Dict keys generalize `teukm→unitkm`,
-  `battery_*→storage_*`, add `cargo_unit`.
-
-- **Migration order (runnable + parity-gated each step):** snapshot baseline stdout → add axis
-  dataclasses + nested loader *alongside* the flat `Params` (adapter) → write `levelized_cost` +
-  `cases.py` for the container cases → parity-test vs old `lcot_*` on a v×d grid (match to ~1e-9;
-  **no formula tweaks during the refactor**) → switch `analysis.py`/`report.py` to consume `Case`
-  → delete the flat-`Params` shim → restructure config → then add bulk/chemical platforms (data only).
-
-**Bulk/chemical economics** (DWT, hull capex, load factors, port economics, cargo-value notes) were
-deliberately left as placeholders — research them when the platforms are actually populated.
+**Still open / not yet done:**
+- **Config still flat.** `config.yaml` + `Params` remain a single flat namespace; the axes are built
+  from it by an adapter in `build_cases`. Nested YAML (`platforms:`/`drivetrains:`/`sources:`) with a
+  section-validating loader is deferred — low value while there is one platform, and the user was wary
+  of overloading the config.
+- **Platform extraction is partial.** Platform carries the cargo/capacity + hull fields; other
+  platform scalars (design/min/max speed, prop reference power, efficiencies, crew rate, discount
+  rate, route margins, ISO limits) still live in `Params`. Move them onto Platform when a second
+  platform needs them to differ.
+- **Bulk/chemical platforms** (tonne·km): the `carried`/`Platform` machinery supports `cargo_unit
+  ="tonne"`, but no bulk/chemical case exists yet. Adding one needs: real economics (DWT, hull capex,
+  load factors, port/cargo-value) — **deliberately left as placeholders, research when populated** —
+  plus plot/crossover **faceting by platform** (can't share a TEU·km / tonne·km axis) and generalized
+  dict keys (`teukm→unitkm`, `battery_*→storage_*`, add `cargo_unit`).
+- **Per-(platform,drivetrain) O&M/overhead overrides:** today resolved per case in `build_cases`; a
+  nuclear bulk carrier's O&M ≠ a nuclear container ship's, so a small override map will be wanted once
+  platforms multiply.
 
 ## Refactor wishes (captured during the build — design the axes to accommodate)
 
