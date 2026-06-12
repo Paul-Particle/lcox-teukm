@@ -11,6 +11,14 @@ refactor is sketched in the appendix.
   `nucc_overhead_teu_per_mwe`, `nucc_pool_idle_h`, `nucc_pool_availability`. All are swept
   in the per-case tornados (`plot_tornados`); treat the new-case absolute LCOTs
   as order-of-magnitude until grounded in real data.
+- **Global sensitivity exists** (`scripts/sobol_analysis.py`, run on demand): Sobol S1/ST
+  per headline case from Saltelli sampling, over a curated wider factor set (`SOBOL_*`).
+  At D_max 1000 km the model is largely additive (ST≈S1, small interactions); battery
+  cost dominates LFP, electricity price dominates iron-air, reactor CAPEX dominates the
+  nuclear-electric cases. Deferred: second-order indices `S2` (the full interaction
+  matrix — available from `analyze_sobol`, `O(D²)` and noisy); sweeping D_max (indices
+  are computed at a single hop); and wiring it into the default `run.py` (kept separate,
+  it's ~20 s vs the fast default).
 
 ## Design speed & reactor sizing  ← high value, partly exposed by the AMPERA re-base
 - **Design speed is fixed high, cruise is swept low — wrong paradigm for nuclear.**

@@ -74,9 +74,10 @@ The script reports:
 │   ├── analysis.py       # speed optimization + crossover distance
 │   ├── report.py         # console tables
 │   ├── plots.py          # Plotly figures
+│   ├── sobol_analysis.py # global Sobol sensitivity (Saltelli sampling via SALib) — run on demand
 │   └── smoke_check.py    # lightweight sanity check (renders + finite/positive LCOT per case)
 ├── results/              # generated plots (gitignored)
-├── pyproject.toml        # project + dependencies (numpy, plotly, pyyaml)
+├── pyproject.toml        # project + dependencies (numpy, plotly, pyyaml, SALib)
 ├── uv.lock               # pinned dependency versions
 └── LICENSE               # MIT
 ```
@@ -120,6 +121,21 @@ Results print to stdout; the interactive figure is written to
 alongside a static `results/lcot_vs_dmax.png` for slides/papers. The `results/`
 directory is generated on each run and is gitignored, so a fresh clone has none
 until you run the model.
+
+### Global sensitivity (optional)
+
+`run.py` produces one-at-a-time tornados. For variance-based **global** sensitivity
+— first-order (S1) and total-order (ST, including interactions) Sobol indices per
+headline case, from Saltelli sampling — run the separate, heavier analysis on demand:
+
+```bash
+uv run scripts/sobol_analysis.py        # default N=256 (~20 s)
+uv run scripts/sobol_analysis.py 1024   # tighter confidence intervals
+```
+
+It prints a per-case table (factors ranked by ST, with bootstrap CIs and the
+ST&minus;S1 interaction term) and writes `results/sobol_<case>.{html,png}`. The swept
+factor ranges live in `SOBOL_*` lists at the top of `scripts/sobol_analysis.py`.
 
 ## Assumptions & key parameters
 

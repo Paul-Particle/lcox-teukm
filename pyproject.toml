@@ -7,4 +7,5 @@ dependencies = [
     "numpy>=2.4.6",
     "plotly>=6.8.0",
     "pyyaml>=6.0.3",
+    "salib>=1.5.2",
 ]
