@@ -1,15 +1,17 @@
 """
 cost.py — single levelized-cost entry point for the 3-axis case model.
 
-`levelized_cost(case, p, v, d)` replaces the N hand-written `lcot_*` functions:
-it dispatches to an archetype by (drivetrain.kind, source.kind, source.pricing)
-and reads every case-specific scalar from the composed `Case` (see cases.py).
+`levelized_cost(case, p, v, d)` is the single cost entry point (it replaced the
+N hand-written `lcot_*` functions): it dispatches to an archetype by
+(drivetrain.kind, source.kind, source.pricing) and reads every case-specific
+scalar from the composed `Case` (see cases.py), using the shared primitives in
+`sizing.py` (carried, the reactor/tender economics, BatterySpec).
 
-During the migration it reuses the shared primitives still living in `lcot.py`
-(carried, the reactor/tender economics, BatterySpec) so its output is
-float-identical to the legacy functions — the parity gate (scripts/parity_check.py)
-enforces that. Platform parameters are still read from the flat `Params` `p`
-(the platform axis is extracted later).
+The cargo/capacity dimension comes from `case.platform`; other platform scalars
+(speeds, prop reference, efficiencies, crew rate, discount rate, route margins)
+are still read from the flat `Params` `p` until a second platform needs them to
+differ. Behaviour is pinned by `scripts/regression_check.py` against
+`golden_output.txt`.
 """
 
 import functools
