@@ -43,7 +43,7 @@ class Platform:
     deadweight_t: float        # cargo + onboard-energy mass budget
     load_factor: float
     load_factor_imbalance: float
-    batt_empty_usable_frac: float
+    batt_empty_usable_frac: float  # fraction of empty (unfilled) slots a battery may take for free before it displaces cargo
     hull_capex_usd: float
     hull_life_yr: float
 
