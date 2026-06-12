@@ -177,7 +177,7 @@ SENS_LFP = [
     ("discount rate",                    "discount_rate",          0.05, 0.12),
     ("load factor",                      "load_factor",            0.65, 0.95),
     ("hull CAPEX ($M)",                  "hull_capex_usd",         30e6, 60e6),
-    ("non-crew O&M ($/yr)",              "om_elec_usd_yr",         0.6e6, 2e6),
+    ("non-crew O&M ($/yr)",              "om_elec_other_usd_yr",         0.6e6, 2e6),
     ("battery cycle life",               "battery_cycle_life",     2000, 6000),
 ]
 SENS_IRONAIR = [
@@ -196,7 +196,7 @@ SENS_MOBILE = [
     ("coastal untethered dist. (nm)",     "coastal_untethered_distance_nm",  12,   200),
     ("tender reactor size (kWe)",         "mob_tender_reactor_kw",           15000,45000),
     ("storm survival (h)",                "storm_survival_duration_h",       6,    24),
-    ("tender O&M ($/yr)",                 "mob_tender_om_usd_yr",            2e6,  10e6),
+    ("tender O&M ($/yr)",                 "mob_tender_om_other_usd_yr",            2e6,  10e6),
     ("tender hull CAPEX ($M)",            "mob_tender_capex_hull_usd",       30e6, 100e6),
     ("cable efficiency",                  "cable_efficiency",                0.90, 0.99),
 ]
@@ -205,7 +205,7 @@ SENS_NUCELEC = [
     ("reactor module size (kWe)",         "nucc_unit_kw",                10000,20000),
     ("reactor life (yr)",                 "nucc_life_yr",                10,   30),
     ("overhead / module (TEU)",           "nucc_overhead_slots_per_unit",30,   70),
-    ("non-crew O&M ($/yr)",               "nucc_om_usd_yr",             3e6,  8e6),
+    ("non-crew O&M ($/yr)",               "nucc_om_other_usd_yr",             3e6,  8e6),
     ("reactor->elec eff",                 "eta_nuclear",                 0.25, 0.40),
     ("discount rate",                     "discount_rate",               0.05, 0.12),
     ("load factor",                       "load_factor",                 0.65, 0.95),

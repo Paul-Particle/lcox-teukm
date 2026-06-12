@@ -82,7 +82,7 @@ def lcot_fossil(p: Params, v_kn: float, d_km: float) -> dict:
     engine_capex = p.engine_usd_per_kw * prop_power_kw(p, p.v_design_max_kn, pf)
     annual_fixed = (p.hull_capex_usd * crf(p.discount_rate, p.hull_life_yr)
                     + engine_capex * crf(p.discount_rate, p.engine_life_yr)
-                    + p.om_fossil_usd_yr
+                    + p.om_fossil_other_usd_yr
                     + p.crew_count_fossil * p.crew_cost_usd_yr
                     + p.tug_usd_per_call * legs)
 
@@ -162,7 +162,7 @@ def _lcot_battery(p: Params, v_kn: float, d_km: float, spec: BatterySpec) -> dic
     annual_fixed = (p.hull_capex_usd * crf(p.discount_rate, p.hull_life_yr)
                     + motor_capex * crf(p.discount_rate, p.motor_life_yr)
                     + battery_capex * crf(p.discount_rate, battery_life)
-                    + p.om_elec_usd_yr
+                    + p.om_elec_other_usd_yr
                     + p.crew_count_elec * p.crew_cost_usd_yr
                     + p.tug_usd_per_call_elec * legs)
 
@@ -207,7 +207,7 @@ def lcot_nuclear(p: Params, v_kn: float, d_km: float) -> dict:
                                             + hotel)
     annual_fixed = (p.hull_capex_usd * crf(p.discount_rate, p.hull_life_yr)
                     + reactor_capex * crf(p.discount_rate, p.nuclear_life_yr)
-                    + p.om_nuclear_usd_yr
+                    + p.om_nuclear_other_usd_yr
                     + p.crew_count_nuclear * p.crew_cost_usd_yr
                     + p.tug_usd_per_call * legs)
 
@@ -267,13 +267,13 @@ def lcot_nuclear_elec_containerized(p: Params, v_kn: float, d_km: float) -> dict
     reactor_capex = p.nucc_usd_per_kw * n_units * p.nucc_unit_kw
     overhead = n_units * p.nucc_overhead_slots_per_unit
     return _lcot_nuclear_elec(p, v_kn, d_km, reactor_capex, p.nucc_life_yr,
-                              overhead, p.nucc_om_usd_yr, p.nucc_fuel_usd_per_kwh_th)
+                              overhead, p.nucc_om_other_usd_yr, p.nucc_fuel_usd_per_kwh_th)
 
 
 def lcot_nuclear_elec_integrated(p: Params, v_kn: float, d_km: float) -> dict:
     reactor_capex = p.nuci_usd_per_kw * _reactor_design_power_kw(p)
     return _lcot_nuclear_elec(p, v_kn, d_km, reactor_capex, p.nuci_life_yr,
-                              p.nuci_overhead_slots, p.nuci_om_usd_yr,
+                              p.nuci_overhead_slots, p.nuci_om_other_usd_yr,
                               p.nuci_fuel_usd_per_kwh_th)
 
 
@@ -325,7 +325,7 @@ def lcot_nuclear_elec_leased(p: Params, v_kn: float, d_km: float) -> dict:
     # Ship side: NO reactor CAPEX (it's in the lease); keeps motor, ship O&M, crew, tugs.
     annual_fixed = (p.hull_capex_usd * crf(p.discount_rate, p.hull_life_yr)
                     + motor_capex * crf(p.discount_rate, p.motor_life_yr)
-                    + p.nucc_om_usd_yr
+                    + p.nucc_om_other_usd_yr
                     + p.crew_count_nuclear * p.crew_cost_usd_yr
                     + p.tug_usd_per_call_elec * legs)
 
@@ -365,7 +365,7 @@ def _mobile_tender_usd_per_kwh(p: Params, tethered_h: float, bus_kwh_leg: float)
 
     tender_capex = (p.mob_tender_capex_hull_usd
                     + p.mob_tender_usd_per_kw * p.mob_tender_reactor_kw)
-    tender_fixed = tender_capex * crf(p.discount_rate, p.mob_tender_life_yr) + p.mob_tender_om_usd_yr
+    tender_fixed = tender_capex * crf(p.discount_rate, p.mob_tender_life_yr) + p.mob_tender_om_other_usd_yr
     tender_fuel = ((annual_gen_kwh + parasitic_kwh_yr) / p.mob_tender_eta_nuclear
                    ) * p.mob_tender_fuel_usd_per_kwh_th
     usd_per_kwh = (tender_fixed + tender_fuel) / annual_bus_kwh
@@ -445,7 +445,7 @@ def lcot_mobile(p: Params, v_kn: float, d_km: float) -> dict:
     annual_fixed = (p.hull_capex_usd * crf(p.discount_rate, p.hull_life_yr)
                     + motor_capex * crf(p.discount_rate, p.motor_life_yr)
                     + battery_capex * crf(p.discount_rate, battery_life)
-                    + p.om_elec_usd_yr
+                    + p.om_elec_other_usd_yr
                     + p.crew_count_elec * p.crew_cost_usd_yr
                     + p.tug_usd_per_call_elec * legs)
 

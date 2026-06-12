@@ -54,14 +54,14 @@ elec_usd_per_kwh: 0.09       # delivered industrial / shore power
 # ---- fossil powertrain ---------------------------------------------------
 engine_usd_per_kw: 400.0
 engine_life_yr: 25.0
-om_fossil_usd_yr: 1.52e+6    # NON-crew O&M: insurance, repairs, lube, stores (crew separate)
+om_fossil_other_usd_yr: 1.52e+6    # NON-crew O&M: insurance, repairs, lube, stores (crew separate)
 fossil_overhead_slots: 120.0 # engine room + bunkers, in slot-equivalents
 fossil_propulsion_factor: 0.95  # smaller hull/coating/routing gain fossil can adopt
 
 # ---- electric powertrain -------------------------------------------------
 motor_usd_per_kw: 120.0
 motor_life_yr: 25.0
-om_elec_usd_yr: 1.2e+6       # NON-crew O&M: insurance, repairs (fewer parts), stores
+om_elec_other_usd_yr: 1.2e+6       # NON-crew O&M: insurance, repairs (fewer parts), stores
 elec_fixed_overhead_slots: 30.0  # compact motors only (no big engine/tanks)
 # Electric-drive hull/propeller efficiency, itemized (product scales propulsion power;
 # shared by LFP, iron-air, nuclear-electric, mobile). Conservative end of literature.
@@ -106,7 +106,7 @@ ironair_pack_wh_per_kg: 30.0 # ~4x heavier than LFP; enforced as deadweight (bit
 nuclear_usd_per_kw: 6000.0   # installed reactor + steam plant + drivetrain, per useful kW
 nuclear_life_yr: 25.0        # near-term marine SMR plant life
 nuclear_fuel_usd_per_kwh_th: 0.012  # HALEU fuel cycle ~$12/MWh thermal
-om_nuclear_usd_yr: 7.3e+6    # NON-crew: security, bespoke insurance, regulatory (crew separate)
+om_nuclear_other_usd_yr: 7.3e+6    # NON-crew: security, bespoke insurance, regulatory (crew separate)
 nuclear_overhead_slots: 120.0  # reactor + shielding ~ conventional engine room
 
 # ---- nuclear-electric powertrains (reactor -> electricity -> motor) ---------
@@ -116,7 +116,7 @@ nucc_unit_kw: 15000.0        # net electric per reactor module
 nucc_usd_per_kw: 5000.0      # factory-built modular, below integrated
 nucc_life_yr: 15.0           # swappable/leased modules refreshed sooner
 nucc_overhead_slots_per_unit: 45.0  # module + shielding; scales with unit count
-nucc_om_usd_yr: 5.3e+6       # NON-crew residual (crew separate)
+nucc_om_other_usd_yr: 5.3e+6       # NON-crew residual (crew separate)
 nucc_fuel_usd_per_kwh_th: 0.012     # HALEU, same as direct-drive
 # leased containerized reactor (Reactor-as-a-Service): reactor CAPEX levelized over
 # the reactor's pool utilization, not one ship's duty cycle. Speculative — sweep.
@@ -126,7 +126,7 @@ nucc_pool_availability: 0.92 # leased reactor's own uptime (maintenance/refuel r
 nuci_usd_per_kw: 6500.0      # adds generator + power electronics vs direct-drive
 nuci_life_yr: 30.0
 nuci_overhead_slots: 140.0   # reactor + shielding + switchboard
-nuci_om_usd_yr: 7.3e+6       # NON-crew residual (crew separate)
+nuci_om_other_usd_yr: 7.3e+6       # NON-crew residual (crew separate)
 nuci_fuel_usd_per_kwh_th: 0.012
 
 # ---- mobile nuclear reactor tender (charges battery ships at sea) -----------
@@ -144,7 +144,7 @@ mob_tender_parasitic_kw: 2500.0    # uncrewed; DP station-keeping + cooling (sCO
 mob_tender_usd_per_kw: 7000.0      # microreactor NOAK ~$7k/kWe (FOAK $10-35k — sweep)
 mob_tender_capex_hull_usd: 50.0e+6 # small uncrewed DP vessel, ex-reactor (lean build)
 mob_tender_life_yr: 25.0
-mob_tender_om_usd_yr: 4.0e+6       # uncrewed: remote ops + asset-loss insurance; no crew/refuel
+mob_tender_om_other_usd_yr: 4.0e+6       # uncrewed: remote ops + asset-loss insurance; no crew/refuel
 mob_tender_fuel_usd_per_kwh_th: 0.012  # thorium core, multi-decade ~one-time (negligible)
 mob_tender_eta_nuclear: 0.45       # reactor thermal -> electric (sCO2 ~50%)
 tender_idle_h: 5.0                 # tender-side "port-time equivalent": hours at the border between
