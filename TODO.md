@@ -5,8 +5,9 @@
   little/no commercial precedent — all engineering estimates. Highest-leverage,
   most uncertain: `mob_tender_*` (reactor/hull/O&M cost, parasitic), `mob_cable_v_cap_kn`,
   `coastal_untethered_distance_nm`, `storm_survival_duration_h`, `cable_efficiency`,
-  `nucc_unit_kw`, `nucc_usd_per_kw`. Now swept in per-case tornados (`plot_tornados`:
-  LFP, iron-air, mobile, nuclear-electric), incl. `ironair_pack_wh_per_kg`.
+  `nucc_unit_kw`, `nucc_usd_per_kw`, `nucc_pool_idle_h`, `nucc_pool_availability`.
+  Now swept in per-case tornados (`plot_tornados`: LFP, iron-air, mobile,
+  nuclear-electric containerized + leased), incl. `ironair_pack_wh_per_kg`.
 - **Mobile tender escort refactor — DONE.** `lcot_mobile` now models the Dedicated
   Escort concept: battery sized for `max(coastal transit, storm survival)`, tender cost
   amortized over the bus energy pushed across the cable per ocean crossing, with a
@@ -18,8 +19,19 @@
   strategy + tender price fn" — good motivation to do the refactor.
 - Nuclear-electric: `elec_propulsion_factor` (pod gains) applied to both; the
   single-shaft integrated case may not earn the full pod benefit — consider a
-  separate factor. Containerized priced as owned (shorter life); a lease option
-  (`nucc_lease_usd_yr`) is an alternative.
+  separate factor.
+- **Reactor-as-a-service lease — DONE.** `lcot_nuclear_elec_leased` recovers the
+  containerized reactor's CAPEX via a per-kWh rate levelized over the reactor's POOL
+  utilization (`nucc_pool_idle_h`, `nucc_pool_availability`), decoupled from one
+  ship's port time — mirrors the mobile-tender service pricing. Caveat: recovers
+  reactor CAPEX + fuel only; the model has no separate reactor-O&M line (it sits in
+  the ship's non-crew residual, kept ship-side), and the doc's option to also bundle
+  nuclear-specialist crew into the lease isn't done (our `crew_count_nuclear` is the
+  ship's whole complement, not splittable). The 3-axis refactor folds lease-vs-owned
+  into an `EnergySource` pricing strategy.
+- Containerized reactor power density: revisit `nucc_overhead_slots_per_unit` (45
+  slots / 15 MWe module incl. shielding) against AMPERA-class footprints — may be
+  pessimistic (per `swappable_reactor_concept.md` §3).
 - **Battery mix for short journeys:** iron-air is power-limited (C/50) up to
   ~1500 km — its pack is sized by *sustained* cruise power, 2-6x the energy it
   uses, and a finite LFP/supercap buffer can't relieve that (cruise power is
@@ -98,6 +110,17 @@ bundles three components with different behaviour:
 
 Already correct: hotel is time-based (`x sail_hours`), so slow steaming raises
 hotel energy per leg and partially offsets the cube-law savings.
+
+- **Hotel efficiency split (battery cases):** `pack_draw_leg = E_use / eta_elec`
+  applies the traction-motor efficiency (0.88) to the hotel load, but hotel
+  power never passes through the drive motor — it draws directly from the pack
+  via the ship-service bus (efficiency ~0.97). The correct treatment is
+  `pack_draw_leg = prop_E/eta_elec + hotel_E/eta_hotel`. At 14 kn the error is
+  ~1.5%, growing at lower speeds as hotel becomes a larger fraction of total
+  draw. For fossil, `E_use/eta_fossil` applies main-engine efficiency to the
+  hotel load too; aux-gen efficiency (~0.42) is close enough to `eta_fossil`
+  (~0.50) to be order-of-magnitude correct, but should eventually be modelled
+  explicitly with a separate `eta_aux_gen` parameter.
 
 ## Maneuverability credit (electric / podded ships) — DONE
 - **Port time:** per-powertrain `port_hours_elec` (16 h vs 18) — pods/azimuth

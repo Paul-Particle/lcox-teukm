@@ -18,7 +18,8 @@ import numpy as np
 
 from params import Params
 from lcot import (lcot_fossil, lcot_lfp, lcot_ironair, lcot_nuclear,
-                  lcot_nuclear_elec_containerized, lcot_mobile)
+                  lcot_nuclear_elec_containerized, lcot_nuclear_elec_leased,
+                  lcot_mobile)
 from analysis import optimize_speed
 from units import CENTS_PER_USD, PERCENT_PER_FRACTION
 from style import (
@@ -210,6 +211,17 @@ SENS_NUCELEC = [
     ("load factor",                       "load_factor",                 0.65, 0.95),
 ]
 
+SENS_NUCLEASE = [
+    ("reactor CAPEX ($/kW)",              "nucc_usd_per_kw",             4000, 20000),
+    ("pool idle / assignment (h)",        "nucc_pool_idle_h",            2,    18),
+    ("reactor pool availability",         "nucc_pool_availability",      0.80, 0.98),
+    ("reactor module size (kWe)",         "nucc_unit_kw",                10000,20000),
+    ("reactor life (yr)",                 "nucc_life_yr",                10,   30),
+    ("overhead / module (TEU)",           "nucc_overhead_slots_per_unit",30,   70),
+    ("reactor->elec eff",                 "eta_nuclear",                 0.25, 0.40),
+    ("load factor",                       "load_factor",                 0.65, 0.95),
+]
+
 
 def plot_tornado(p: Params, d_km: float, out_dir: str, fn, sens,
                  case_label: str, stem: str) -> list:
@@ -312,6 +324,8 @@ def plot_tornados(p: Params, d_km: float, out_dir: str) -> list:
         (lcot_mobile,  SENS_MOBILE,  "mobile-reactor charge",            "tornado_mobile"),
         (lcot_nuclear_elec_containerized, SENS_NUCELEC,
          "nuclear-electric (containerized)", "tornado_nucelec"),
+        (lcot_nuclear_elec_leased, SENS_NUCLEASE,
+         "nuclear-electric (leased)", "tornado_nuclease"),
     ]:
         saved += plot_tornado(p, d_km, out_dir, fn, sens, label, stem)
     return saved

@@ -277,6 +277,71 @@ def lcot_nuclear_elec_integrated(p: Params, v_kn: float, d_km: float) -> dict:
                               p.nuci_fuel_usd_per_kwh_th)
 
 
+def _reactor_lease_usd_per_kwh(p: Params, sail_h: float, bus_kwh_leg: float,
+                               reactor_capex: float, reactor_life_yr: float,
+                               fuel_usd_per_kwh_th: float):
+    """Reactor-as-a-service: levelize a pooled reactor's cost over the bus energy
+    it generates across ship assignments, returning an all-in $/kWh (at the ship's
+    bus) and assignments/yr per reactor. Mirrors the mobile-tender economics: the
+    reactor's utilization is decoupled from any one ship's port time — between
+    assignments it idles only `nucc_pool_idle_h` in the shared pool (it powers the
+    next departing ship meanwhile), not the ship's full port stay. Recovers reactor
+    CAPEX + fuel only; ship-side O&M and crew stay on the ship (the model has no
+    separate reactor-O&M line — it lives in the ship's non-crew residual)."""
+    assignments_per_yr = (HOURS_PER_YEAR * p.nucc_pool_availability
+                          / (sail_h + p.nucc_pool_idle_h))
+    annual_bus_kwh = assignments_per_yr * bus_kwh_leg          # reactor electric output
+    annual_thermal_kwh = annual_bus_kwh / p.eta_nuclear        # fuel basis
+    reactor_fixed = reactor_capex * crf(p.discount_rate, reactor_life_yr)
+    reactor_fuel = annual_thermal_kwh * fuel_usd_per_kwh_th
+    usd_per_kwh = (reactor_fixed + reactor_fuel) / annual_bus_kwh
+    return usd_per_kwh, assignments_per_yr
+
+
+def lcot_nuclear_elec_leased(p: Params, v_kn: float, d_km: float) -> dict:
+    """Containerized nuclear-electric with the reactor modules LEASED from a shared
+    fleet pool rather than owned: the ship loads reactor(s) at port, powers the
+    crossing, and returns them to the pool on arrival. Physically identical to the
+    owned containerized case (same drivetrain, same slot overhead while aboard); the
+    only difference is the reactor's CAPEX is recovered through a per-kWh service
+    rate levelized over the reactor's own (pool) utilization, so the ship is not
+    charged for the reactor sitting idle during its port calls."""
+    pf = _elec_propulsion_factor(p)
+    hotel = p.p_hotel_kw + p.hotel_delta_nuclear_kw
+    E_use = leg_useful_energy_kwh(p, v_kn, d_km, pf, hotel_kw=hotel)
+    legs = legs_per_year(p, v_kn, d_km, port_h=p.port_hours_elec)
+    sail_h = d_km / (v_kn * KMH_PER_KNOT)
+
+    n_units = int(np.ceil(_reactor_design_power_kw(p) / p.nucc_unit_kw))
+    reactor_capex = p.nucc_usd_per_kw * n_units * p.nucc_unit_kw
+    overhead = n_units * p.nucc_overhead_slots_per_unit
+
+    bus_kwh_leg = E_use / p.eta_elec       # electric energy the reactor generates per leg
+    lease_usd_per_kwh, assignments_per_yr = _reactor_lease_usd_per_kwh(
+        p, sail_h, bus_kwh_leg, reactor_capex, p.nucc_life_yr, p.nucc_fuel_usd_per_kwh_th)
+    energy_cost_leg = bus_kwh_leg * lease_usd_per_kwh   # lease recovers reactor CAPEX + fuel
+
+    motor_capex = p.motor_usd_per_kw * prop_power_kw(p, p.v_design_max_kn, pf)
+    # Ship side: NO reactor CAPEX (it's in the lease); keeps motor, ship O&M, crew, tugs.
+    annual_fixed = (p.hull_capex_usd * crf(p.discount_rate, p.hull_life_yr)
+                    + motor_capex * crf(p.discount_rate, p.motor_life_yr)
+                    + p.nucc_om_usd_yr
+                    + p.crew_count_nuclear * p.crew_cost_usd_yr
+                    + p.tug_usd_per_call_elec * legs)
+
+    cargo_cap = p.gross_slots - overhead
+    annual_teukm = legs * d_km * carried_teu(p, overhead, energy_mass_t=0.0)
+    annual_cost = annual_fixed + energy_cost_leg * legs
+    # DIAGNOSTIC: ship-voyages one pooled reactor can power per year vs this ship's
+    # legs/yr; >1 means one reactor serves several ships (the pooling leverage).
+    ships_per_reactor = assignments_per_yr / legs
+    return {"lcot": annual_cost / annual_teukm, "v": v_kn, "cargo_cap": cargo_cap,
+            "annual_fixed": annual_fixed, "annual_energy": energy_cost_leg * legs,
+            "teukm": annual_teukm, "legs": legs, "battery_slots": 0.0,
+            "battery_kwh": 0.0, "battery_life": np.nan,
+            "lease_usd_per_kwh": lease_usd_per_kwh, "ships_per_reactor": ships_per_reactor}
+
+
 def _mobile_infeasible(v_kn: float, battery_slots: float = 0.0,
                        battery_kwh: float = 0.0) -> dict:
     """Standard infeasible-result dict for the mobile-escort case."""

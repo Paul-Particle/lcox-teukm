@@ -118,6 +118,10 @@ nucc_life_yr: 15.0           # swappable/leased modules refreshed sooner
 nucc_overhead_slots_per_unit: 45.0  # module + shielding; scales with unit count
 nucc_om_usd_yr: 5.3e+6       # NON-crew residual (crew separate)
 nucc_fuel_usd_per_kwh_th: 0.012     # HALEU, same as direct-drive
+# leased containerized reactor (Reactor-as-a-Service): reactor CAPEX levelized over
+# the reactor's pool utilization, not one ship's duty cycle. Speculative — sweep.
+nucc_pool_idle_h: 8.0        # reactor wait in the shared pool between ship assignments
+nucc_pool_availability: 0.92 # leased reactor's own uptime (maintenance/refuel rota)
 # (b) integrated single reactor:
 nuci_usd_per_kw: 6500.0      # adds generator + power electronics vs direct-drive
 nuci_life_yr: 30.0

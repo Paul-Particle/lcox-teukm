@@ -47,7 +47,7 @@ import numpy as np
 from params import load_params
 from report import (print_base_header, print_energy_cost, print_breakdown,
                     print_crossover, print_sensitivity, print_hotel_sensitivity,
-                    print_mobile_fleet)
+                    print_mobile_fleet, print_reactor_lease)
 from plots import (plot_lcot_vs_dmax, plot_speed_vs_dmax, plot_tornados,
                    plot_teu_tech_tradeoff)
 
@@ -67,6 +67,7 @@ def main():
     print_sensitivity(p, d_grid)
     print_hotel_sensitivity(p, d_grid)
     print_mobile_fleet(p)
+    print_reactor_lease(p)
 
     saved = plot_lcot_vs_dmax(p, RESULTS_DIR)
     saved += plot_speed_vs_dmax(p, RESULTS_DIR)
