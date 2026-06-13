@@ -31,7 +31,7 @@ This file is the entry point only. The model is split across sibling modules:
     lcot.py      the cost models: fossil, LFP & iron-air battery (port swap),
                  onboard nuclear (direct-drive), two nuclear-electric variants
                  (containerized / integrated), and a battery ship charged at sea
-                 by a mobile nuclear tender. carried_teu now applies volume, mass
+                 by a mobile nuclear tender. carried() now applies volume, mass
                  and asymmetric-leg constraints.
     analysis.py  speed optimization + crossover distance
     report.py    console tables (+ the CASES registry)
