@@ -6,8 +6,8 @@ refactor is sketched in the appendix.
 **Current focus — consolidate on `main` and polish after the 3-axis refactor.**
 The feature branches (scale factors, Sobol sensitivity, MRV fleet data) are set
 aside, to be redone from a clean, refactored base rather than carried forward; the
-near-term work is hardening `main` itself. The leading items: the speed-constraint
-guard, the config restructuring, and the leaky supply abstraction — all below.
+near-term work is hardening `main` itself. The leading items: the config
+restructuring and the leaky supply abstraction — both detailed below.
 
 ## Speculative parameters
 - The new-case params have little/no commercial precedent — all engineering
@@ -36,12 +36,6 @@ guard, the config restructuring, and the leaky supply abstraction — all below.
   / `mob_tender_usd_per_kw` are flat $/kW. At these sizes (tens of MW) the marginal
   $/kW likely varies a lot with size (scale economies; step changes at module
   boundaries). Model reactor CAPEX as a size-dependent curve — probably material.
-- **Speed-constraint enforcement (correctness guard).** `optimize_speed` grid-searches up to
-  `v_max_kn` (`analysis.py`), but `cost_fn` sizes installed power/CAPEX at `v_design_max_kn`
-  (`cost.py`). When `v_max_kn > v_design_max_kn` the optimizer can pick a cruise faster than the
-  ship is built for and pay no engine/reactor CAPEX for the excess — an impossible, free-speed
-  ship. They're equal by default (22 kn) so the bug is latent, but enforce it: clamp the search to
-  `v_design_max_kn`, or error out when `v_kn > v_design_max_kn`.
 
 ## Case-specific follow-ups
 - **Mobile tender:** optionally ride out storms at reduced/zero speed to shrink the
