@@ -88,8 +88,10 @@ def _numeric(df, col):
 
 
 def _describe(name: str, a, unit: str):
-    """Print a compact distribution (n, min, p10/25/50/75/90, mean, max) of the
-    positive, finite values of `a`. Returns the cleaned array (or None)."""
+    """Print a compact distribution of the positive, finite values of `a`.
+    Percentiles use the full set; mean/max are trimmed to [p0.5, p99.5] because
+    the raw MRV file carries data-error outliers (e.g. a near-zero distance makes
+    a per-distance ratio explode). Returns the cleaned positive array (or None)."""
     if a is None:
         print(f"  {name:<26} column not found")
         return None
@@ -97,21 +99,29 @@ def _describe(name: str, a, unit: str):
     if v.size == 0:
         print(f"  {name:<26} no positive values")
         return None
-    p = np.percentile(v, [10, 25, 50, 75, 90])
+    p10, p25, p50, p75, p90 = np.percentile(v, [10, 25, 50, 75, 90])
+    lo, hi = np.percentile(v, [0.5, 99.5])
+    core = v[(v >= lo) & (v <= hi)]
     print(f"  {name} ({unit}): n={v.size}")
-    print(f"    min {v.min():,.1f}  p10 {p[0]:,.1f}  p25 {p[1]:,.1f}  "
-          f"median {p[2]:,.1f}  p75 {p[3]:,.1f}  p90 {p[4]:,.1f}  "
-          f"max {v.max():,.1f}  mean {v.mean():,.1f}")
+    print(f"    min {v.min():,.1f}  p10 {p10:,.1f}  p25 {p25:,.1f}  median {p50:,.1f}  "
+          f"p75 {p75:,.1f}  p90 {p90:,.1f}")
+    print(f"    trimmed mean {core.mean():,.1f}  trimmed max {core.max():,.1f}  "
+          f"({v.size - core.size} extreme outliers excluded from mean/max)")
     return v
 
 
-def _plot(dwt, fuel_per_nm, out_dir: str) -> list:
-    """Two histograms (DWT, fuel per distance) in the house style. Best-effort —
-    skips silently if plotly/style aren't importable. Only the model imports nothing
-    from here, so importing the standalone style module keeps this decoupled."""
-    series = [(dwt, "Deadweight (DWT, tonnes)", "dwt"),
+def _plot(dwt, dwt_label, fuel_per_nm, out_dir: str) -> list:
+    """Two histograms (cargo size, fuel per distance) in the house style, clipped to
+    [p1, p99] so data-error outliers don't flatten them. Best-effort — skips silently
+    if plotly/style aren't importable. The model imports nothing from here, so importing
+    the standalone style module keeps this decoupled."""
+    def _clip(v):
+        lo, hi = np.percentile(v, [1, 99])
+        return v[(v >= lo) & (v <= hi)]
+
+    series = [(dwt, f"{dwt_label} (tonnes)", "dwt"),
               (fuel_per_nm, "Fuel per distance (kg / n mile)", "fuel")]
-    series = [(v, t, k) for v, t, k in series if v is not None and v.size]
+    series = [(_clip(v), t, k) for v, t, k in series if v is not None and v.size]
     if not series:
         return []
     try:
@@ -156,22 +166,39 @@ def summarize(df, type_kw: str) -> dict:
     cols = list(df.columns)
     c_type = _find(cols, "ship", "type")
     c_period = _find(cols, "reporting", "period") or _find(cols, "year")
-    c_dwt = _find(cols, "deadweight") or _find(cols, "dwt")
+    # Nameplate DWT is usually ABSENT from the public MRV file (only fuel/CO2 per
+    # "transport work (dwt)" intensities are published). Match it strictly so we
+    # don't mistake a transport-work column for deadweight; if absent we derive
+    # the average cargo deadweight carried below.
+    c_dwt = _find(cols, "deadweight", exclude=("per", "transport", "work"))
     c_fuel = _find(cols, "total", "fuel", "consumption")
-    c_co2 = _find(cols, "total", "co", "emissions")
+    c_co2 = _find(cols, "total", "co", "emissions", exclude=("eq",))
     c_time = _find(cols, "time", "sea")
-    c_dist = _find(cols, "distance", exclude=("per",))
-    c_fpd = _find(cols, "fuel", "consumption", "per", "distance")
-    c_cpd = _find(cols, "co", "emissions", "per", "distance")
+    c_dist = _find(cols, "distance", "travelled", exclude=("per", "ice"))
+    # NB: don't exclude "co" — it is a substring of "consumption". Fuel columns are
+    # disambiguated from CO2 ones by the required "fuel" needle already.
+    c_fpd = _find(cols, "fuel", "consumption", "per", "distance",
+                  exclude=("laden", "transport"))
+    # Transport work is reported by cargo MASS for container ships and by deadweight
+    # CARRIED for bulk/tankers — only one is populated per ship type. Match both;
+    # the subset picks the live one below.
+    c_ftw_mass = _find(cols, "fuel", "consumption", "per", "transport", "work", "mass",
+                       exclude=("laden",))
+    c_ftw_dwt = _find(cols, "fuel", "consumption", "per", "transport", "work", "dwt",
+                      exclude=("laden",))
+    c_cpd = _find(cols, "co", "emissions", "per", "distance",
+                  exclude=("laden", "eq", "transport"))
     c_eff = _find(cols, "technical", "efficiency")
 
     print("Matched columns:")
     for label, c in [("ship type", c_type), ("reporting period", c_period),
-                     ("deadweight", c_dwt), ("total fuel [t]", c_fuel),
+                     ("deadweight (nameplate)", c_dwt), ("total fuel [t]", c_fuel),
                      ("total CO2 [t]", c_co2), ("time at sea [h]", c_time),
-                     ("distance [nm]", c_dist), ("fuel/distance [kg/nm]", c_fpd),
+                     ("distance travelled [nm]", c_dist), ("fuel/distance [kg/nm]", c_fpd),
+                     ("fuel/transport-work (mass)", c_ftw_mass),
+                     ("fuel/transport-work (dwt)", c_ftw_dwt),
                      ("CO2/distance", c_cpd), ("technical efficiency", c_eff)]:
-        print(f"  {label:<22} {c if c else '— not found'}")
+        print(f"  {label:<32} {c if c else '— not found'}")
 
     if c_type is None:
         print("\nNo 'ship type' column found — cannot filter to container ships. "
@@ -191,8 +218,29 @@ def summarize(df, type_kw: str) -> dict:
         return {}
 
     print("\nDistributions (positive, finite values only):")
-    dwt = _describe("DWT", _numeric(sub, c_dwt), "tonnes")
-    fpd = _describe("fuel / distance", _numeric(sub, c_fpd), "kg / n mile")
+    fpd_raw = _numeric(sub, c_fpd)
+    # Pick whichever transport-work intensity the subset actually populates (mass for
+    # containers, dwt for bulk/tankers).
+    cand = [(k, _numeric(sub, c)) for k, c in (("mass", c_ftw_mass), ("dwt", c_ftw_dwt))]
+    cand = [(k, v) for k, v in cand if v is not None and np.isfinite(v).any()]
+    ftw_kind, ftw_raw = max(cand, key=lambda kv: int(np.isfinite(kv[1]).sum())) if cand else (None, None)
+
+    # Nameplate DWT if the file has it; otherwise DERIVE the average cargo CARRIED
+    # from the two intensities: (kg fuel / nm) / (g fuel / unit·nm) × 1000 = tonnes
+    # of cargo carried. This is cargo actually moved (size × utilization), not max
+    # DWT — but it is a real fleet anchor, and it's what compares to the model's
+    # carried cargo (gross_slots × load_factor × cargo_t_per_teu).
+    dwt = _numeric(sub, c_dwt)
+    dwt_label, dwt_unit = "DWT (nameplate)", "tonnes"
+    if dwt is None and fpd_raw is not None and ftw_raw is not None:
+        with np.errstate(divide="ignore", invalid="ignore"):
+            dwt = np.where(ftw_raw > 0, 1000.0 * fpd_raw / ftw_raw, np.nan)
+        dwt_label = f"cargo carried (derived, {ftw_kind})"
+        print(f"  (no nameplate DWT column — deriving cargo carried from "
+              f"fuel/distance ÷ transport-work[{ftw_kind}])")
+
+    dwt_v = _describe(dwt_label, dwt, dwt_unit)
+    fpd = _describe("fuel / distance", fpd_raw, "kg / n mile")
     _describe("CO2 / distance", _numeric(sub, c_cpd), "kg / n mile")
     _describe("technical efficiency", _numeric(sub, c_eff), "g CO2 / t·nm")
 
@@ -203,12 +251,12 @@ def summarize(df, type_kw: str) -> dict:
               f"= {kg_per_km:,.1f} kg/km. At ~11.1 kWh/kg (VLSFO LHV) that is "
               f"~{kg_per_km * 11.1:,.0f} kWh-fuel/km — an empirical anchor for "
               f"p_ref_kw / eta_fossil (config base ~20 MW at v_ref).")
-    if dwt is not None:
-        print(f"Cross-check: median DWT {np.median(dwt):,.0f} t. The model sizes by TEU "
-              f"(gross_slots=3000); at cargo_t_per_teu=12 that's ~36,000 t of cargo, "
-              f"cf. deadweight_t=41,000 t (cargo + energy carrier).")
+    if dwt_v is not None:
+        print(f"Cross-check: median {dwt_label.lower()} {np.median(dwt_v):,.0f} t. "
+              f"The model's cargo carried ≈ gross_slots(3000) × load_factor(0.8) × "
+              f"cargo_t_per_teu(12) ≈ 28,800 t — same order, the fleet spans far larger ships.")
 
-    return {"dwt": dwt, "fuel_per_nm": fpd}
+    return {"dwt": dwt_v, "dwt_label": dwt_label, "fuel_per_nm": fpd}
 
 
 def main(argv=None):
@@ -231,7 +279,8 @@ def main(argv=None):
     out = summarize(df, args.type.lower())
 
     if not args.no_plot and out:
-        for p in _plot(out.get("dwt"), out.get("fuel_per_nm"), RESULTS_DIR):
+        for p in _plot(out.get("dwt"), out.get("dwt_label", "cargo size"),
+                       out.get("fuel_per_nm"), RESULTS_DIR):
             print(f"Saved plot: {os.path.relpath(p, REPO_ROOT)}")
 
 
