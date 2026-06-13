@@ -21,7 +21,7 @@ class Params:
     load_factor_imbalance: float = 0.2 # headhaul/backhaul split: head=LF*(1+imb), back=LF*(1-imb);
                                        # default models real trade imbalance (head 0.96 / back 0.64
                                        # at LF 0.8). 0 = symmetric; fixed battery bites the fuller
-                                       # leg first (carried_teu). TODO: richer fill distribution.
+                                       # leg first (see carried()). TODO: richer fill distribution.
     hull_capex_usd: float = 45e6       # newbuild hull excl. propulsion
     discount_rate: float = 0.08
     hull_life_yr: float = 25.0
@@ -128,7 +128,7 @@ class Params:
     # ---- iron-air battery powertrain (Form Energy class; shares hull, motor,
     # drivetrain, electricity price, and swap logistics with the LFP ship).
     # Iron-air's ~4x mass per kWh IS now enforced via the deadweight constraint
-    # (carried_teu), so its weight bites: mass-limited short-haul, infeasible long.
+    # (carried()), so its weight bites: mass-limited short-haul, infeasible long.
     ironair_usd_per_kwh: float = 30.0      # installed system (chemistry target <$20/kWh)
     ironair_kwh_per_teu: float = 1500.0    # ~half LFP volumetric density per container
     ironair_dod: float = 0.95              # routine usable depth (chemistry tolerates deep discharge)

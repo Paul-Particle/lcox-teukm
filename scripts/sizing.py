@@ -18,50 +18,24 @@ from energy import prop_power_kw
 from units import KG_PER_TONNE, HOURS_PER_YEAR
 
 
-def carried_teu(p: Params, overhead_slots: float, battery_slots: float = 0.0,
-                energy_mass_t: float = 0.0) -> float:
-    """Revenue cargo (TEU) carried per leg, round-trip averaged.
-
-    Three capacity limits act together; carried = min(volume-limited, mass-limited):
-      - VOLUME: cargo demand is exogenous (`load_factor` of cargo-capable slots).
-        Batteries occupy slots, but only `batt_empty_usable_frac` of the empty
-        (1-load_factor) slack is battery-usable (DG segregation, stability,
-        access); they fill that for free, then displace cargo 1:1.
-      - MASS: each ship carries its OWN energy-carrier weight `energy_mass_t`
-        explicitly (fossil bunkers, battery pack, nuclear ~0), drawn from the
-        shared total `deadweight_t`. Limit = (deadweight_t - energy_mass_t) /
-        cargo_t_per_teu TEU.
-      - POWER is handled in battery sizing, not here.
-
-    Legs are ASYMMETRIC: `load_factor_imbalance` splits the mean load factor into
-    a fuller headhaul and lighter backhaul; a fixed battery footprint bites the
-    fuller leg first. May return <= 0 (pack swamps the ship); callers treat that
-    as infeasible."""
-    cargo_slots = p.gross_slots - overhead_slots
-    mass_limited = (p.deadweight_t - energy_mass_t) / p.cargo_t_per_teu
-
-    def carried_dir(lf):
-        demand = lf * cargo_slots
-        slack = cargo_slots - demand
-        free_empty = p.batt_empty_usable_frac * slack
-        vol_carried = demand - max(0.0, battery_slots - free_empty)
-        return min(vol_carried, mass_limited)
-
-    imb = p.load_factor_imbalance
-    lf_head = min(1.0, p.load_factor * (1.0 + imb))
-    lf_back = p.load_factor * (1.0 - imb)
-    return 0.5 * (carried_dir(lf_head) + carried_dir(lf_back))
-
-
 def carried(pl, overhead: float, storage_units: float = 0.0,
             energy_mass_t: float = 0.0) -> float:
-    """Revenue cargo per leg in the platform's `cargo_unit`, round-trip averaged —
-    the platform-generalized `carried_teu`. Volume-bound (capacity slots) and
-    mass-bound (deadweight) limits act together: `min(volume-limited, mass-limited)`.
+    """Revenue cargo per leg in the platform's `cargo_unit`, round-trip averaged.
+    Volume-bound (capacity slots) and mass-bound (deadweight) limits act together:
+    `min(volume-limited, mass-limited)`.
+
+    Three capacity limits combine: VOLUME (cargo demand is `load_factor` of
+    cargo-capable slots; energy stores occupy slots but only `batt_empty_usable_frac`
+    of the empty slack is store-usable for free, then they displace cargo 1:1), MASS
+    (each ship carries its own energy-carrier weight `energy_mass_t`, drawn from the
+    shared `deadweight_t`), and POWER (handled in battery sizing, not here). Legs are
+    ASYMMETRIC: `load_factor_imbalance` splits the mean load factor into a fuller
+    headhaul and lighter backhaul; a fixed store footprint bites the fuller leg first.
+    May return <= 0 (store swamps the ship); callers treat that as infeasible.
 
     `pl` is a `cases.Platform` (duck-typed here to avoid an import cycle). For a
     container platform `gross_capacity` is TEU slots and `unit_mass_t` is t/TEU, so
-    this is arithmetically identical to `carried_teu`. For a tonne platform
+    the result is in TEU. For a tonne platform
     `unit_mass_t ≈ 1`, so the volume and mass limits coincide and the result is in
     tonnes. `storage_units` is the energy store's footprint in the same cargo unit."""
     cargo_cap = pl.gross_capacity - overhead

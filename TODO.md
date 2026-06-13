@@ -6,9 +6,8 @@ refactor is sketched in the appendix.
 **Current focus — consolidate on `main` and polish after the 3-axis refactor.**
 The feature branches (scale factors, Sobol sensitivity, MRV fleet data) are set
 aside, to be redone from a clean, refactored base rather than carried forward; the
-near-term work is hardening `main` itself. Four items lead: the speed-constraint
-guard, the config restructuring, the leaky supply abstraction, and the dead-code
-cleanup — all detailed below.
+near-term work is hardening `main` itself. The leading items: the speed-constraint
+guard, the config restructuring, and the leaky supply abstraction — all below.
 
 ## Speculative parameters
 - The new-case params have little/no commercial precedent — all engineering
@@ -129,9 +128,6 @@ its keep.
 - **Per-(platform,drivetrain) O&M/overhead overrides:** today resolved per case in `build_cases`; a
   nuclear bulk carrier's O&M ≠ a nuclear container ship's, so a small override map will be wanted once
   platforms multiply.
-- **Dead code — `sizing.carried_teu` (Phase C leftover).** `carried_teu` was generalized into
-  `carried(platform, …)` but never removed; it is now unreferenced except in stale comments
-  (`run.py`, `params.py`) that should point at `carried`. Delete the function and fix the comments.
 
 ## Refactor wishes (captured during the build — design the axes to accommodate)
 
