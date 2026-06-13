@@ -10,12 +10,19 @@ All values are in the model's base units (see units.py): energy kWh, power kW,
 time hours, distance km, speed knots, mass kg, money US$.
 """
 
-from dataclasses import dataclass, fields
+from dataclasses import dataclass, fields, replace
 
 
 @dataclass
 class Params:
     # ---- shared hull / route (scale both ships, fixed to representative values)
+    ship_scale: float = 1.0            # multiply ship SIZE by this (1.0 = config base).
+                                       # Moves the size-coupled bundle together (capacity,
+                                       # deadweight, installed power, hull CAPEX, non-crew O&M)
+                                       # by physical exponents in scaled_params(); crew held
+                                       # flat (a real economy of scale). Applied once at entry,
+                                       # idempotent. Lets a size scan explore plausible ships
+                                       # rather than unphysical ones (more slots, same hull/cost).
     gross_slots: float = 3000.0        # nominal hull container capacity (TEU)
     load_factor: float = 0.80          # avg fraction of available slots filled
     load_factor_imbalance: float = 0.2 # headhaul/backhaul split: head=LF*(1+imb), back=LF*(1-imb);
@@ -249,3 +256,40 @@ def load_params(path) -> Params:
         except (TypeError, ValueError):
             raise ValueError(f"{path}: {key!r} must be a number, got {value!r}")
     return Params(**coerced)
+
+
+# ---- ship-size scaling -----------------------------------------------------
+# `ship_scale` moves the whole size-coupled bundle together, so a size scan (or
+# a sensitivity sweep) explores PLAUSIBLE bigger/smaller ships rather than
+# physically impossible ones (e.g. more slots in the same hull at the same
+# cost). Capacity and deadweight scale ~linearly with size; installed power,
+# hull CAPEX and non-crew O&M scale SUBLINEARLY (economies of scale); per-ship
+# crew is held flat (so per-TEU crew cost falls with size, as in reality).
+# Exponents are first-pass engineering heuristics — tune freely.
+SHIP_POWER_SCALE_EXP = 2.0 / 3.0   # propulsion power ~ displacement^(2/3) at a fixed speed
+SHIP_CAPEX_SCALE_EXP = 0.7          # hull CAPEX ~ size^0.7 (six-tenths rule, process-TEA)
+SHIP_OM_SCALE_EXP = 0.7             # non-crew fixed O&M tracks size sublinearly
+
+_OM_OTHER_FIELDS = ("om_fossil_other_usd_yr", "om_elec_other_usd_yr",
+                    "om_nuclear_other_usd_yr", "nucc_om_other_usd_yr",
+                    "nuci_om_other_usd_yr", "mob_tender_om_other_usd_yr")
+
+
+def scaled_params(p: Params) -> Params:
+    """Apply `p.ship_scale` to the size-coupled fields, returning a new Params with
+    ship_scale reset to 1.0 — idempotent, so it is safe to call more than once.
+    ship_scale == 1.0 returns `p` unchanged, so the default is a true no-op. Call
+    it once at each entry point, on the p that flows into both build_cases and the
+    cost model (p_ref_kw lives in Params and feeds propulsion power)."""
+    s = p.ship_scale
+    if s == 1.0:
+        return p
+    om = {f: getattr(p, f) * s ** SHIP_OM_SCALE_EXP for f in _OM_OTHER_FIELDS}
+    return replace(
+        p, ship_scale=1.0,
+        gross_slots=p.gross_slots * s,                       # capacity ~ size
+        deadweight_t=p.deadweight_t * s,                     # deadweight ~ size
+        p_ref_kw=p.p_ref_kw * s ** SHIP_POWER_SCALE_EXP,     # power ~ size^(2/3)
+        hull_capex_usd=p.hull_capex_usd * s ** SHIP_CAPEX_SCALE_EXP,
+        **om,
+    )

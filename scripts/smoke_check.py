@@ -24,7 +24,7 @@ import sys
 
 import numpy as np
 
-from params import load_params
+from params import load_params, scaled_params
 from cases import build_cases
 from cost import cost_fn
 from analysis import optimize_speed
@@ -38,7 +38,7 @@ SANE_DMAX_KM = [200, 1000]
 
 
 def main():
-    p = load_params(CONFIG_PATH)
+    p = scaled_params(load_params(CONFIG_PATH))
 
     # 1. The console report renders without raising.
     with contextlib.redirect_stdout(io.StringIO()):

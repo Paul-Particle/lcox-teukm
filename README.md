@@ -129,6 +129,13 @@ validated on load against the `Params` schema in `scripts/params.py` (an unknown
 non-numeric key is rejected rather than silently ignored). Units: energy in kWh, power in
 kW, time in hours, distance in km, speed in knots, mass in kg, money in US$.
 
+**Ship size** is a single knob: `ship_scale` (default 1.0). It moves the size-coupled
+quantities together — capacity and deadweight ~linearly, installed power, hull CAPEX and
+non-crew O&M sublinearly (economies of scale), with crew held flat — so changing it explores
+*plausible* larger/smaller ships rather than physically impossible ones (more slots in the
+same hull at the same cost). The coupling lives in `scaled_params()` in `scripts/params.py`;
+the exponents (power ~size^⅔, CAPEX/O&M ~size^0.7) are first-pass heuristics.
+
 Case-specific caveats:
 
 - **Iron-air**: the deadweight (mass) constraint *is* enforced — iron-air is roughly 4× heavier

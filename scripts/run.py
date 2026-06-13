@@ -42,7 +42,7 @@ All energy in kWh, power in kW, time in hours, distance in km, speed in knots.
 
 import os
 
-from params import load_params
+from params import load_params, scaled_params
 from report import print_report
 from plots import (plot_lcot_vs_dmax, plot_speed_vs_dmax, plot_tornados,
                    plot_teu_tech_tradeoff)
@@ -53,7 +53,7 @@ RESULTS_DIR = os.path.join(REPO_ROOT, "results")
 
 
 def main():
-    p = load_params(CONFIG_PATH)
+    p = scaled_params(load_params(CONFIG_PATH))
     print_report(p)
 
     saved = plot_lcot_vs_dmax(p, RESULTS_DIR)

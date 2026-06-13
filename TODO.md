@@ -31,6 +31,17 @@ refactor is sketched in the appendix.
   $/kW likely varies a lot with size (scale economies; step changes at module
   boundaries). Model reactor CAPEX as a size-dependent curve — probably material.
 
+## Ship-size scaling
+- **`ship_scale` knob (`scaled_params` in params.py):** moves the size-coupled bundle
+  (capacity, deadweight, installed power, hull CAPEX, non-crew O&M) together by physical
+  exponents (power ~size^⅔, CAPEX/O&M ~size^0.7), crew flat. This is what lets a size scan
+  or global sensitivity vary scale plausibly instead of decoupling slots from hull/power/cost.
+  Open: the exponents are eyeballed (ground them, esp. the six-tenths CAPEX rule and the
+  hull-power-displacement relation); reactor *unit* sizes (`mob_tender_reactor_kw`, AMPERA
+  module granularity) are deliberately NOT scaled with ship size — revisit when reactor CAPEX
+  becomes a size-dependent curve (above); a fuller version would give each coupled quantity a
+  narrow independent "ratio" factor (scale economy ± eyeballed-base slack) on top of the driver.
+
 ## Case-specific follow-ups
 - **Mobile tender:** optionally ride out storms at reduced/zero speed to shrink the
   pack; jointly optimize tethered cruise speed vs battery size vs ships-per-tender

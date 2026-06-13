@@ -6,6 +6,10 @@
 # distance km, speed knots, mass kg, money US$.
 
 # ---- shared hull / route -------------------------------------------------
+ship_scale: 1.0              # multiply ship SIZE by this (1.0 = this config's base ship).
+                             # Scales capacity, deadweight, installed power, hull CAPEX and
+                             # non-crew O&M together by physical exponents (crew held flat);
+                             # see scaled_params() in params.py. Use to compare ship sizes.
 gross_slots: 3000.0          # nominal hull container capacity (TEU)
 load_factor: 0.80            # avg fraction of available slots filled
 load_factor_imbalance: 0.2   # headhaul/backhaul split (default asymmetric: head 0.96 / back 0.64)
