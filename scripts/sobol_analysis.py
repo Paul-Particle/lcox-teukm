@@ -17,8 +17,9 @@ This is far heavier than the tornados (N·(D+2) model evaluations per case, each
 an inner speed optimization), so it is a SEPARATE on-demand entry point — it is
 NOT wired into run.py. Run it directly:
 
-    uv run scripts/sobol_analysis.py [N]          # N defaults to SOBOL_N (256)
-    uv run scripts/sobol_analysis.py [N] --all    # vary EVERY input (see below)
+    uv run scripts/sobol_analysis.py [N]           # N defaults to SOBOL_N (256)
+    uv run scripts/sobol_analysis.py [N] --all     # vary EVERY input (see below)
+    uv run scripts/sobol_analysis.py [N] --groups  # vary every input, report BY LEVER
 
 A small N (e.g. 16) is a quick wiring smoke test; a large N (512–1024) is a
 careful run. Output: a per-case console table plus results/sobol_<case>.{html,png}
@@ -204,15 +205,68 @@ def all_input_factors(p: Params, frac: float = SOBOL_ALL_FRAC):
     return sens, skipped
 
 
+# ---- Grouping by economic lever (--groups) ---------------------------------
+# Aggregate the itemized factors into the higher-level lever each one pulls, so
+# Sobol reports variance share per lever (incl. within-lever interactions)
+# instead of per itemized input. The model stays fully itemized; this only
+# changes how indices are aggregated. SALib does it natively via problem
+# ["groups"]; sampling then costs N·(num_groups+2), so it is also cheaper than
+# the per-factor --all run. NOTE: without the scale reparameterization (separate
+# branch) the size-coupled extensives still vary independently, so the "scale"
+# and "technical" levers here are inflated by unphysical combinations.
+_SCALE_FIELDS = {"gross_slots", "deadweight_t"}  # size proxies (until reparam'd)
+_CAPEX_PER_KWH = {"battery_usd_per_kwh", "ironair_usd_per_kwh"}  # storage CAPEX, not energy
+
+def _group_of(name: str) -> str:
+    """Map a Params field to its economic lever (the --groups aggregation)."""
+    if name in _SCALE_FIELDS:
+        return "scale"
+    if name in _CAPEX_PER_KWH or name.endswith("_usd_per_kw") \
+            or name in ("hull_capex_usd", "mob_tender_capex_hull_usd"):
+        return "capex"
+    if name.endswith("_usd_per_kwh_th") \
+            or name in ("fuel_usd_per_t", "elec_usd_per_kwh", "efuel_usd_per_kwh"):
+        return "energy"
+    if name.startswith(("om_", "crew_", "tug_")) or name.endswith("_om_other_usd_yr"):
+        return "opex"
+    if name == "discount_rate" or name.endswith("_life_yr") or name.endswith("cycle_life"):
+        return "finance"
+    if name.startswith("eta_") or name.endswith(("_eta_charge", "_eta_discharge",
+            "_eta_nuclear", "_factor", "_dod")) \
+            or name in ("cable_efficiency", "fuel_lhv_kwh_per_kg"):
+        return "efficiency"
+    if name.startswith(("availability", "port_hours")) \
+            or name.endswith(("_idle_h", "_availability")) \
+            or name in ("mob_port_hours_per_call", "load_factor", "load_factor_imbalance",
+                        "weather_reserve", "storm_survival_duration_h",
+                        "coastal_untethered_distance_nm", "mob_cable_v_cap_kn"):
+        return "utilization"
+    return "technical"  # power curve, hotel load, storage/reactor sizing, ISO limits, cargo mass
+
+
+def _ordered_groups(groups) -> list:
+    """Unique group labels in first-appearance order — the order SALib returns
+    grouped indices in (so they line up with Si['S1']/['ST'])."""
+    seen = []
+    for g in groups:
+        if g not in seen:
+            seen.append(g)
+    return seen
+
+
 # ---- Sampling + model evaluation -------------------------------------------
 
-def _problem(sens) -> dict:
-    """SALib problem dict for a factor set."""
-    return {
+def _problem(sens, groups=None) -> dict:
+    """SALib problem dict for a factor set; `groups` (one label per factor, in
+    the sens order) switches the analysis to per-group (lever) indices."""
+    problem = {
         "num_vars": len(sens),
         "names": [field for _, field, _, _ in sens],
         "bounds": [[lo, hi] for _, _, lo, hi in sens],
     }
+    if groups is not None:
+        problem["groups"] = list(groups)
+    return problem
 
 
 def _evaluate(case_name: str, sens, X: np.ndarray, p: Params, d_km: float) -> np.ndarray:
@@ -242,14 +296,15 @@ def _impute(Y: np.ndarray):
 
 # ---- Reporting -------------------------------------------------------------
 
-def _print_table(case_label: str, sens, Si: dict, N: int, n_evals: int, infeas: float,
-                 top: int = None):
-    """Per-case console table: factors sorted by ST, with S1/ST ± conf and the
-    ST-S1 interaction term. `top` shows only the N most influential (the rest ~0)."""
-    labels = [lbl for lbl, _, _, _ in sens]
+def _print_table(case_label: str, labels, Si: dict, N: int, n_evals: int, infeas: float,
+                 top: int = None, grouped: bool = False):
+    """Per-case console table: entities (factors, or levers if grouped) sorted by
+    ST, with S1/ST ± conf and the ST-S1 interaction term. `top` shows only the N
+    most influential (the rest ~0)."""
     s1, s1c, st, stc = Si["S1"], Si["S1_conf"], Si["ST"], Si["ST_conf"]
     order = np.argsort(st)[::-1]  # most influential (highest ST) first
     shown = order if top is None else order[:top]
+    head = "lever" if grouped else "factor"
 
     print(f"\n=== Sobol sensitivity — {case_label} ===")
     print(f"N={N}, {n_evals} model evals, D_max {SOBOL_DMAX_KM:.0f} km, "
@@ -259,23 +314,23 @@ def _print_table(case_label: str, sens, Si: dict, N: int, n_evals: int, infeas: 
               f"distorted by the feasibility boundary; tighten the ranges.")
     if top is not None and len(order) > top:
         print(f"  (top {top} of {len(order)} factors by ST; the rest are ~0)")
-    print(f"  {'factor':<30}{'S1':>8}{'±':>8}{'ST':>8}{'±':>8}{'ST-S1':>9}")
+    print(f"  {head:<30}{'S1':>8}{'±':>8}{'ST':>8}{'±':>8}{'ST-S1':>9}")
     for i in shown:
         print(f"  {labels[i]:<30}{s1[i]:>8.3f}{s1c[i]:>8.3f}"
               f"{st[i]:>8.3f}{stc[i]:>8.3f}{st[i] - s1[i]:>9.3f}")
 
 
-def _plot(case_label: str, stem: str, sens, Si: dict, infeas: float, out_dir: str,
-          top: int = None) -> list:
-    """Grouped horizontal bars: ST (total) and S1 (first-order) per factor,
-    sorted by ST, with bootstrap-CI error bars. `top` keeps only the N largest."""
+def _plot(case_label: str, stem: str, labels, Si: dict, infeas: float, out_dir: str,
+          top: int = None, grouped: bool = False) -> list:
+    """Grouped horizontal bars: ST (total) and S1 (first-order) per entity (factor,
+    or lever if grouped), sorted by ST, with bootstrap-CI error bars. `top` keeps
+    only the N largest."""
     try:
         import plotly.graph_objects as go
     except Exception as e:
         print("plot skipped:", e)
         return []
 
-    labels = [lbl for lbl, _, _, _ in sens]
     s1, s1c, st, stc = Si["S1"], Si["S1_conf"], Si["ST"], Si["ST_conf"]
     order = np.argsort(st)  # ascending -> largest ST at the top of a horizontal bar
     if top is not None:
@@ -303,9 +358,10 @@ def _plot(case_label: str, stem: str, sens, Si: dict, infeas: float, out_dir: st
     margin_l_val, margin_r_val, margin_t_val, margin_b = 260, 60, 96, 110
     geom = header_geometry(fig_width, fig_height, margin_l_val, margin_r_val, margin_t_val)
 
+    title_suffix = " by lever" if grouped else ""
     fig.update_layout(
         template=fca_template,
-        title=dict(text=f"Sobol sensitivity — {case_label}", x=geom["title_x"]),
+        title=dict(text=f"Sobol sensitivity — {case_label}{title_suffix}", x=geom["title_x"]),
         barmode="group",
         bargap=0.25, bargroupgap=0.1,
         showlegend=False,
@@ -320,8 +376,10 @@ def _plot(case_label: str, stem: str, sens, Si: dict, infeas: float, out_dir: st
     )
     fig.update_yaxes(showgrid=False)
 
+    subtitle = ("first-order (S1) vs total-order (ST), by economic lever" if grouped
+                else "first-order (S1) vs total-order (ST)")
     fig.add_annotation(
-        text="first-order (S1) vs total-order (ST)", xref="paper", yref="paper",
+        text=subtitle, xref="paper", yref="paper",
         x=0, xanchor="left", xshift=geom["header_x_shift"],
         y=1, yanchor="bottom", yshift=12, showarrow=False,
         font=dict(family="Titillium Web", size=16, color=blue_black),
@@ -346,9 +404,10 @@ def _plot(case_label: str, stem: str, sens, Si: dict, infeas: float, out_dir: st
 # ---- Per-case driver -------------------------------------------------------
 
 def run_case(p: Params, case_name: str, sens, case_label: str, stem: str,
-             N: int, out_dir: str, top: int = None) -> list:
-    """Sample, evaluate, analyze, print, and plot one case. Returns saved paths."""
-    problem = _problem(sens)
+             N: int, out_dir: str, top: int = None, groups=None) -> list:
+    """Sample, evaluate, analyze, print, and plot one case. With `groups` (one
+    lever label per factor) indices are aggregated per lever. Returns saved paths."""
+    problem = _problem(sens, groups=groups)
     X = sobol_sample.sample(problem, N, calc_second_order=False, seed=SOBOL_SEED)
     Y = _evaluate(case_name, sens, X, p, SOBOL_DMAX_KM)
     Yi, infeas = _impute(Y)
@@ -358,18 +417,35 @@ def run_case(p: Params, case_name: str, sens, case_label: str, stem: str,
               f"{SOBOL_DMAX_KM:.0f} km — nothing to analyze.")
         return []
     Si = sobol_analyze.analyze(problem, Yi, calc_second_order=False, seed=SOBOL_SEED)
-    _print_table(case_label, sens, Si, N, X.shape[0], infeas, top=top)
-    return _plot(case_label, stem, sens, Si, infeas, out_dir, top=top)
+    grouped = groups is not None
+    labels = _ordered_groups(groups) if grouped else [lbl for lbl, _, _, _ in sens]
+    _print_table(case_label, labels, Si, N, X.shape[0], infeas, top=top, grouped=grouped)
+    return _plot(case_label, stem, labels, Si, infeas, out_dir, top=top, grouped=grouped)
 
 
 def main():
     args = sys.argv[1:]
+    groups_mode = "--groups" in args
     all_mode = "--all" in args
     nums = [a for a in args if a.lstrip("-").isdigit()]
     N = int(nums[0]) if nums else SOBOL_N
     p = load_params(CONFIG_PATH)
 
-    if all_mode:
+    groups = None
+    if groups_mode:
+        # Broad input set, aggregated by economic lever. Same set for all cases.
+        factors, skipped = all_input_factors(p)
+        groups = [_group_of(field) for _, field, _, _ in factors]
+        run = [(name, factors, label, f"{stem}_groups") for name, _, label, stem in CASES]
+        top = None  # few levers — show them all
+        print(f"Global Sobol sensitivity — BY LEVER (±{SOBOL_ALL_FRAC * 100:.0f}%), "
+              f"{len(factors)} factors in {len(set(groups))} levers, Saltelli (SALib), "
+              f"N={N}, D_max {SOBOL_DMAX_KM:.0f} km, speed grid {SOBOL_SPEED_N} pts")
+        print(f"  levers: {', '.join(_ordered_groups(groups))}")
+        print(f"  NOTE: size-coupled extensives still vary independently here "
+              f"(scale reparameterization is a separate branch) — the scale/technical "
+              f"levers are inflated by unphysical combinations.")
+    elif all_mode:
         factors, skipped = all_input_factors(p)
         # Every case sweeps the same full input space; distinct stems so the
         # all-inputs plots sit beside (don't overwrite) the curated ones.
@@ -389,7 +465,8 @@ def main():
 
     saved = []
     for case_name, sens, case_label, stem in run:
-        saved += run_case(p, case_name, sens, case_label, stem, N, RESULTS_DIR, top=top)
+        saved += run_case(p, case_name, sens, case_label, stem, N, RESULTS_DIR,
+                          top=top, groups=groups)
     for path in saved:
         print(f"Saved plot: {os.path.relpath(path, REPO_ROOT)}")
 
