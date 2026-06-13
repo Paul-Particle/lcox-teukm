@@ -216,6 +216,17 @@ class Params:
     mob_tender_availability: float = 0.95      # decades without refuel, stays at sea; rare maintenance
     mob_port_hours_per_call: float = 12.0      # no battery swap in port -> shorter than 18
 
+    def __post_init__(self):
+        # The speed optimizer searches up to v_max_kn, but installed power / CAPEX is
+        # sized at v_design_max_kn. A v_max above the design speed would let the optimizer
+        # pick a cruise the ship was never built (or paid) for — a free speed boost with no
+        # engine/reactor CAPEX penalty. Forbid that impossible configuration up front.
+        if self.v_max_kn > self.v_design_max_kn:
+            raise ValueError(
+                f"v_max_kn ({self.v_max_kn}) exceeds v_design_max_kn ({self.v_design_max_kn}): "
+                f"the speed search would explore speeds the installed power was not sized (or "
+                f"costed) for. Lower v_max_kn or raise v_design_max_kn.")
+
 
 def load_params(path) -> Params:
     """Build a Params from a YAML config file, overriding the defaults.

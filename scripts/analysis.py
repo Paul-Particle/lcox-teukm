@@ -11,7 +11,11 @@ from params import Params
 
 def optimize_speed(fn, p: Params, d_km: float, n: int = 141) -> dict:
     """Grid-search the speed that minimizes LCOT for cost model `fn` at D_max.
-    `fn` is any `fn(p, v, d) -> dict` callable — bind a `Case` with `cost.cost_fn`."""
+    `fn` is any `fn(p, v, d) -> dict` callable — bind a `Case` with `cost.cost_fn`.
+
+    The ceiling is `v_max_kn`, which `Params.__post_init__` guarantees is <=
+    `v_design_max_kn` (the speed CAPEX is sized for); so the search never picks a
+    cruise the ship wasn't built for."""
     speeds = np.linspace(p.v_min_kn, p.v_max_kn, n)
     best = None
     for v in speeds:
