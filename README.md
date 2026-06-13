@@ -74,9 +74,10 @@ The script reports:
 │   ├── analysis.py       # speed optimization + crossover distance
 │   ├── report.py         # console tables
 │   ├── plots.py          # Plotly figures
-│   └── smoke_check.py    # lightweight sanity check (renders + finite/positive LCOT per case)
+│   ├── smoke_check.py    # lightweight sanity check (renders + finite/positive LCOT per case)
+│   └── mrv_fleet.py      # standalone: summarize EU MRV fleet data (DWT, fuel/distance)
 ├── results/              # generated plots (gitignored)
-├── pyproject.toml        # project + dependencies (numpy, plotly, pyyaml)
+├── pyproject.toml        # project + dependencies (numpy, plotly, pyyaml, pandas, openpyxl)
 ├── uv.lock               # pinned dependency versions
 └── LICENSE               # MIT
 ```
@@ -120,6 +121,23 @@ Results print to stdout; the interactive figure is written to
 alongside a static `results/lcot_vs_dmax.png` for slides/papers. The `results/`
 directory is generated on each run and is gitignored, so a fresh clone has none
 until you run the model.
+
+### Grounding inputs against the real fleet (optional)
+
+`scripts/mrv_fleet.py` summarizes the public **EU MRV** (THETIS-MRV) fleet emissions
+dataset — per-ship annual fuel, CO₂, distance, time at sea, and (where present)
+deadweight — for the container subset, so eyeballed inputs like ship size and energy
+intensity can be checked against thousands of real ships. It's a standalone utility
+(no coupling to the model). Download the free annual file from
+[mrv.emsa.europa.eu](https://mrv.emsa.europa.eu/#public/emission-report), then:
+
+```bash
+uv run scripts/mrv_fleet.py <path-to-file.xlsx>   # prints distributions + cross-checks,
+                                                  # writes results/mrv_fleet.{html,png}
+```
+
+Columns are matched by fuzzy keyword (the MRV headers drift between export years), and
+the script reports exactly which columns it matched.
 
 ## Assumptions & key parameters
 
