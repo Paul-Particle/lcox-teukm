@@ -28,38 +28,6 @@ from sizing import (carried, _reactor_design_power_kw, _reactor_lease_usd_per_kw
 from cases import Case
 
 
-def cost_fn(case: Case):
-    """Bind a `Case` into the `fn(p, v, d) -> dict` callable that `analysis.py`
-    (optimize_speed / crossover_dmax) expects."""
-    return functools.partial(levelized_cost, case)
-
-
-def levelized_cost(case: Case, p: Params, v_kn: float, d_km: float) -> dict:
-    """LCOT (US$/TEU·km) + breakdown for one case at cruise speed v, hop d."""
-    dt, src = case.drivetrain, case.source
-    pl = case.platform
-    if dt.kind == "mechanical" and src.kind == "fuel":
-        return _mechanical_fuel(case, p, v_kn, d_km)
-    if dt.kind == "mechanical" and src.kind == "reactor":
-        return _mechanical_reactor(case, p, v_kn, d_km)
-    if dt.kind == "electric" and src.kind == "battery" and src.pricing == "tender":
-        return _electric_tender(case, p, v_kn, d_km)
-    if dt.kind == "electric" and src.kind == "battery":
-        return _electric_battery(case, p, v_kn, d_km)
-    if dt.kind == "electric" and src.kind == "reactor":
-        return _electric_reactor(case, p, v_kn, d_km)
-    raise ValueError(f"no archetype for drivetrain={dt.kind} source={src.kind}/{src.pricing}")
-
-
-def _result(v_kn, cargo_cap, annual_fixed, annual_energy, annual_teukm, legs,
-            battery_slots=0.0, battery_kwh=0.0, battery_life=np.nan, **extra) -> dict:
-    out = {"lcot": (annual_fixed + annual_energy) / annual_teukm, "v": v_kn,
-           "cargo_cap": cargo_cap, "annual_fixed": annual_fixed,
-           "annual_energy": annual_energy, "teukm": annual_teukm, "legs": legs,
-           "battery_slots": battery_slots, "battery_kwh": battery_kwh,
-           "battery_life": battery_life}
-    out.update(extra)
-    return out
 
 
 def _mechanical_fuel(case: Case, p: Params, v_kn: float, d_km: float) -> dict:
