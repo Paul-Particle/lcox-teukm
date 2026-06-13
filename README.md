@@ -129,13 +129,20 @@ until you run the model.
 headline case, from Saltelli sampling — run the separate, heavier analysis on demand:
 
 ```bash
-uv run scripts/sobol_analysis.py        # default N=256 (~20 s)
-uv run scripts/sobol_analysis.py 1024   # tighter confidence intervals
+uv run scripts/sobol_analysis.py         # default N=256 (~20 s)
+uv run scripts/sobol_analysis.py 1024    # tighter confidence intervals
+uv run scripts/sobol_analysis.py --all   # vary EVERY input, not the curated set
 ```
 
 It prints a per-case table (factors ranked by ST, with bootstrap CIs and the
 ST&minus;S1 interaction term) and writes `results/sobol_<case>.{html,png}`. The swept
 factor ranges live in `SOBOL_*` lists at the top of `scripts/sobol_analysis.py`.
+
+`--all` sweeps every `Params` field (±30%, less the speed-solver knobs) instead of
+the curated lists — exhaustive but blunt: structural calibration constants
+(`v_ref_kn`, `gross_slots`, …) then dominate via the cube power law, which is why
+the curated sets are the default. It still runs in ~1 min at N=256 on the plain
+scalar model (no vectorization needed), and writes `results/sobol_<case>_all.{html,png}`.
 
 ## Assumptions & key parameters
 

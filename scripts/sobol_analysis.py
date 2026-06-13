@@ -17,20 +17,31 @@ This is far heavier than the tornados (N·(D+2) model evaluations per case, each
 an inner speed optimization), so it is a SEPARATE on-demand entry point — it is
 NOT wired into run.py. Run it directly:
 
-    uv run scripts/sobol_analysis.py [N]      # N defaults to SOBOL_N (256)
+    uv run scripts/sobol_analysis.py [N]          # N defaults to SOBOL_N (256)
+    uv run scripts/sobol_analysis.py [N] --all    # vary EVERY input (see below)
 
 A small N (e.g. 16) is a quick wiring smoke test; a large N (512–1024) is a
-careful run. Output: a per-case console table plus results/sobol_<case>.{html,png}.
+careful run. Output: a per-case console table plus results/sobol_<case>.{html,png}
+(the --all variant writes sobol_<case>_all.{html,png}, beside the curated ones).
 
-Factor space: a curated, wider per-case set than the tornado bounds — the
-SENS_* lists in plots.py plus the efficiency/operational factors a global
-analysis should see. Each factor is (label, Params-field, low, high); the base
-value of every swept field lies inside its [low, high].
+Two factor spaces:
+  * default — a curated, wider per-case set than the tornado bounds: the SENS_*
+    lists in plots.py plus the efficiency/operational factors a global analysis
+    should see. Each factor is (label, Params-field, low, high); the base value
+    of every swept field lies inside its [low, high].
+  * --all — EVERY Params field swept ±SOBOL_ALL_FRAC of its base (less the
+    solver/scenario knobs in SOBOL_EXCLUDE_FIELDS), same set for all cases. This
+    is exhaustive but blunt: structural calibration constants it includes
+    (v_ref_kn, gross_slots, p_ref_kw, deadweight_t) tend to dominate via the
+    cube power law and per-TEU scaling, swamping the economic uncertainties —
+    which is the very reason the curated sets exist. Only the top SOBOL_ALL_TOP
+    factors are tabled/plotted (the ~80-factor tail is ~0). Runs in ~1 min at
+    N=256; no vectorization needed — the scalar cost path is cheap per eval.
 """
 
 import os
 import sys
-from dataclasses import replace
+from dataclasses import replace, fields
 
 import numpy as np
 
@@ -61,6 +72,30 @@ SOBOL_DMAX_KM = 1000.0     # same hop the tornados use, for comparability
 SOBOL_SEED = 20240611      # fixed -> reproducible samples + bootstrap CIs
 INFEASIBLE_PENALTY_MULT = 3.0   # infeasible draws -> max(finite)·this
 INFEASIBLE_WARN_FRAC = 0.05     # warn (indices distorted) above this fraction
+
+# ---- "vary all inputs" mode (--all) ----------------------------------------
+# Instead of the curated per-case sets, sweep EVERY Params field over ±frac of
+# its base value. The point is exhaustiveness: confirm which of all inputs move
+# LCOT and catch any driver the curated lists missed (most land at ~0).
+SOBOL_ALL_FRAC = 0.30      # ± this fraction of each base value
+SOBOL_ALL_TOP = 22         # all-mode: show only the top-N factors by ST (the
+                           #   full ~80-factor table/plot is unreadable; the tail is ~0)
+# Solver / scenario knobs, not uncertainties — varying them changes the analysis
+# setup, not an input (v_min/v_max bound the speed search; v_design_max is the
+# subject of the dedicated design-speed sweep). Excluded from the all-inputs set.
+SOBOL_EXCLUDE_FIELDS = {"v_min_kn", "v_max_kn", "v_design_max_kn"}
+# Fields capped at 1.0 (efficiencies, availabilities, depth-of-discharge, the
+# electric propulsion factors, load/usable fractions): ±frac must not exceed 1.
+SOBOL_FRACTIONAL_FIELDS = {
+    "load_factor", "availability", "availability_elec",
+    "eta_fossil", "eta_elec", "eta_nuclear", "eta_hotel", "eta_aux_gen",
+    "battery_dod", "battery_eta_charge", "battery_eta_discharge",
+    "ironair_dod", "ironair_eta_charge", "ironair_eta_discharge",
+    "cable_efficiency", "nucc_pool_availability", "mob_tender_availability",
+    "mob_tender_eta_nuclear", "fossil_propulsion_factor", "elec_hull_form_factor",
+    "elec_coating_factor", "elec_propeller_factor", "elec_wider_eff_factor",
+    "elec_routing_factor", "batt_empty_usable_frac",
+}
 
 
 # ---- Curated per-case factor sets: (label, field, low, high) ---------------
@@ -148,6 +183,27 @@ CASES = [
 ]
 
 
+def all_input_factors(p: Params, frac: float = SOBOL_ALL_FRAC):
+    """A factor set spanning EVERY Params field (less the solver/scenario knobs),
+    each over [base·(1-frac), base·(1+frac)]. Fractional fields are clamped to
+    (0, 1]; the one zero-base field (battery_min_discharge_h) has no ±% range and
+    is skipped. Label = field name. Used by --all mode for all cases."""
+    sens, skipped = [], []
+    for f in fields(Params):
+        name = f.name
+        if name in SOBOL_EXCLUDE_FIELDS:
+            continue
+        base = getattr(p, name)
+        if base == 0.0:
+            skipped.append(name)
+            continue
+        lo, hi = sorted((base * (1 - frac), base * (1 + frac)))
+        if name in SOBOL_FRACTIONAL_FIELDS:
+            lo, hi = max(lo, 1e-6), min(hi, 0.999)
+        sens.append((name, name, lo, hi))
+    return sens, skipped
+
+
 # ---- Sampling + model evaluation -------------------------------------------
 
 def _problem(sens) -> dict:
@@ -186,28 +242,33 @@ def _impute(Y: np.ndarray):
 
 # ---- Reporting -------------------------------------------------------------
 
-def _print_table(case_label: str, sens, Si: dict, N: int, n_evals: int, infeas: float):
+def _print_table(case_label: str, sens, Si: dict, N: int, n_evals: int, infeas: float,
+                 top: int = None):
     """Per-case console table: factors sorted by ST, with S1/ST ± conf and the
-    ST-S1 interaction term."""
+    ST-S1 interaction term. `top` shows only the N most influential (the rest ~0)."""
     labels = [lbl for lbl, _, _, _ in sens]
     s1, s1c, st, stc = Si["S1"], Si["S1_conf"], Si["ST"], Si["ST_conf"]
     order = np.argsort(st)[::-1]  # most influential (highest ST) first
+    shown = order if top is None else order[:top]
 
     print(f"\n=== Sobol sensitivity — {case_label} ===")
     print(f"N={N}, {n_evals} model evals, D_max {SOBOL_DMAX_KM:.0f} km, "
           f"infeasible {infeas * 100:.1f}%")
     if infeas > INFEASIBLE_WARN_FRAC:
         print(f"  WARNING: {infeas * 100:.0f}% of draws infeasible — indices are "
-              f"distorted by the feasibility boundary; tighten this case's ranges.")
+              f"distorted by the feasibility boundary; tighten the ranges.")
+    if top is not None and len(order) > top:
+        print(f"  (top {top} of {len(order)} factors by ST; the rest are ~0)")
     print(f"  {'factor':<30}{'S1':>8}{'±':>8}{'ST':>8}{'±':>8}{'ST-S1':>9}")
-    for i in order:
+    for i in shown:
         print(f"  {labels[i]:<30}{s1[i]:>8.3f}{s1c[i]:>8.3f}"
               f"{st[i]:>8.3f}{stc[i]:>8.3f}{st[i] - s1[i]:>9.3f}")
 
 
-def _plot(case_label: str, stem: str, sens, Si: dict, infeas: float, out_dir: str) -> list:
+def _plot(case_label: str, stem: str, sens, Si: dict, infeas: float, out_dir: str,
+          top: int = None) -> list:
     """Grouped horizontal bars: ST (total) and S1 (first-order) per factor,
-    sorted by ST, with bootstrap-CI error bars."""
+    sorted by ST, with bootstrap-CI error bars. `top` keeps only the N largest."""
     try:
         import plotly.graph_objects as go
     except Exception as e:
@@ -217,6 +278,8 @@ def _plot(case_label: str, stem: str, sens, Si: dict, infeas: float, out_dir: st
     labels = [lbl for lbl, _, _, _ in sens]
     s1, s1c, st, stc = Si["S1"], Si["S1_conf"], Si["ST"], Si["ST_conf"]
     order = np.argsort(st)  # ascending -> largest ST at the top of a horizontal bar
+    if top is not None:
+        order = order[-top:]  # keep the top-N largest (tail end of the ascending sort)
     y = [labels[i] for i in order]
     s1, s1c = [s1[i] for i in order], [s1c[i] for i in order]
     st, stc = [st[i] for i in order], [stc[i] for i in order]
@@ -263,8 +326,9 @@ def _plot(case_label: str, stem: str, sens, Si: dict, infeas: float, out_dir: st
         y=1, yanchor="bottom", yshift=12, showarrow=False,
         font=dict(family="Titillium Web", size=16, color=blue_black),
     )
+    top_note = f"top {len(y)} factors by ST — " if top is not None else ""
     fig.add_annotation(
-        text=(f"{case_label}, base case at D_max {SOBOL_DMAX_KM:.0f} km — "
+        text=(f"{case_label}, base case at D_max {SOBOL_DMAX_KM:.0f} km — {top_note}"
               f"ST&#8722;S1 is the interaction effect; {infeas * 100:.0f}% of draws infeasible"),
         xref="paper", yref="paper", x=0, xanchor="left",
         xshift=geom["header_x_shift"], y=0, yanchor="top", yshift=-72, showarrow=False,
@@ -282,7 +346,7 @@ def _plot(case_label: str, stem: str, sens, Si: dict, infeas: float, out_dir: st
 # ---- Per-case driver -------------------------------------------------------
 
 def run_case(p: Params, case_name: str, sens, case_label: str, stem: str,
-             N: int, out_dir: str) -> list:
+             N: int, out_dir: str, top: int = None) -> list:
     """Sample, evaluate, analyze, print, and plot one case. Returns saved paths."""
     problem = _problem(sens)
     X = sobol_sample.sample(problem, N, calc_second_order=False, seed=SOBOL_SEED)
@@ -294,18 +358,38 @@ def run_case(p: Params, case_name: str, sens, case_label: str, stem: str,
               f"{SOBOL_DMAX_KM:.0f} km — nothing to analyze.")
         return []
     Si = sobol_analyze.analyze(problem, Yi, calc_second_order=False, seed=SOBOL_SEED)
-    _print_table(case_label, sens, Si, N, X.shape[0], infeas)
-    return _plot(case_label, stem, sens, Si, infeas, out_dir)
+    _print_table(case_label, sens, Si, N, X.shape[0], infeas, top=top)
+    return _plot(case_label, stem, sens, Si, infeas, out_dir, top=top)
 
 
 def main():
-    N = int(sys.argv[1]) if len(sys.argv) > 1 else SOBOL_N
+    args = sys.argv[1:]
+    all_mode = "--all" in args
+    nums = [a for a in args if a.lstrip("-").isdigit()]
+    N = int(nums[0]) if nums else SOBOL_N
     p = load_params(CONFIG_PATH)
-    print(f"Global Sobol sensitivity — Saltelli sampling (SALib), N={N}, "
-          f"D_max {SOBOL_DMAX_KM:.0f} km, speed grid {SOBOL_SPEED_N} pts")
+
+    if all_mode:
+        factors, skipped = all_input_factors(p)
+        # Every case sweeps the same full input space; distinct stems so the
+        # all-inputs plots sit beside (don't overwrite) the curated ones.
+        run = [(name, factors, label, f"{stem}_all") for name, _, label, stem in CASES]
+        top = SOBOL_ALL_TOP
+        print(f"Global Sobol sensitivity — ALL INPUTS (±{SOBOL_ALL_FRAC * 100:.0f}%), "
+              f"{len(factors)} factors, Saltelli (SALib), N={N}, "
+              f"D_max {SOBOL_DMAX_KM:.0f} km, speed grid {SOBOL_SPEED_N} pts")
+        if skipped:
+            print(f"  skipped (zero base, no ±% range): {', '.join(skipped)}")
+        print(f"  excluded (solver/scenario knobs): {', '.join(sorted(SOBOL_EXCLUDE_FIELDS))}")
+    else:
+        run = [(name, sens, label, stem) for name, sens, label, stem in CASES]
+        top = None
+        print(f"Global Sobol sensitivity — Saltelli sampling (SALib), N={N}, "
+              f"D_max {SOBOL_DMAX_KM:.0f} km, speed grid {SOBOL_SPEED_N} pts")
+
     saved = []
-    for case_name, sens, case_label, stem in CASES:
-        saved += run_case(p, case_name, sens, case_label, stem, N, RESULTS_DIR)
+    for case_name, sens, case_label, stem in run:
+        saved += run_case(p, case_name, sens, case_label, stem, N, RESULTS_DIR, top=top)
     for path in saved:
         print(f"Saved plot: {os.path.relpath(path, REPO_ROOT)}")
 
