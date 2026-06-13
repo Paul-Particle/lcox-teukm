@@ -3,6 +3,13 @@
 Open items only — completed work is in the git history. The big deferred
 refactor is sketched in the appendix.
 
+**Current focus — consolidate on `main` and polish after the 3-axis refactor.**
+The feature branches (scale factors, Sobol sensitivity, MRV fleet data) are set
+aside, to be redone from a clean, refactored base rather than carried forward; the
+near-term work is hardening `main` itself. Four items lead: the speed-constraint
+guard, the config restructuring, the leaky supply abstraction, and the dead-code
+cleanup — all detailed below.
+
 ## Speculative parameters
 - The new-case params have little/no commercial precedent — all engineering
   estimates. Highest-leverage, most uncertain: `mob_tender_*` (reactor/hull/O&M
@@ -30,6 +37,12 @@ refactor is sketched in the appendix.
   / `mob_tender_usd_per_kw` are flat $/kW. At these sizes (tens of MW) the marginal
   $/kW likely varies a lot with size (scale economies; step changes at module
   boundaries). Model reactor CAPEX as a size-dependent curve — probably material.
+- **Speed-constraint enforcement (correctness guard).** `optimize_speed` grid-searches up to
+  `v_max_kn` (`analysis.py`), but `cost_fn` sizes installed power/CAPEX at `v_design_max_kn`
+  (`cost.py`). When `v_max_kn > v_design_max_kn` the optimizer can pick a cruise faster than the
+  ship is built for and pay no engine/reactor CAPEX for the excess — an impossible, free-speed
+  ship. They're equal by default (22 kn) so the bug is latent, but enforce it: clamp the search to
+  `v_design_max_kn`, or error out when `v_kn > v_design_max_kn`.
 
 ## Case-specific follow-ups
 - **Mobile tender:** optionally ride out storms at reduced/zero speed to shrink the
@@ -97,10 +110,13 @@ model returned to active flux — a golden test fights every intended change, so
 its keep.
 
 **Still open / not yet done:**
-- **Config still flat.** `config.yaml` + `Params` remain a single flat namespace; the axes are built
-  from it by an adapter in `build_cases`. Nested YAML (`platforms:`/`drivetrains:`/`sources:`) with a
-  section-validating loader is deferred — low value while there is one platform, and the user was wary
-  of overloading the config.
+- **Config restructuring — flat → hierarchical (now in scope).** `config.yaml` + `Params` are a single
+  flat namespace, and `build_cases` is a hardcoded factory that instantiates each case line-by-line off
+  it. Restructure to a structured model: nested YAML (`platforms:`/`drivetrains:`/`sources:`) with a
+  section-validating loader, optionally layered with a scenario table (CSV or a `scenarios:` block) for
+  parameter sweeps, so `build_cases` collapses to a dynamic loop. Earlier deferred as low-value with one
+  platform; promoted to a near-term polish target (and the user was wary of overloading the config, so
+  keep the structure lean).
 - **Platform extraction is partial.** Platform carries the cargo/capacity + hull fields; other
   platform scalars (design/min/max speed, prop reference power, efficiencies, crew rate, discount
   rate, route margins, ISO limits) still live in `Params`. Move them onto Platform when a second
@@ -113,6 +129,9 @@ its keep.
 - **Per-(platform,drivetrain) O&M/overhead overrides:** today resolved per case in `build_cases`; a
   nuclear bulk carrier's O&M ≠ a nuclear container ship's, so a small override map will be wanted once
   platforms multiply.
+- **Dead code — `sizing.carried_teu` (Phase C leftover).** `carried_teu` was generalized into
+  `carried(platform, …)` but never removed; it is now unreferenced except in stale comments
+  (`run.py`, `params.py`) that should point at `carried`. Delete the function and fix the comments.
 
 ## Refactor wishes (captured during the build — design the axes to accommodate)
 
@@ -125,6 +144,12 @@ its keep.
   stub; (b) ATTACH the not-yet-wired supplies to cases — an e-fuel ship (e-fuel source + a drivetrain;
   `efuel_usd_per_kwh` placeholder exists) and an LDES-charged battery variant. Adding a case is a
   registry row; it needs a drivetrain/platform choice and grows the golden output.
+- **Supply abstraction is leaky (revisit the seam).** As built, `supply.py` doesn't yet earn its
+  indirection: every function is a passthrough of a flat config price (no production model behind any
+  seam), and the signatures are inconsistent — `reactor_thermal(price)` takes a bare float while the
+  others take `Params`, so `build_cases` must know each function's shape. Either give the seam a real
+  upstream model (the per-function TODOs) or simplify it to a uniform signature until one exists, so
+  the abstraction encapsulates rather than leaks.
 - **Cargo-as-fuel (chemical tankers).** A chemical/e-fuel tanker can burn part of its own cargo as
   fuel. This is a **Platform × EnergySource coupling**: the energy source draws from cargo, so
   (a) the consumed mass is netted out of deliverable cargo (tonne·km denominator shrinks with
