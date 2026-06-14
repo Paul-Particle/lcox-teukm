@@ -35,15 +35,22 @@ analysis consume it downstream and are out of scope for the rebuild's early step
   dimension (`gross_capacity` in `cargo_unit`, `deadweight_t`, load factors) and
   hull CAPEX/life. This is what makes the binding cargo metric platform-specific
   (container = volume-bound TEU slots; bulk = mass-bound tonnes).
-- **Drivetrain** — energy → shaft. Propulsion factor, drive/hotel efficiencies,
-  motor/engine CAPEX and life, tug cost.
-- **EnergySource** — *one* energy-supplying technology (a fuel, a battery
-  chemistry, a reactor). Holds its tech spec **and its energy cost model**. A Case
-  bundles **one or more** sources.
+- **Drivetrain** — energy → shaft, **including the integral powerplant's CAPEX**:
+  the engine (fossil) or the *integrated* reactor (reactor+steam+shaft for direct
+  drive; reactor+generator+motor for integrated-electric). Propulsion factor,
+  drive/hotel efficiencies, converter CAPEX + life, tug cost. May impose a speed cap
+  (an integrated reactor's power rating).
+- **EnergySource** — *one* energy-supplying technology. **Thin** when the supply is a
+  commodity (fossil fuel, fission fuel — just a price, folded in), **full** when the
+  supply is separable hardware (swappable battery, containerized reactor, tender —
+  carrying CAPEX, sizing, levelization). Holds its tech spec **and its energy cost
+  model**, and may impose a speed cap (iron-air's power limit, the tender's cable
+  cap). A Case bundles **zero or more** — zero when the converter is fueled-for-life
+  (all cost in the drivetrain's CAPEX, no variable energy).
 
 ### Verb
 
-- **Case** — a frozen composition: one Platform + one Drivetrain + a **list of
+- **Case** — a frozen composition: one Platform + one Drivetrain + **zero or more
   EnergySources** + a named **Strategy** + operating/design parameters + flags for
   which inputs are optimizable. The unit we evaluate. A Case can be multi-source:
   the nuclear-tender case is *also* a battery case (onboard buffer + at-sea
@@ -77,6 +84,38 @@ analysis consume it downstream and are out of scope for the rebuild's early step
   likely to accrete other common functions.
 - **units.py** — every unit conversion, and only here.
 
+## Where cost lives — the integration rule
+
+CAPEX follows integration; the EnergySource is thin for a commodity and full for
+separable hardware.
+
+- **Integral converter** (engine, integrated reactor, built-in battery) → CAPEX on
+  the **Drivetrain**; the **EnergySource is thin** (a commodity price, folded in) or
+  **absent** (fueled-for-life → no variable energy cost).
+- **Separable supply** (containerized reactor, tender vessel, swappable battery
+  containers) → the **EnergySource carries the CAPEX + a full cost model** (sizing,
+  levelization, logistics).
+
+| Case | Drivetrain (converter CAPEX) | EnergySource(s) |
+|---|---|---|
+| fossil | mech-fossil (engine) | VLSFO — thin |
+| nuclear, integrated direct | mech-nuclear (reactor+steam+shaft) | fission fuel — thin (or none) |
+| nuclear, integrated electric | electric-nuclear (reactor+gen+motor) | fission fuel — thin (or none) |
+| nuclear, containerized | electric (motor) | containerized-reactor — full |
+| tender | electric (motor) | battery + tender-reactor — full |
+| battery (port-swap) | electric (motor) | battery — full (grid charge price folded in) |
+
+**Owned vs. leased reactors collapse** — under fleet-scale utilization the levelized
+cost is identical, so each reactor has a single cost model.
+
+**No-energy-source cases.** A fueled-for-life reactor (tender thorium; optionally an
+integrated SMR) has no marginal energy cost, so the Case carries no EnergySource.
+There is then no slow-steaming incentive: the Optimizer pushes to the maximum
+feasible speed, traded only against sizing CAPEX.
+
+**Speed caps come from either axis** — the Drivetrain (an integrated reactor's power)
+or the EnergySource (iron-air's C/50 power limit; the tender's cable speed cap).
+
 ## Control flow
 
 ```
@@ -99,7 +138,12 @@ run.py
 - **Free variables (near-term):** operating/service speed (almost always) and
   reactor size (reactor-bearing cases). Installed power is *derived* from the
   chosen speed (+ a sea/weather margin) — this removes the old design-speed vs.
-  cruise-speed split, where CAPEX and operating point were decoupled.
+  cruise-speed split, where CAPEX and operating point were decoupled. `v_max` is the
+  ceiling on the design speed the optimizer may choose (by sizing the reactor);
+  drivetrains whose power we don't sweep get a sensible fixed default.
+- **No energy cost ⇒ go fast.** With no variable energy cost (fueled-for-life), the
+  speed search has no slow-steam incentive; the optimum is the fastest feasible speed
+  the sizing CAPEX justifies.
 - **Two regimes, set by the flags.** Optimizable inputs split into *investment*
   (e.g. reactor size) and *operating/dispatch* (e.g. service speed). With
   investment inputs flagged free the Optimizer runs **joint investment + dispatch**;
