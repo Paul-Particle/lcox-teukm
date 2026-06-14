@@ -4,8 +4,12 @@ data_classes.py — the frozen config schema.
 Dataclasses that mirror config.yaml's sub-blocks one-to-one, so the loader
 (load_config.py) can build them mechanically (`Block(**yaml_subdict)`) with no
 adapter logic. Three config nouns — Platform, Drivetrain, EnergySource (fuel /
-battery / reactor) — plus a Shared block, aggregated into a `Config`. The Case /
-Strategy behavior is built on these and is not here yet.
+battery / reactor) — plus a Shared block, aggregated into a `Config`.
+
+The top-level structures come first (Config + the nouns + the source family); the
+small sub-block dataclasses they're composed of are at the bottom — once you've read
+config.yaml they're self-evident. The Case / Strategy behavior is built on these and
+is not here yet.
 
 Units (see units.py): energy kWh, power kW, time h, distance km, speed kn, mass kg,
 money US$.
@@ -16,7 +20,15 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 
-# ============================================================ shared ====
+# ================================================ top-level structures ====
+@dataclass(frozen=True)
+class Config:
+    shared: Shared
+    platforms: dict[str, Platform]
+    drivetrains: dict[str, Drivetrain]
+    sources: dict[str, EnergySource]
+
+
 @dataclass(frozen=True)
 class Shared:
     discount_rate: float
@@ -28,7 +40,71 @@ class Shared:
     v_max_kn: float
 
 
-# ========================================================= platforms ====
+@dataclass(frozen=True)
+class Platform:
+    name: str
+    cargo_unit: str         # "TEU" | "tonne" — capacity & LCOT denominator, and the discriminator
+    capacity: Capacity
+    capex: HullCapex
+    resistance: Resistance
+    hotel_base_kw: float
+    slot_limits: SlotLimits
+
+
+@dataclass(frozen=True)
+class Drivetrain:
+    name: str
+    type: str               # "mechanical" | "electric"
+    efficiency: DriveEfficiency
+    capex: DrivetrainCapex
+    overhead: Overhead
+    operations: Operations
+    propulsion_factor: PropulsionFactor
+
+
+@dataclass(frozen=True)
+class EnergySource:
+    """Base for the energy-supplying technologies. The concrete subclass IS the
+    `type` (fuel / battery / reactor), so it isn't stored as a field."""
+    name: str
+
+
+@dataclass(frozen=True)
+class FuelSource(EnergySource):
+    price: FuelPrice
+    energy_mass_t: float            # onboard energy-carrier mass (bunkers; 0 for fission fuel)
+
+
+@dataclass(frozen=True)
+class BatterySource(EnergySource):
+    capex: BatteryCapex
+    energy: BatteryEnergy
+    efficiency: BatteryEfficiency
+    min_discharge_h: float          # power limit (max kW = installed kWh / this); 0 = none
+    charge_usd_per_kwh: float       # grid/shore charge price, folded in
+
+
+@dataclass(frozen=True)
+class ReactorSource(EnergySource):
+    """One class covers both reactor-as-source variants (both are `type: reactor`):
+    the containerized module uses {overhead, hotel_delta_kw, pool}; the tender uses
+    {capex.hull_usd, parasitic_kw, om_other_usd_yr, availability, tether}. (Open: if
+    they diverge further, split into two subtypes — see DESIGN.md open decisions.)"""
+    capex: ReactorCapex
+    fuel_usd_per_kwh_th: float
+    generation: float               # reactor thermal -> electricity
+    overhead: Overhead | None = None        # containerized
+    hotel_delta_kw: float | None = None     # containerized (onboard crew/security)
+    pool: Pool | None = None                # containerized (fleet-pooled utilization)
+    parasitic_kw: float | None = None       # tender
+    om_other_usd_yr: float | None = None    # tender
+    availability: float | None = None       # tender
+    tether: Tether | None = None            # tender
+
+
+# ================= sub-blocks (detail; mirror config.yaml's sub-blocks) ====
+
+# ---- platform ----
 @dataclass(frozen=True)
 class Capacity:
     gross: float            # hull capacity in cargo_unit (TEU slots / DWT tonnes)
@@ -54,18 +130,7 @@ class SlotLimits:
     container_max_gross_t: float    # effective per-TEU mass cap (ISO + marinized margin)
 
 
-@dataclass(frozen=True)
-class Platform:
-    name: str
-    cargo_unit: str         # "TEU" | "tonne" — capacity & LCOT denominator, and the discriminator
-    capacity: Capacity
-    capex: HullCapex
-    resistance: Resistance
-    hotel_base_kw: float
-    slot_limits: SlotLimits
-
-
-# ======================================================= drivetrains ====
+# ---- drivetrain ----
 @dataclass(frozen=True)
 class DriveEfficiency:
     drive: float                    # source output -> shaft
@@ -108,25 +173,7 @@ class PropulsionFactor:
     routing: float
 
 
-@dataclass(frozen=True)
-class Drivetrain:
-    name: str
-    type: str               # "mechanical" | "electric"
-    efficiency: DriveEfficiency
-    capex: DrivetrainCapex
-    overhead: Overhead
-    operations: Operations
-    propulsion_factor: PropulsionFactor
-
-
-# =========================================================== sources ====
-@dataclass(frozen=True)
-class EnergySource:
-    """Base for the energy-supplying technologies. The concrete subclass IS the
-    `type` (fuel / battery / reactor), so it isn't stored as a field."""
-    name: str
-
-
+# ---- sources ----
 @dataclass(frozen=True)
 class FuelPrice:
     # different fuels quote differently; the cost model reads whichever is set
@@ -134,12 +181,6 @@ class FuelPrice:
     lhv_kwh_per_kg: float | None = None
     usd_per_kwh_chem: float | None = None
     usd_per_kwh_th: float | None = None
-
-
-@dataclass(frozen=True)
-class FuelSource(EnergySource):
-    price: FuelPrice
-    energy_mass_t: float            # onboard energy-carrier mass (bunkers; 0 for fission fuel)
 
 
 @dataclass(frozen=True)
@@ -163,15 +204,6 @@ class BatteryEfficiency:
 
 
 @dataclass(frozen=True)
-class BatterySource(EnergySource):
-    capex: BatteryCapex
-    energy: BatteryEnergy
-    efficiency: BatteryEfficiency
-    min_discharge_h: float          # power limit (max kW = installed kWh / this); 0 = none
-    charge_usd_per_kwh: float       # grid/shore charge price, folded in
-
-
-@dataclass(frozen=True)
 class ReactorCapex:
     usd_per_kw: float
     life_yr: float
@@ -188,30 +220,3 @@ class Pool:
 class Tether:
     cable_efficiency: float
     cable_v_cap_kn: float           # max speed while tethered (source-imposed speed cap)
-
-
-@dataclass(frozen=True)
-class ReactorSource(EnergySource):
-    """One class covers both reactor-as-source variants (both are `type: reactor`):
-    the containerized module uses {overhead, hotel_delta_kw, pool}; the tender uses
-    {capex.hull_usd, parasitic_kw, om_other_usd_yr, availability, tether}. (Open: if
-    they diverge further, split into two subtypes — see DESIGN.md open decisions.)"""
-    capex: ReactorCapex
-    fuel_usd_per_kwh_th: float
-    generation: float               # reactor thermal -> electricity
-    overhead: Overhead | None = None        # containerized
-    hotel_delta_kw: float | None = None     # containerized (onboard crew/security)
-    pool: Pool | None = None                # containerized (fleet-pooled utilization)
-    parasitic_kw: float | None = None       # tender
-    om_other_usd_yr: float | None = None    # tender
-    availability: float | None = None       # tender
-    tether: Tether | None = None            # tender
-
-
-# ============================================================ config ====
-@dataclass(frozen=True)
-class Config:
-    shared: Shared
-    platforms: dict[str, Platform]
-    drivetrains: dict[str, Drivetrain]
-    sources: dict[str, EnergySource]
