@@ -1,0 +1,203 @@
+# config.yaml — DRAFT grouping (first pass; structure under review — see DESIGN.md)
+#
+# The old flat params.py (104 fields) regrouped by axis. Lines marked `# ?` are
+# placement DECISIONS, not mechanical moves — see the branch discussion. The
+# `cases:` section is deferred to the next step (needs Strategy/Optimizer).
+#
+# Units: energy kWh, power kW, time h, distance km, speed kn, mass kg, money US$.
+
+# ============================================================ shared ====
+# Route + economics that aren't specific to one axis.
+shared:
+  discount_rate: 0.08
+  crew_cost_usd_yr: 90000.0        # loaded annual cost per crew member
+  weather_reserve: 0.20            # route energy margin for any battery ship
+  load_factor: 0.80                # ? route/market property (was on Platform) — shared, not platform
+  load_factor_imbalance: 0.2       # ? head/back-haul split — travels with load_factor
+  v_min_kn: 5.0                    # ? speed-search bounds — shared default; per-case override later
+  v_max_kn: 22.0                   # ?   (becomes the optimizer's operating-speed bounds)
+  elec_usd_per_kwh: 0.09           # ? grid/shore electricity — a shared MARKET price the battery &
+                                   #   tender sources draw on (fuel prices, by contrast, live ON the
+                                   #   fuel sources). Asymmetry intentional? see DECISION 6.
+
+# ========================================================= platforms ====
+platforms:
+  container:
+    cargo_unit: TEU
+    gross_capacity: 3000.0         # was gross_slots
+    unit_mass_t: 12.0              # was cargo_t_per_teu (laden mix)
+    deadweight_t: 41000.0          # cargo + onboard-energy mass budget
+    hull_capex_usd: 45.0e6
+    hull_life_yr: 25.0
+    p_ref_kw: 20000.0              # admiralty resistance curve P~v^3 (a hull property)
+    v_ref_kn: 18.0
+    p_hotel_kw: 1500.0             # BASE hotel/reefer load; drivetrain/source deltas adjust it
+    batt_empty_usable_frac: 0.40   # slot slack batteries may use free (container stability/DG limit)
+    iso_container_max_gross_t: 30.0  # ? container-slot mass cap (caps battery kWh/TEU) — TEU-specific,
+    iso_container_margin: 0.20       # ?   so on the container platform, not shared
+    # v_design_max_kn (was 22.0) intentionally DROPPED: installed power is derived from the
+    # optimizer's chosen service speed (+ margin), not a fixed design knob. See DESIGN / DECISION 5-ish.
+
+# ======================================================= drivetrains ====
+# energy -> shaft. overhead_slots / port_hours / availability decompose cleanly onto
+# the drivetrain here (engine vs motor room, berthing speed, uptime) rather than the case.
+drivetrains:
+  mechanical-fossil:
+    kind: mechanical
+    eta_drive: 0.48                # was eta_fossil (chemical -> shaft)
+    eta_hotel: 0.42                # was eta_aux_gen (aux genset -> hotel bus)
+    propulsion_factor: 0.95        # was fossil_propulsion_factor
+    prop_usd_per_kw: 400.0         # was engine_usd_per_kw
+    prop_life_yr: 25.0             # was engine_life_yr
+    tug_usd_per_call: 5000.0
+    overhead_slots: 120.0          # engine room + bunkers (was fossil_overhead_slots)
+    port_hours: 18.0               # was port_hours_per_call
+    availability: 0.95
+    hotel_delta_kw: 0.0
+
+  mechanical-nuclear:
+    kind: mechanical
+    eta_drive: 0.30                # ? = eta_nuclear, which is ALSO the reactor source's thermal eff.
+                                   #   Same number in two axes — who owns it? see DECISION 3.
+    eta_hotel: 0.30                # ? same
+    propulsion_factor: 1.0
+    prop_usd_per_kw: 0.0           # reactor source covers the whole direct-drive plant
+    prop_life_yr: 0.0
+    tug_usd_per_call: 5000.0
+    port_hours: 18.0
+    availability: 0.95
+    hotel_delta_kw: 0.0            # nuclear hotel premium lives on the reactor source (DECISION 5)
+
+  electric:
+    kind: electric
+    eta_drive: 0.88                # was eta_elec
+    eta_hotel: 0.97                # hotel draws off the bus, bypassing the motor (was eta_hotel)
+    prop_usd_per_kw: 120.0         # was motor_usd_per_kw
+    prop_life_yr: 25.0             # was motor_life_yr
+    tug_usd_per_call: 2000.0       # was tug_usd_per_call_elec
+    overhead_slots: 30.0           # compact motors, no big engine/tanks (was elec_fixed_overhead_slots)
+    port_hours: 16.0               # pods/azimuth -> faster berthing (was port_hours_elec)
+    availability: 0.97             # lower drivetrain maintenance (was availability_elec)
+    hotel_delta_kw: -150.0         # fewer engine-room engineers (DECISION 5: decomposed onto axes)
+    # itemized hull/propeller efficiency stack; physics multiplies these into propulsion_factor
+    propulsion_factor_stack:
+      hull_form: 0.92
+      coating: 0.98
+      propeller: 0.88
+      wider_eff: 0.96
+      routing: 0.96
+
+# =========================================================== sources ====
+# One entry per energy-supplying technology; `type` picks the cost-model family.
+# DECISION 1: reactors modeled as one `type: reactor` with a `pricing` variant and a
+# flexible `overhead` block — vs. distinct subtypes. Sign off on this shape.
+sources:
+  # ---- fuels ----
+  vlsfo:
+    type: fuel
+    usd_per_t: 550.0               # price defines the source; -> $/kWh chem via lhv
+    lhv_kwh_per_kg: 11.1
+    bunker_mass_t: 3000.0          # ? onboard fuel deadweight (shared value across both fuels today)
+
+  e-methanol:
+    type: fuel
+    usd_per_kwh_chem: 0.18         # PLACEHOLDER, pending a production model
+    bunker_mass_t: 3000.0          # ? methanol ~2x mass for equal range — reuse understates it (old TODO)
+
+  # ---- batteries ----
+  lfp:
+    type: battery
+    charge_price: shared.elec_usd_per_kwh   # ? grid-charged (DECISION 6)
+    usd_per_kwh: 250.0
+    kwh_per_teu: 3000.0
+    pack_wh_per_kg: 130.0
+    dod: 0.90
+    cycle_life: 4000.0
+    calendar_life_yr: 12.0
+    eta_charge: 0.97
+    eta_discharge: 0.98
+    min_discharge_h: 0.0
+
+  iron-air:
+    type: battery
+    charge_price: shared.elec_usd_per_kwh
+    usd_per_kwh: 30.0
+    kwh_per_teu: 1500.0
+    pack_wh_per_kg: 30.0
+    dod: 0.95
+    cycle_life: 10000.0
+    calendar_life_yr: 20.0
+    eta_charge: 0.55
+    eta_discharge: 0.82
+    min_discharge_h: 50.0
+
+  # ---- reactors ----
+  smr-direct:
+    type: reactor
+    pricing: owned
+    usd_per_kw: 6000.0             # whole reactor + steam plant + drivetrain, per useful kW
+    life_yr: 25.0
+    fuel_usd_per_kwh_th: 0.012
+    eta_generation: 1.0            # direct drive: thermal -> shaft via the drivetrain's eta_drive
+    overhead: {fixed_slots: 120.0} # was nuclear_overhead_slots
+    hotel_delta_kw: 250.0          # nuclear crew/security/aux premium (DECISION 5)
+
+  smr-containerized:
+    type: reactor
+    pricing: owned
+    usd_per_kw: 5000.0
+    life_yr: 15.0
+    fuel_usd_per_kwh_th: 0.012
+    eta_generation: 0.30           # ? = eta_nuclear (thermal -> electric) — see DECISION 3
+    overhead: {teu_per_mwe: 1.2}   # sized continuously from design power
+    hotel_delta_kw: 250.0
+
+  smr-containerized-leased:
+    type: reactor
+    pricing: leased                # CAPEX recovered via $/kWh levelized over POOL utilization
+    usd_per_kw: 5000.0
+    life_yr: 15.0
+    fuel_usd_per_kwh_th: 0.012
+    eta_generation: 0.30
+    overhead: {teu_per_mwe: 1.2}
+    hotel_delta_kw: 250.0
+    pool_idle_h: 8.0
+    pool_availability: 0.92
+
+  smr-integrated:
+    type: reactor
+    pricing: owned
+    usd_per_kw: 6500.0
+    life_yr: 30.0
+    fuel_usd_per_kwh_th: 0.012
+    eta_generation: 0.30
+    overhead: {fixed_slots: 140.0}
+    hotel_delta_kw: 250.0
+
+  mobile-tender-reactor:
+    type: reactor
+    pricing: tender                # full escort levelization; charges a battery ship at sea
+    reactor_kw: 30000.0            # two-core net electric
+    parasitic_kw: 2500.0           # uncrewed DP station-keeping + cooling
+    usd_per_kw: 7000.0
+    hull_capex_usd: 50.0e6         # the tender vessel itself (ex-reactor)
+    life_yr: 25.0
+    om_other_usd_yr: 4.0e6         # uncrewed remote ops + asset-loss insurance
+    fuel_usd_per_kwh_th: 0.012
+    eta_nuclear: 0.45              # this reactor's own thermal -> electric (sCO2)
+    availability: 0.95
+    idle_h: 5.0                    # ? tender wait between assignments — source (utilization) or journey?
+    cable_efficiency: 0.96         # ? tether transmission — source or journey? see DECISION 2
+    # The following were under mob_tender_* but are ROUTE/dispatch, not source tech ->
+    # they belong to the Journey/case (DECISION 2):
+    #   coastal_untethered_distance_nm, storm_survival_duration_h, mob_cable_v_cap_kn
+
+# ============================================================= cases ====
+# DEFERRED to the next step (needs Strategy + Optimizer). Collects the fields that
+# don't belong to a single axis:
+#   - crew_count            (fossil 22 / elec 20 / nuclear 30 — a (drivetrain,source) cell value)
+#   - om_other_usd_yr       (1.52M / 1.2M / 7.3M / 5.3M / 7.3M residuals; tender's lives on its source)
+#   - optimization flags + bounds  (which inputs are free: service speed, reactor size, …)
+#   - tender Journey params (coastal_untethered_distance_nm, storm_survival_duration_h, mob_cable_v_cap_kn)
+#   - per-case port/availability overrides (e.g. tender mob_port_hours_per_call: 12)
+cases: {}
