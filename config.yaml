@@ -119,18 +119,16 @@ sources:
   # ---- full separable-hardware sources (carry CAPEX + sizing; price folded in) ----
   lfp:
     type: battery
-    capex:      {usd_per_kwh: 250.0}
+    capex:      {usd_per_kwh: 250.0, cycle_life: 4000.0, calendar_life_yr: 12.0}   # cost + amortization life (mirrors hull capex)
     energy:     {kwh_per_teu: 3000.0, pack_wh_per_kg: 130.0, dod: 0.90}   # 3 MWh/TEU ; system density ; usable depth
     efficiency: {charge: 0.97, discharge: 0.98}
-    life:       {cycle: 4000.0, calendar_yr: 12.0}
     min_discharge_h: 0.0           # no power limit
     charge_usd_per_kwh: 0.09       # grid/shore price, folded in
   iron-air:
     type: battery
-    capex:      {usd_per_kwh: 30.0}
+    capex:      {usd_per_kwh: 30.0, cycle_life: 10000.0, calendar_life_yr: 20.0}   # cost + amortization life (mirrors hull capex)
     energy:     {kwh_per_teu: 1500.0, pack_wh_per_kg: 30.0, dod: 0.95}    # ~half LFP density ; ~4x heavier
     efficiency: {charge: 0.55, discharge: 0.82}   # charge-limited chemistry (~0.45 round-trip)
-    life:       {cycle: 10000.0, calendar_yr: 20.0}
     min_discharge_h: 50.0          # C/50 power limit -> can cap speed below the drivetrain's design (speed cap via source)
     charge_usd_per_kwh: 0.09
   containerized-reactor:           # replaces containers; electric drivetrain
