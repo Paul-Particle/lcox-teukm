@@ -1,104 +1,217 @@
 """
-cases.py — technology cases as compositions of model axes.
+data_classes.py — the frozen config schema.
 
-Every powertrain is a composition of three orthogonal axes: **Platform** (cargo/route)
-× **Drivetrain** (energy→shaft) × **EnergySource** (fuel / battery / reactor + logistics),
-each a frozen dataclass. `build_cases(p)` composes them into a single `Case` registry that
-`cost.levelized_cost` consumes through one entry point — replacing the N hand-written
-`lcot_*` functions.
+Dataclasses that mirror config.yaml's sub-blocks one-to-one, so the loader
+(load_config.py) can build them mechanically (`Block(**yaml_subdict)`) with no
+adapter logic. Three config nouns — Platform, Drivetrain, EnergySource (fuel /
+battery / reactor) — plus a Shared block, aggregated into a `Config`. The Case /
+Strategy behavior is built on these and is not here yet.
 
-The **Platform** carries the cargo/capacity dimension: `gross_capacity` in `cargo_unit`s
-(TEU for a container ship; tonnes for a bulk/chemical carrier), the load factors, the
-deadweight budget, and the mass per cargo unit. This is what lets `sizing.carried`
-generalise from "displace TEU slots" (volume-bound) to "displace deadweight" (mass-bound)
-without branching — a bulk platform is data, not code. Today there is one platform (the
-3000-TEU container ship); other platform scalars (speeds, prop reference, efficiencies,
-crew rate, discount rate, route margins) still live in the flat `Params` and move onto the
-Platform only as bulk/chemical actually need to vary them.
-
-Per-(drivetrain, source) "cell" attributes that don't belong to either axis alone
-(crew count, accommodation hotel delta, non-crew O&M, slot overhead, port time,
-availability) are resolved per case by `build_cases(p)` and carried on the `Case`.
+Units (see units.py): energy kWh, power kW, time h, distance km, speed kn, mass kg,
+money US$.
 """
 
-from dataclasses import dataclass
-from typing import Optional
+from __future__ import annotations
 
-from params import Params
-import supply
-from sizing import (BatterySpec, _elec_propulsion_factor, _reactor_design_power_kw,
-                    _ceil_half_teu)
+from dataclasses import dataclass
+
+
+# ============================================================ shared ====
+@dataclass(frozen=True)
+class Shared:
+    discount_rate: float
+    crew_cost_usd_yr: float
+    weather_reserve: float
+    load_factor: float
+    load_factor_imbalance: float
+    v_min_kn: float
+    v_max_kn: float
+
+
+# ========================================================= platforms ====
+@dataclass(frozen=True)
+class Capacity:
+    gross: float            # hull capacity in cargo_unit (TEU slots / DWT tonnes)
+    unit_mass_t: float      # mass per cargo unit (t/TEU laden mix)
+    deadweight_t: float     # cargo + onboard-energy mass budget
+
+
+@dataclass(frozen=True)
+class HullCapex:
+    hull_usd: float
+    life_yr: float
+
+
+@dataclass(frozen=True)
+class Resistance:
+    p_ref_kw: float         # propulsion power at v_ref (admiralty P~v^3 curve)
+    v_ref_kn: float
+
+
+@dataclass(frozen=True)
+class SlotLimits:
+    batt_empty_usable_frac: float   # slack a battery may take free before displacing cargo
+    container_max_gross_t: float    # effective per-TEU mass cap (ISO + marinized margin)
 
 
 @dataclass(frozen=True)
 class Platform:
-    """Hull + cargo/route. Holds the cargo-capacity dimension that makes the binding
-    metric platform-specific: a container ship is volume-bound (TEU slots) while a
-    bulk/chemical carrier is mass-bound (deadweight tonnes). `sizing.carried` reads
-    these to compute revenue cargo per leg in `cargo_unit`s."""
     name: str
-    cargo_unit: str            # "TEU" | "tonne" — the capacity & LCOT denominator unit
-    gross_capacity: float      # hull capacity in cargo_unit (TEU slots / DWT tonnes)
-    unit_mass_t: float         # mass per cargo unit (t/TEU laden mix; ~1 for a tonne platform)
-    deadweight_t: float        # cargo + onboard-energy mass budget
-    load_factor: float
-    load_factor_imbalance: float
-    batt_empty_usable_frac: float  # fraction of empty (unfilled) slots a battery may take for free before it displaces cargo
-    hull_capex_usd: float
-    hull_life_yr: float
+    cargo_unit: str         # "TEU" | "tonne" — capacity & LCOT denominator, and the discriminator
+    capacity: Capacity
+    capex: HullCapex
+    resistance: Resistance
+    hotel_base_kw: float
+    slot_limits: SlotLimits
+
+
+# ======================================================= drivetrains ====
+@dataclass(frozen=True)
+class DriveEfficiency:
+    drive: float                    # source output -> shaft
+    hotel: float                    # source output -> hotel bus
+    generation: float | None = None # reactor thermal -> electricity (integrated-electric only)
+
+
+@dataclass(frozen=True)
+class DrivetrainCapex:
+    converter_usd_per_kw: float     # engine | motor | (direct-drive) reactor plant, per useful kW
+    life_yr: float
+    reactor_usd_per_kw: float | None = None   # integrated-electric: reactor + generator stage
+    reactor_life_yr: float | None = None
+
+
+@dataclass(frozen=True)
+class Overhead:
+    """Slot footprint. Either a fixed count or a per-MWe rate (sized from power);
+    shared by drivetrains and reactor sources."""
+    slots: float | None = None
+    teu_per_mwe: float | None = None
+
+
+@dataclass(frozen=True)
+class Operations:
+    port_hours: float
+    availability: float
+    tug_usd_per_call: float
+    hotel_delta_kw: float
+
+
+@dataclass(frozen=True)
+class PropulsionFactor:
+    """Itemized hull/propeller efficiency; the product scales propulsion power.
+    propeller/wider_eff are electric-only (= 1.0 on mechanical drivetrains)."""
+    hull_form: float
+    coating: float
+    propeller: float
+    wider_eff: float
+    routing: float
 
 
 @dataclass(frozen=True)
 class Drivetrain:
-    """Energy → shaft. `kind` selects the cost archetype; the scalars are the
-    intrinsic drivetrain choices the cost model reads instead of hardcoded params."""
     name: str
-    kind: str                 # "mechanical" | "electric"
-    propulsion_factor: float  # scales prop_power (electric earns the itemized stack)
-    eta_drive: float          # source output → shaft (eta_fossil / eta_nuclear / eta_elec)
-    eta_hotel: float          # source output → hotel bus (eta_aux_gen / — / eta_hotel)
-    prop_usd_per_kw: float    # engine/motor CAPEX per design-power kW (0 = folded into source)
-    prop_life_yr: float
-    tug_usd_per_call: float
+    type: str               # "mechanical" | "electric"
+    efficiency: DriveEfficiency
+    capex: DrivetrainCapex
+    overhead: Overhead
+    operations: Operations
+    propulsion_factor: PropulsionFactor
 
 
+# =========================================================== sources ====
 @dataclass(frozen=True)
 class EnergySource:
-    """Where the energy comes from and how it is priced. `kind` ∈ fuel/battery/reactor;
-    `pricing` ∈ direct (fuel) / owned / leased / tender."""
+    """Base for the energy-supplying technologies. The concrete subclass IS the
+    `type` (fuel / battery / reactor), so it isn't stored as a field."""
     name: str
-    kind: str                 # "fuel" | "battery" | "reactor"
-    pricing: str              # "direct" | "owned" | "leased" | "tender"
-    # Supply cost of this source's PRIMARY energy, in $/kWh of that input (fuel:
-    # chemical; battery: delivered electricity; reactor: thermal). Today a flat
-    # config price; this is the hook where an upstream supply-cost MODEL plugs in
-    # (e-fuel electrolyzer+DAC, LDES arbitrage, refinery) — the analog of how the
-    # tender's $/kWh comes from `_mobile_tender_usd_per_kwh` rather than a constant.
-    supply_usd_per_kwh: float = 0.0
-    energy_mass_t: float = 0.0         # onboard energy-carrier mass (fossil bunkers; else 0)
-    eta_generation: float = 1.0        # reactor thermal → electric (generator); 1.0 otherwise
-    battery: Optional[BatterySpec] = None
-    reactor_usd_per_kw: float = 0.0    # reactor plant CAPEX per kW (sizing basis is archetype-specific)
-    reactor_life_yr: float = 0.0
 
 
 @dataclass(frozen=True)
-class Case:
-    """One technology case: a Drivetrain × EnergySource composition plus the resolved
-    per-cell scalars and presentation metadata."""
-    name: str        # short table key
-    label: str       # plot label
-    color: str
-    clip: bool       # battery ships whose LCOT blows up long-haul (line plots clip them)
-    platform: Platform
-    drivetrain: Drivetrain
-    source: EnergySource
-    crew_count: float
-    hotel_delta_kw: float
-    om_other_usd_yr: float
-    overhead_slots: float    # fixed slot overhead (reactor-electric: resolved from design power)
-    port_hours: float
+class FuelPrice:
+    # different fuels quote differently; the cost model reads whichever is set
+    usd_per_t: float | None = None
+    lhv_kwh_per_kg: float | None = None
+    usd_per_kwh_chem: float | None = None
+    usd_per_kwh_th: float | None = None
+
+
+@dataclass(frozen=True)
+class FuelSource(EnergySource):
+    price: FuelPrice
+    energy_mass_t: float            # onboard energy-carrier mass (bunkers; 0 for fission fuel)
+
+
+@dataclass(frozen=True)
+class BatteryCapex:
+    usd_per_kwh: float
+    cycle_life: float
+    calendar_life_yr: float
+
+
+@dataclass(frozen=True)
+class BatteryEnergy:
+    kwh_per_teu: float
+    pack_wh_per_kg: float           # system density -> battery mass (deadweight)
+    dod: float                      # usable depth of discharge
+
+
+@dataclass(frozen=True)
+class BatteryEfficiency:
+    charge: float
+    discharge: float
+
+
+@dataclass(frozen=True)
+class BatterySource(EnergySource):
+    capex: BatteryCapex
+    energy: BatteryEnergy
+    efficiency: BatteryEfficiency
+    min_discharge_h: float          # power limit (max kW = installed kWh / this); 0 = none
+    charge_usd_per_kwh: float       # grid/shore charge price, folded in
+
+
+@dataclass(frozen=True)
+class ReactorCapex:
+    usd_per_kw: float
+    life_yr: float
+    hull_usd: float | None = None   # tender only: the vessel ex-reactor
+
+
+@dataclass(frozen=True)
+class Pool:
+    idle_h: float                   # wait in the shared pool between assignments
     availability: float
 
 
+@dataclass(frozen=True)
+class Tether:
+    cable_efficiency: float
+    cable_v_cap_kn: float           # max speed while tethered (source-imposed speed cap)
 
+
+@dataclass(frozen=True)
+class ReactorSource(EnergySource):
+    """One class covers both reactor-as-source variants (both are `type: reactor`):
+    the containerized module uses {overhead, hotel_delta_kw, pool}; the tender uses
+    {capex.hull_usd, parasitic_kw, om_other_usd_yr, availability, tether}. (Open: if
+    they diverge further, split into two subtypes — see DESIGN.md open decisions.)"""
+    capex: ReactorCapex
+    fuel_usd_per_kwh_th: float
+    generation: float               # reactor thermal -> electricity
+    overhead: Overhead | None = None        # containerized
+    hotel_delta_kw: float | None = None     # containerized (onboard crew/security)
+    pool: Pool | None = None                # containerized (fleet-pooled utilization)
+    parasitic_kw: float | None = None       # tender
+    om_other_usd_yr: float | None = None    # tender
+    availability: float | None = None       # tender
+    tether: Tether | None = None            # tender
+
+
+# ============================================================ config ====
+@dataclass(frozen=True)
+class Config:
+    shared: Shared
+    platforms: dict[str, Platform]
+    drivetrains: dict[str, Drivetrain]
+    sources: dict[str, EnergySource]
