@@ -1,11 +1,11 @@
-# config.yaml — DRAFT grouping (second pass; see DESIGN.md "integration rule")
+# config.yaml — DRAFT grouping (3rd pass; see DESIGN.md "integration rule")
 #
-# The old flat params.py regrouped by axis, applying the rule: CAPEX follows
-# integration. Integral converters (engine, integrated reactor) carry their CAPEX
-# on the DRIVETRAIN with a thin/absent EnergySource; separable supply (containerized
-# reactor, tender, swappable battery) carries CAPEX on the EnergySource. Commodity
-# energy prices (grid, fuel) fold into their source as one number. `# ?` marks an
-# open choice. `cases:` is deferred (needs Strategy + Optimizer).
+# The old flat params.py regrouped by axis, with fields grouped into thematic
+# sub-blocks. Rule: CAPEX follows integration — integral converters (engine,
+# integrated reactor) carry CAPEX on the DRIVETRAIN with a thin/absent EnergySource;
+# separable supply (containerized reactor, tender, swappable battery) carries CAPEX
+# on the EnergySource, with its commodity price folded in. `type:` is the loader's
+# cost-model discriminator. `# ?` marks an open choice. `cases:` is deferred.
 #
 # Units: energy kWh, power kW, time h, distance km, speed kn, mass kg, money US$.
 
@@ -18,169 +18,148 @@ shared:
   load_factor_imbalance: 0.2       # head/back-haul split
   v_min_kn: 5.0                    # optimizer speed-search floor
   v_max_kn: 22.0                   # ceiling on the design speed the optimizer may choose
-  # NOTE: no energy-price block — fuel/grid prices fold into their EnergySource.
 
 # ========================================================= platforms ====
 platforms:
   container:
-    cargo_unit: TEU
-    gross_capacity: 3000.0         # was gross_slots
-    unit_mass_t: 12.0              # was cargo_t_per_teu
-    deadweight_t: 41000.0
-    hull_capex_usd: 45.0e6
-    hull_life_yr: 25.0
-    p_ref_kw: 20000.0              # admiralty resistance curve P~v^3 (hull)
-    v_ref_kn: 18.0
-    p_hotel_kw: 1500.0             # BASE hotel/reefer load; drivetrain/source deltas adjust
-    batt_empty_usable_frac: 0.40   # slot slack batteries may use free (container stability/DG)
-    iso_container_max_gross_t: 30.0  # container-slot mass cap (caps battery kWh/TEU)
-    iso_container_margin: 0.20
+    cargo_unit: TEU                # the capacity & LCOT denominator unit (doubles as platform discriminator)
+    capacity:    {gross: 3000.0, unit_mass_t: 12.0, deadweight_t: 41000.0}  # slots ; t/TEU laden ; cargo+energy mass budget
+    capex:       {hull_usd: 45.0e6, life_yr: 25.0}
+    resistance:  {p_ref_kw: 20000.0, v_ref_kn: 18.0}      # admiralty P~v^3 curve (hull)
+    hotel_base_kw: 1500.0          # base hotel/reefer load; drivetrain/source deltas adjust it
+    slot_limits: {batt_empty_usable_frac: 0.40, container_max_gross_t: 36.0}
+    # batt_empty_usable_frac: slack batteries may take free before displacing cargo (stability/DG)
+    # container_max_gross_t: effective per-TEU mass cap (ISO 30 t + routine ~20% marinized margin, folded in)
 
 # ======================================================= drivetrains ====
 # energy -> shaft, INCLUDING the integral powerplant's CAPEX (engine / integrated
-# reactor). overhead_slots / port_hours / availability / hotel_delta decompose here.
+# reactor). `converter` = that powerplant (engine | motor | reactor plant). overhead
+# / operations / hotel_delta decompose onto the drivetrain here.
+#
+# propulsion_factor: itemized hull/propeller efficiency (physics multiplies them into
+# one factor scaling propulsion power). hull_form/coating/routing are available to ANY
+# modern ship (incl. fossil in this scenario); propeller(pods)/wider_eff(motor) are
+# electric-only, so = 1.0 on mechanical drivetrains.
 drivetrains:
   mechanical-fossil:
-    kind: mechanical
-    eta_drive: 0.48                # was eta_fossil (chemical -> shaft)
-    eta_hotel: 0.42                # was eta_aux_gen (aux genset -> hotel bus)
-    propulsion_factor: 0.95
-    converter_usd_per_kw: 400.0    # engine (was engine_usd_per_kw)
-    converter_life_yr: 25.0
-    tug_usd_per_call: 5000.0
-    overhead_slots: 120.0          # engine room + bunkers
-    port_hours: 18.0
-    availability: 0.95
-    hotel_delta_kw: 0.0
+    type: mechanical
+    efficiency: {drive: 0.48, hotel: 0.42}        # chemical->shaft (2-stroke) ; aux genset->hotel bus
+    capex:      {converter_usd_per_kw: 400.0, life_yr: 25.0}   # converter = main engine
+    overhead:   {slots: 120.0}                    # engine room + bunkers (container-specific: TEU slots)
+    operations: {port_hours: 18.0, availability: 0.95, tug_usd_per_call: 5000.0, hotel_delta_kw: 0.0}
+    propulsion_factor:
+      hull_form:  0.92    # optimized hull form
+      coating:    0.98    # anti-fouling coatings
+      propeller:  1.00    # pods/large low-RPM props — electric only
+      wider_eff:  1.00    # motor efficient across speed range — electric only
+      routing:    0.96    # weather routing, trim/draft, on-time speed
 
-  mechanical-nuclear:              # integrated reactor, DIRECT drive
-    kind: mechanical
-    eta_drive: 0.30                # reactor thermal -> shaft (was eta_nuclear)
-    eta_hotel: 0.30
-    propulsion_factor: 1.0
-    converter_usd_per_kw: 6000.0   # whole reactor + steam plant + shaft (was nuclear_usd_per_kw)
-    converter_life_yr: 25.0
-    tug_usd_per_call: 5000.0
-    overhead_slots: 120.0          # reactor + shielding ~ engine room
-    port_hours: 18.0
-    availability: 0.95
-    hotel_delta_kw: 250.0          # reactor crew/security/aux premium (reactor is on the drivetrain)
-    # reactor power (hence the speed cap) is sized by the optimizer; v_max bounds it.
+  mechanical-nuclear:                              # integrated reactor, DIRECT drive
+    type: mechanical
+    efficiency: {drive: 0.30, hotel: 0.30}        # reactor thermal->shaft ; ->hotel bus
+    capex:      {converter_usd_per_kw: 6000.0, life_yr: 25.0}   # converter = reactor + steam plant + shaft
+    overhead:   {slots: 120.0}                    # ? fixed (reactor+shielding); reactor power is now optimizer-sized,
+                                                  #   so this may want to scale with power (teu_per_mwe) like containerized
+    operations: {port_hours: 18.0, availability: 0.95, tug_usd_per_call: 5000.0, hotel_delta_kw: 250.0}  # reactor crew/security
+    propulsion_factor:
+      hull_form:  0.92
+      coating:    0.98
+      propeller:  1.00    # mechanical (direct shaft) — no pod benefit
+      wider_eff:  1.00
+      routing:    0.96
+    # reactor power (hence speed cap) sized by the optimizer; v_max bounds it.
 
-  electric:                        # bare motor (battery / containerized-reactor / tender)
-    kind: electric
-    eta_drive: 0.88                # was eta_elec
-    eta_hotel: 0.97                # hotel off the bus, bypasses the motor
-    converter_usd_per_kw: 120.0    # motor (was motor_usd_per_kw)
-    converter_life_yr: 25.0
-    tug_usd_per_call: 2000.0
-    overhead_slots: 30.0           # compact motors
-    port_hours: 16.0               # pods/azimuth -> faster berthing
-    availability: 0.97
-    hotel_delta_kw: -150.0         # fewer engine-room engineers
-    propulsion_factor_stack:       # physics multiplies these into propulsion_factor
-      hull_form: 0.92
-      coating: 0.98
-      propeller: 0.88
-      wider_eff: 0.96
-      routing: 0.96
+  electric:                                        # bare motor (battery / containerized-reactor / tender)
+    type: electric
+    efficiency: {drive: 0.88, hotel: 0.97}        # electricity->shaft (motor) ; hotel off the bus (bypasses motor)
+    capex:      {converter_usd_per_kw: 120.0, life_yr: 25.0}    # converter = motor
+    overhead:   {slots: 30.0}                     # compact motors, no big engine/tanks
+    operations: {port_hours: 16.0, availability: 0.97, tug_usd_per_call: 2000.0, hotel_delta_kw: -150.0}
+    # tug lower: pods/azimuth thrusters need less tug assistance. hotel_delta: fewer engine-room engineers.
+    propulsion_factor:
+      hull_form:  0.92
+      coating:    0.98
+      propeller:  0.88    # large low-RPM props on pods, cleaner flow
+      wider_eff:  0.96    # motor efficient across a wide speed range
+      routing:    0.96
 
-  electric-nuclear:                # integrated reactor, ELECTRIC drive (reactor+gen+motor)
-    kind: electric
-    eta_generation: 0.30           # reactor thermal -> electricity (was eta_nuclear)
-    eta_drive: 0.88                # electricity -> shaft (motor)
-    eta_hotel: 0.97
-    reactor_usd_per_kw: 6500.0     # reactor + steam + generator + power electronics (was nuci_usd_per_kw)
-    reactor_life_yr: 30.0
-    converter_usd_per_kw: 120.0    # motor
-    converter_life_yr: 25.0
-    tug_usd_per_call: 2000.0
-    overhead_slots: 140.0          # reactor + shielding + switchboard
-    port_hours: 16.0
-    availability: 0.95
-    hotel_delta_kw: 100.0          # -150 (electric) + 250 (reactor onboard)
-    propulsion_factor_stack:       # ? reuses the electric stack — may not earn full pod benefit (old TODO)
-      hull_form: 0.92
-      coating: 0.98
-      propeller: 0.88
-      wider_eff: 0.96
-      routing: 0.96
-    # NOTE: this node is heavy (reactor+generator+motor on one axis) — the cost of
-    # putting the integrated reactor on the drivetrain. Watch if it wants decomposing.
+  electric-nuclear:                                # integrated reactor, ELECTRIC drive (reactor+gen+motor)
+    type: electric
+    efficiency: {generation: 0.30, drive: 0.88, hotel: 0.97}   # thermal->elec ; elec->shaft ; ->hotel bus
+    capex:
+      reactor_usd_per_kw: 6500.0   # reactor + steam + generator + power electronics
+      reactor_life_yr: 30.0
+      converter_usd_per_kw: 120.0  # motor
+      life_yr: 25.0
+    overhead:   {slots: 140.0}                    # ? reactor+shielding+switchboard; same scaling caveat as above
+    operations: {port_hours: 16.0, availability: 0.95, tug_usd_per_call: 2000.0, hotel_delta_kw: 100.0}  # -150 electric + 250 reactor
+    propulsion_factor:               # full electric stack — gets ALL the efficiency gains
+      hull_form:  0.92
+      coating:    0.98
+      propeller:  0.88
+      wider_eff:  0.96
+      routing:    0.96
 
 # =========================================================== sources ====
 sources:
   # ---- thin commodity sources (just a price; energy_mass where it's carried) ----
   vlsfo:
     type: fuel
-    usd_per_t: 550.0
-    lhv_kwh_per_kg: 11.1
-    bunker_mass_t: 3000.0          # onboard fuel deadweight
+    price: {usd_per_t: 550.0, lhv_kwh_per_kg: 11.1}
+    energy_mass_t: 3000.0          # onboard fuel deadweight (bunkers)
   e-methanol:
     type: fuel
-    usd_per_kwh_chem: 0.18         # PLACEHOLDER pending production model
-    bunker_mass_t: 3000.0          # ? methanol ~2x mass for equal range (old TODO)
-  fission-fuel:                    # for the integrated nuclear DRIVETRAINS; omit to model fueled-for-life
+    price: {usd_per_kwh_chem: 0.18}   # PLACEHOLDER pending a production model
+    energy_mass_t: 3000.0          # ? methanol ~2x mass for equal range — reuse understates it (old TODO)
+  fission-fuel:                    # for the integrated nuclear DRIVETRAINS; omit from a case for fueled-for-life
     type: fuel
-    usd_per_kwh_th: 0.012          # HALEU cycle
+    price: {usd_per_kwh_th: 0.012}    # HALEU cycle
     energy_mass_t: 0.0
 
-  # ---- full separable-hardware sources (carry CAPEX + sizing + price folded in) ----
+  # ---- full separable-hardware sources (carry CAPEX + sizing; price folded in) ----
   lfp:
     type: battery
-    usd_per_kwh: 250.0
-    kwh_per_teu: 3000.0
-    pack_wh_per_kg: 130.0
-    dod: 0.90
-    cycle_life: 4000.0
-    calendar_life_yr: 12.0
-    eta_charge: 0.97
-    eta_discharge: 0.98
+    capex:      {usd_per_kwh: 250.0}
+    energy:     {kwh_per_teu: 3000.0, pack_wh_per_kg: 130.0, dod: 0.90}   # 3 MWh/TEU ; system density ; usable depth
+    efficiency: {charge: 0.97, discharge: 0.98}
+    life:       {cycle: 4000.0, calendar_yr: 12.0}
     min_discharge_h: 0.0           # no power limit
-    charge_usd_per_kwh: 0.09       # grid/shore price, folded in (was elec_usd_per_kwh)
+    charge_usd_per_kwh: 0.09       # grid/shore price, folded in
   iron-air:
     type: battery
-    usd_per_kwh: 30.0
-    kwh_per_teu: 1500.0
-    pack_wh_per_kg: 30.0
-    dod: 0.95
-    cycle_life: 10000.0
-    calendar_life_yr: 20.0
-    eta_charge: 0.55
-    eta_discharge: 0.82
-    min_discharge_h: 50.0          # C/50 power limit -> can cap speed below design (speed cap via source)
+    capex:      {usd_per_kwh: 30.0}
+    energy:     {kwh_per_teu: 1500.0, pack_wh_per_kg: 30.0, dod: 0.95}    # ~half LFP density ; ~4x heavier
+    efficiency: {charge: 0.55, discharge: 0.82}   # charge-limited chemistry (~0.45 round-trip)
+    life:       {cycle: 10000.0, calendar_yr: 20.0}
+    min_discharge_h: 50.0          # C/50 power limit -> can cap speed below the drivetrain's design (speed cap via source)
     charge_usd_per_kwh: 0.09
   containerized-reactor:           # replaces containers; electric drivetrain
     type: reactor
-    usd_per_kw: 5000.0
-    life_yr: 15.0
-    fuel_usd_per_kwh_th: 0.012
-    eta_generation: 0.30           # thermal -> electricity
-    overhead_teu_per_mwe: 1.2      # slot footprint, sized from reactor power
-    hotel_delta_kw: 250.0          # reactor crew/security (onboard)
-    pool_idle_h: 8.0               # fleet-pooled utilization (owned==leased under this assumption)
-    pool_availability: 0.92
+    capex:      {usd_per_kw: 5000.0, life_yr: 15.0}
+    fuel:       {usd_per_kwh_th: 0.012}
+    efficiency: {generation: 0.30}    # thermal -> electricity
+    overhead:   {teu_per_mwe: 1.2}    # slot footprint, scales with optimizer-sized power, rounds up to 0.5 TEU
+    hotel_delta_kw: 250.0             # reactor crew/security (onboard)
+    pool:       {idle_h: 8.0, availability: 0.92}   # fleet-pooled utilization (owned == leased under this assumption)
   tender-reactor:                  # separate uncrewed vessel; tethers an electric ship
     type: reactor
-    reactor_kw: 30000.0            # fixed (a built vessel), not optimizer-sized
-    parasitic_kw: 2500.0
-    usd_per_kw: 7000.0
-    hull_capex_usd: 50.0e6         # the tender vessel (ex-reactor)
-    life_yr: 25.0
+    capex:      {usd_per_kw: 7000.0, hull_usd: 50.0e6, life_yr: 25.0}   # per-kW reactor + the tender vessel (ex-reactor)
+    fuel:       {usd_per_kwh_th: 0.012}   # ? thorium ~one-time — candidate to fold into capex (fueled-for-life)
+    efficiency: {generation: 0.45}        # sCO2
+    parasitic_kw: 2500.0           # uncrewed DP station-keeping + cooling
     om_other_usd_yr: 4.0e6         # uncrewed remote ops + asset-loss insurance
-    fuel_usd_per_kwh_th: 0.012     # ? thorium ~one-time — candidate to fold into CAPEX (fueled-for-life)
-    eta_nuclear: 0.45              # this reactor's thermal -> electricity (sCO2)
     availability: 0.95
-    cable_efficiency: 0.96         # tether transmission
-    cable_v_cap_kn: 16.0           # max safe speed while tethered (speed cap via source)
-    # no ship-side hotel premium (the tender is uncrewed; the ship is plain electric)
+    tether:     {cable_efficiency: 0.96, cable_v_cap_kn: 16.0}   # cable_v_cap = source-imposed speed cap
+    # reactor power optimizer-sized like the others; no ship-slot overhead (separate vessel);
+    # ship-side hotel handled by the plain electric drivetrain (tender is uncrewed)
 
 # ============================================================= cases ====
 # DEFERRED (needs Strategy + Optimizer). A case names: platform + drivetrain +
 # [sources] + strategy + opt flags + per-case fields. `sources: []` models a
-# fueled-for-life converter (no variable energy, no slow-steam incentive).
+# fueled-for-life converter (no variable energy, no slow-steam incentive). All
+# reactors (integrated, containerized, tender) are optimizer-sized.
 #
-# The eight cases (was nine; owned/leased reactor collapsed into one):
+# The eight cases (was nine; owned/leased reactor collapsed):
 #   fossil          container + mechanical-fossil  + [vlsfo]            fuel-burn
 #   e-methanol      container + mechanical-fossil  + [e-methanol]       fuel-burn
 #   lfp             container + electric           + [lfp]              port-swap-battery
@@ -193,5 +172,5 @@ sources:
 # Per-case fields that collect here: crew_count (22/20/30), om_other_usd_yr residuals
 # (1.52M/1.2M/7.3M/5.3M/7.3M; tender's lives on its source), optimization flags+bounds,
 # the tender Journey params (coastal_untethered_distance_nm, storm_survival_duration_h),
-# tender idle_h, and per-case port overrides (e.g. tender mob_port_hours_per_call: 12).
+# tender idle_h, and per-case port overrides (e.g. tender port_hours: 12).
 cases: {}
