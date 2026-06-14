@@ -1,67 +1,50 @@
 """
-lcox-teukm — levelized cost of transport (LCOT, US$/TEU·km) for a container
-ship across powertrains: fossil; battery-electric (LFP and iron-air, port
-swap); onboard nuclear (direct-drive SMR); nuclear-electric (reactor -> motor,
-containerized or integrated); and a battery ship recharged at sea by a mobile
-nuclear tender.
+run.py — entry point: load the config, optimize every case over its D_max sweep,
+write the results artifact (Parquet + CSV).
 
-Comparison axis: D_max = the longest hop between swap-capable ports (km).
-This sets the battery size (hence CAPEX + displaced cargo), independent of
-total route length. Everything that scales the ships together (load factor,
-port time, route geometry beyond D_max) is fixed to representative values so
-we can read ABSOLUTE LCOT, not just ratios.
-
-Structure of the route in this Tier-1 cut: the ship runs back-to-back legs of
-length D_max, with one combined cargo+swap port call at each end. Cycles/year
-(hence utilization and annual TEU-km) therefore fall out of D_max and speed.
-
-Speed is optimized separately for each ship. The battery ships have an extra
-incentive to slow down (slower -> less energy/km -> smaller battery -> fewer
-displaced slots + less CAPEX); iron-air's 100-h discharge rating makes its
-pack power-bound (installed kWh >= peak kW x 100 h), pinning it near minimum
-speed. The nuclear ship is the opposite: cheap fuel and expensive capital push
-it to maximum speed, and its LCOT depends on D_max only through port-call
-frequency.
-
-This file is the entry point only. The model is split across sibling modules:
-    units.py     unit conversions (single source of truth)
-    params.py    Params schema + load_params(config.yaml)
-    finance.py   capital recovery factor
-    energy.py    ship physics (power, leg energy, legs/year)
-    lcot.py      the cost models: fossil, LFP & iron-air battery (port swap),
-                 onboard nuclear (direct-drive), two nuclear-electric variants
-                 (containerized / integrated), and a battery ship charged at sea
-                 by a mobile nuclear tender. carried() now applies volume, mass
-                 and asymmetric-leg constraints.
-    analysis.py  speed optimization + crossover distance
-    report.py    console tables (+ the CASES registry)
-    plots.py     Plotly figures (interactive HTML + static PNG)
-
-All energy in kWh, power in kW, time in hours, distance in km, speed in knots.
+    uv run python scripts/run.py
 """
 
 import os
 
-from params import load_params
-from report import print_report
-from plots import (plot_lcot_vs_dmax, plot_speed_vs_dmax, plot_tornados,
-                   plot_teu_tech_tradeoff)
+import numpy as np
+import pandas as pd
+
+from load_config import load_config
+from determine_journey_cost import optimize
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CONFIG_PATH = os.path.join(REPO_ROOT, "config.yaml")
 RESULTS_DIR = os.path.join(REPO_ROOT, "results")
 
 
-def main():
-    p = load_params(CONFIG_PATH)
-    print_report(p)
+def run(config) -> pd.DataFrame:
+    """One row per (case, D_max): the min-LCOT operating point + its breakdown."""
+    rows = []
+    for name, case in config.cases.items():
+        dm = case.journey["dmax"]
+        for d in np.linspace(dm["min_km"], dm["max_km"], int(dm["n"])):
+            rows.append({"case": name, **optimize(case, config.shared, float(d))})
+    return pd.DataFrame(rows)
 
-    saved = plot_lcot_vs_dmax(p, RESULTS_DIR)
-    saved += plot_speed_vs_dmax(p, RESULTS_DIR)
-    saved += plot_tornados(p, 1000, RESULTS_DIR)
-    saved += plot_teu_tech_tradeoff(p, 500, RESULTS_DIR)
-    for path in saved:
-        print(f"Saved plot: {os.path.relpath(path, REPO_ROOT)}")
+
+def main():
+    config = load_config(CONFIG_PATH)
+    df = run(config)
+    os.makedirs(RESULTS_DIR, exist_ok=True)
+    df.to_parquet(os.path.join(RESULTS_DIR, "lcot.parquet"))
+    df.to_csv(os.path.join(RESULTS_DIR, "lcot.csv"), index=False)
+
+    # a quick console summary: feasible LCOT range per case (US cents/TEU·km)
+    print(f"{len(df)} rows -> results/lcot.parquet (+ .csv)\n")
+    print(f"{'case':<24}{'feasible':>9}{'min LCOT':>12}{'max LCOT':>12}   (US cents/TEU·km)")
+    for name, g in df.groupby("case", sort=False):
+        ok = g[g["feasible"]]
+        if len(ok):
+            lo, hi = ok["lcot"].min() * 100, ok["lcot"].max() * 100
+            print(f"{name:<24}{len(ok):>4}/{len(g):<4}{lo:>12.3f}{hi:>12.3f}")
+        else:
+            print(f"{name:<24}{0:>4}/{len(g):<4}{'—':>12}{'—':>12}")
 
 
 if __name__ == "__main__":

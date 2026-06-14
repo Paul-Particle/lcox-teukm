@@ -1,9 +1,10 @@
 """
 load_config.py — read config.yaml into the frozen schema (data_classes.py).
 
-Trusted input — no validation beyond what the dataclass constructors enforce (an
-unknown or missing key raises a TypeError, which is enough for a small project).
-Loading is mechanical: `Block(**yaml_subdict)`. Sources dispatch on `type`.
+Trusted input — no validation beyond what the dataclass constructors enforce. Loading
+is mechanical: `Block(**yaml_subdict)`. Sources dispatch on `type`. Cases resolve their
+platform/drivetrain/source names to the loaded objects, and each case's `journey`
+inherits `journey_defaults` (the dmax sweep + load factor + imbalance) before overrides.
 """
 
 import data_classes as dc
@@ -41,17 +42,25 @@ def _source(name: str, d: dict) -> dc.EnergySource:
             parasitic_kw=d.get("parasitic_kw"),
             om_other_usd_yr=d.get("om_other_usd_yr"),
             availability=d.get("availability"),
+            idle_h=d.get("idle_h"),
             tether=dc.Tether(**d["tether"]) if "tether" in d else None)
     raise ValueError(f"unknown source type {t!r} for source {name!r}")
+
+
+def _case(name: str, d: dict, platforms, drivetrains, sources, journey_defaults) -> dc.Case:
+    journey = {**journey_defaults, **d.get("journey", {})}
+    return dc.Case(name, platforms[d["platform"]], drivetrains[d["drivetrain"]],
+                   tuple(sources[s] for s in d["sources"]), d["strategy"], journey)
 
 
 def load_config(path) -> dc.Config:
     import yaml
     with open(path) as f:
         d = yaml.safe_load(f)
-    return dc.Config(
-        shared=dc.Shared(**d["shared"]),
-        platforms={n: _platform(n, b) for n, b in d["platforms"].items()},
-        drivetrains={n: _drivetrain(n, b) for n, b in d["drivetrains"].items()},
-        sources={n: _source(n, b) for n, b in d["sources"].items()},
-    )
+    platforms = {n: _platform(n, b) for n, b in d["platforms"].items()}
+    drivetrains = {n: _drivetrain(n, b) for n, b in d["drivetrains"].items()}
+    sources = {n: _source(n, b) for n, b in d["sources"].items()}
+    jd = d.get("journey_defaults", {})
+    cases = {n: _case(n, b, platforms, drivetrains, sources, jd)
+             for n, b in d["cases"].items()}
+    return dc.Config(dc.Shared(**d["shared"]), platforms, drivetrains, sources, cases)
