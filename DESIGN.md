@@ -82,13 +82,12 @@ analysis consume it downstream and are out of scope for the rebuild's early step
 
 ### Primitives
 
-- **physics.py** — pure ship physics & logistics arithmetic: propulsion cube law,
-  per-leg energy, `legs_per_year`, and the `carried` cargo accounting. Stateless;
-  called by the strategy as it assembles cost. (Renamed from `energy.py` to stop
-  colliding with the EnergySource axis wording.)
-- **helpers** (`helpers.py`) — shared cost/finance math (`crf` and friends) needed
-  by *both* the strategies' cost assembly and the EnergySources' cost models;
-  likely to accrete other common functions.
+- **helpers.py** — the shared stateless computation, drawn on by *both* the strategies'
+  cost assembly and the EnergySources' cost models: ship physics & logistics arithmetic
+  (propulsion cube law, per-leg energy, `legs_per_year`, the `carried` cargo accounting)
+  **plus** cost/finance math (`crf` and friends). One module — `crf` is not physics, so
+  the kept name is **helpers**, not physics. (Subsumes the old `energy.py`/physics
+  arithmetic; the name also avoids colliding with the EnergySource axis wording.)
 - **units.py** — every unit conversion, and only here.
 
 ## Where cost lives — the integration rule
@@ -136,7 +135,7 @@ run.py ─ run(case) for each built Case
                         strategy(case, point) ─> Result        near-term priority)
                           ├─ design the Journey (route segments)
                           ├─ EnergySources own their cost models
-                          ├─ physics (carried, legs/yr) + helpers ─> assemble LCOT
+                          ├─ helpers (carried, legs/yr, crf, physics) ─> assemble LCOT
                           └─ argmin LCOT ─> the point's Result
             └─ write artifact  (Parquet, CSV option)
 ```
@@ -168,11 +167,11 @@ run.py ─ run(case) for each built Case
 ## Cargo accounting (`carried`)
 
 Computed by the **strategy as it assembles cost** — not a standalone module. The
-arithmetic is a `physics.py` primitive that draws capacity and deadweight from the
+arithmetic is a `helpers.py` primitive that draws capacity and deadweight from the
 **Platform** and the slot/mass footprint from the **EnergySources**, then takes the
 volume-bound vs. mass-bound minimum over asymmetric (head/back-haul) legs. May go
 ≤ 0 (the store swamps the ship) → infeasible. `legs_per_year` lives the same way: a
-`physics.py` primitive the strategy calls, since it's a necessary cost input.
+`helpers.py` primitive the strategy calls, since it's a necessary cost input.
 
 ## Configuration layout
 
@@ -210,15 +209,15 @@ not full regeneration on every run.
   Case's fixed route/condition params in config. Never reuse "journey" for the config bundle.
 - **Strategy** = a named function `(case, point) -> Result`. **Optimizer** = the function
   `optimize(case, swept_point)` searching free inputs. **`run`** = the outer sweep.
-- **physics.py** = ship physics & logistics arithmetic.
+- **helpers.py** = ship physics & logistics arithmetic + cost/finance math (`crf`); one
+  module, named helpers (not physics) since `crf` is not physics.
 
 ## Module map — target vs. current debris
 
 | Target            | Role                                              | Current status |
 |-------------------|---------------------------------------------------|----------------|
 | `units.py`        | unit conversions                                  | keep as-is |
-| `physics.py`      | ship physics & logistics (`legs_per_year`, `carried`) | exists; stale docstring; `legs_per_year` + `carried` still in `_orphans` |
-| `helpers.py`      | shared cost/finance math (`crf`, …)               | to create; `crf` currently in `_orphans` |
+| `helpers.py`      | ship physics & logistics (`legs_per_year`, `carried`, propulsion, leg energy) + cost/finance (`crf`) | renamed from `physics.py`/`energy.py`; body still pre-rebuild debris; `legs_per_year` + `carried` + `crf` to fold in from `_orphans` |
 | `data_classes.py` | config schema: Shared / Platform / Drivetrain / EnergySource / Case / Route | nouns present; `Case` + `Route` to add; source cost models to move onto EnergySource |
 | `load_config.py`  | thin YAML → schema loader                         | exists |
 | `config.yaml`     | hierarchical input                                | draft; `cases:` deferred |
@@ -227,7 +226,7 @@ not full regeneration on every run.
 | `run.py`          | entry point → load config → `run(case)` → artifact | fully stale |
 | `plots.py`, `style.py` | presentation                                 | deferred until an artifact exists |
 | `supply.py`       | —                                                 | to be **dissolved**; contents become EnergySource cost models |
-| `_orphans.py`     | holding pen                                       | temporary; `legs_per_year` + `carried` → `physics.py`, `crf` → `helpers.py` |
+| `_orphans.py`     | holding pen                                       | temporary; `legs_per_year` + `carried` + `crf` → `helpers.py` |
 
 ## Open / deferred decisions
 
