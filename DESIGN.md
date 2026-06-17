@@ -186,8 +186,8 @@ shared:        # cross-case economics + margins (discount rate, crew cost, weath
 platforms:     # container (TEU)  [bulk (tonne) when it earns its keep]
 drivetrains:   # mechanical-fossil | mechanical-nuclear | electric
 sources:       # VLSFO | LFP | iron-air | SMR-* | mobile-tender-reactor | …
-cases:         # named: platform + drivetrain + [sources] + strategy + fixed params
-               #        + free-param decl (optimized) + swept-param decl (D_max range, …)
+cases:         # named: platform + drivetrain + [sources] + strategy + a `route` block
+               #        + `optimize` axes (op_v_kn search) + `sweep` axes (D_max range, …)
 ```
 
 ## Output artifact
@@ -230,7 +230,7 @@ not full regeneration on every run.
 | `helpers.py`      | shared only: `crf` + ship physics (`prop_power_kw`, `propulsion_factor`) | done (rewritten against the new schema; renamed from `physics.py`/`energy.py`) |
 | `data_classes.py` | config schema: Platform / Drivetrain / EnergySource / Case + its `Params` (Economics / Margins / Route) + `Axis` | nouns + Case + Params/Axis present (no top-level Config); source cost models to move onto EnergySource |
 | `load_config.py`  | thin YAML → schema loader                         | exists |
-| `config.yaml`     | hierarchical input                                | draft; `cases:` deferred |
+| `config.yaml`     | hierarchical input                                | draft; 8 seed `cases:` (some placeholder values) |
 | `strategies.py`   | the 6 per-case strategy functions `(case, point) -> dict`, + strategy-only route math (`legs_per_year`, `carried`) | all 6 drafted (`fuel_burn`, `port_swap_battery`, `tether_charge`, `reactor_direct`, `reactor_electric_integrated`, `reactor_electric`); they define the source interface via `# NEEDS` |
 | `optimizer.py`    | the `optimize` (free-param search) + `run` (sweep) functions; both take/return plain dicts | to create from scratch (old `determine_cost.py` deleted) |
 | `run.py`          | entry point → load config → `run(case)` → artifact | fully stale |
@@ -251,13 +251,13 @@ not full regeneration on every run.
   `port_swap_battery` and `tether_charge`); `FuelSource.usd_per_kwh` (shared by `fuel_burn`
   and the integrated-reactor strategies). The **integrated** reactors (`reactor_direct`,
   `reactor_electric_integrated`) carry the reactor as Drivetrain CAPEX — no source method.
-- **Split ReactorSource → `TenderReactor` + `ContainerizedReactor` (RESOLVED).**
-  `tether_charge` calls `levelize(bus_kw, tethered_h, idle_h, …)` (cable + reposition duty
-  cycle); `reactor_electric` calls `size(bus_kw, …) -> (usd_per_kwh, reactor_kw, slots)`
-  (pool utilization + a `teu_per_mwe` slot footprint + an onboard `hotel_delta_kw`). They
-  share almost no fields or method, so they become two subtypes rather than one all-optional
-  class — applied when we build the source cost methods (the strategies' `isinstance` checks
-  + the loader's `type: reactor` dispatch update at the same time).
+- **Split ReactorSource → `TenderReactor` + `ContainerizedReactor` (APPLIED; cost methods pending).**
+  A thin `ReactorSource` base holds the shared reactor block (capex, thermal fuel price,
+  thermal→electric efficiency); the two subtypes add their integration-specific fields. The
+  loader dispatches on `tether` present (= tender) and the strategies' `isinstance` checks
+  match the subtype. Still TODO: the cost methods — `TenderReactor.levelize(bus_kw,
+  tethered_h, idle_h, …)` (cable + reposition duty cycle) and `ContainerizedReactor.size(bus_kw,
+  …) -> (usd_per_kwh, reactor_kw, slots)` (pool utilization + a `teu_per_mwe` slot footprint).
 - **Extra swept axes** beyond `D_max` (to ease later Sobol exploration): structure
   for it, but low priority.
 - **Modular flexibility / option value is out of scope (way down the line).** LCOT

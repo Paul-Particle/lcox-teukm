@@ -88,21 +88,34 @@ class BatterySource(EnergySource):
 
 @dataclass(frozen=True)
 class ReactorSource(EnergySource):
-    """One class covers both reactor-as-source variants (both are `type: reactor`):
-    the containerized module uses {overhead, hotel_delta_kw, pool}; the tender uses
-    {capex.hull_usd, parasitic_kw, om_other_usd_yr, availability, tether}. DECIDED: this
-    splits into `TenderReactor` + `ContainerizedReactor` when we build the cost methods
-    (they share almost nothing); for now it stays one all-optional class."""
+    """Base for the two reactor-as-source variants (both `type: reactor`). Holds only what
+    they share — the reactor block: capex, thermal fuel price, and thermal->electric
+    efficiency. Each concrete subtype adds its integration-specific fields and (later) its
+    own cost method, so strategies match on the SUBTYPE, not this base."""
     capex: ReactorCapex
     fuel_usd_per_kwh_th: float
     generation: float               # reactor thermal -> electricity
-    overhead: Overhead | None = None        # containerized
-    hotel_delta_kw: float | None = None     # containerized (onboard crew/security)
-    pool: Pool | None = None                # containerized (fleet-pooled utilization)
-    parasitic_kw: float | None = None       # tender
-    om_other_usd_yr: float | None = None    # tender
-    availability: float | None = None       # tender
-    tether: Tether | None = None            # tender
+
+
+@dataclass(frozen=True)
+class ContainerizedReactor(ReactorSource):
+    """A reactor module that replaces cargo containers on an electric ship: it occupies
+    slots (overhead), adds an onboard crew/security hotel load, and bills $/kWh levelized
+    over its fleet-pooled utilization."""
+    overhead: Overhead              # slot footprint (teu_per_mwe, sized from power)
+    hotel_delta_kw: float           # onboard crew/security
+    pool: Pool                      # fleet-pooled utilization
+
+
+@dataclass(frozen=True)
+class TenderReactor(ReactorSource):
+    """A separate uncrewed vessel (capex.hull_usd is the ship ex-reactor) that tethers an
+    electric ship and feeds it over a cable; its $/kWh is levelized over a tethered/idle
+    duty cycle, not a slot footprint."""
+    parasitic_kw: float             # uncrewed DP station-keeping + cooling
+    om_other_usd_yr: float          # uncrewed remote ops + asset-loss insurance
+    availability: float
+    tether: Tether                  # cable efficiency + source-imposed speed cap
 
 # ---- case ----
 @dataclass(frozen=True)
