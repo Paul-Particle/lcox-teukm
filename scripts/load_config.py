@@ -58,11 +58,12 @@ def _source(name: str, d: dict) -> dc.EnergySource:
 
 
 # ---- cases.csv: a tidy table read with pandas (snakemake-style sample sheet) ----
-# One case spans one OR MORE rows sharing `name`: the first row carries the scalar fields
-# (platform / drivetrain / strategy / route), and EXTRA sources or optimize/sweep axes get
-# continuation rows (only `name` + that one extra cell filled). So per case we group by name,
-# read scalars off the first row, and collect every non-blank source / axis across the group.
-# Blank cells arrive as NaN; route fields blank where the strategy doesn't read them.
+# One case spans one OR MORE rows sharing `name`. The case-level scalars (platform /
+# drivetrain / strategy / route) are REPEATED on every row of the case; the multi-valued
+# fields — `source` and the optimize/sweep axes — are enumerated one per row, so a second
+# source or axis is just a continuation row (its scalars repeated, the other multi-valued
+# cells blank). Per case we group by name, read scalars off the first row, and collect every
+# non-blank source / axis across the group. Blank cells arrive as NaN.
 _ROUTE_FIELDS = ("load_factor", "load_factor_imbalance", "design_v_kn",
                  "storm_duration_h", "standoff_nm", "idle_h")
 

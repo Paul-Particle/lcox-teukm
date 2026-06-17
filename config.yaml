@@ -158,13 +158,13 @@ sources:
 
 # ============================================================= cases ====
 # Cases live in a SEPARATE TIDY TABLE — cases.csv — not here. A case spans one or more rows
-# sharing `name`: the first row carries platform + drivetrain + strategy + its `route` fields
-# + the first source + the first optimize/sweep axis (`*_param/_lo/_hi/_n` columns); EXTRA
-# sources or axes get continuation rows (only `name` + the extra cell filled). `strategy` names
-# the function in strategies.py; a blank `source` models a fueled-for-life converter. This file
-# stays the COMPONENT LIBRARY (the reusable platforms/drivetrains/sources + shared economics);
-# the cases table is tabular because it will be machine-generated (Sobol over the parameter
-# space, dozens–thousands of rows) — cases.csv just holds the hand-written seeds.
+# sharing `name`. The case-level scalars (platform + drivetrain + strategy + `route` fields)
+# repeat on every row; the multi-valued `source` and optimize/sweep axes (`*_param/_lo/_hi/_n`
+# columns) are enumerated one per row, so a 2nd source or axis is just a continuation row.
+# `strategy` names the function in strategies.py; a blank `source` models a fueled-for-life
+# converter. This file stays the COMPONENT LIBRARY (the reusable platforms/drivetrains/sources
+# + shared economics); the cases table is tabular because it will be machine-generated (Sobol
+# over the parameter space, dozens–thousands of rows) — cases.csv just holds the hand-written seeds.
 #
 # The eight seed cases (was nine; owned/leased reactor collapsed):
 #   fossil          container + mechanical-fossil  + [vlsfo]                   fuel_burn

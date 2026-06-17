@@ -193,9 +193,9 @@ sources:       # VLSFO | LFP | iron-air | SMR-* | mobile-tender-reactor | …
 ```text
 # cases.csv — a tidy table, read with pandas (snakemake-style); one case per group of rows
 name,platform,drivetrain,source,strategy,<route fields…>,optimize_{param,lo,hi,n},sweep_{param,lo,hi,n}
-  A case's first row carries the scalars + its first source + first optimize/sweep axis;
-  EXTRA sources or axes get continuation rows keyed by `name` (other cells blank). A blank
-  `source` = fueled-for-life; route fields blank where the strategy doesn't read them.
+  Case-level scalars (platform/drivetrain/strategy/route) repeat on every row; `source` and
+  the axes are enumerated one per row, so an extra source/axis is just a continuation row
+  (scalars repeated). A blank `source` = fueled-for-life; route fields blank where unused.
 ```
 
 ## Output artifact
