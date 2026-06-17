@@ -97,7 +97,10 @@ def tether_charge(case: dc.Case, point: dict) -> dict:    # returns lcot + plott
     # --- size the pack to operating-speed energy: max(coastal sub-leg, storm) + reserve ----
     coastal_kwh = bus_kw * coastal_h
     storm_kwh = bus_kw * route.storm_duration_h
-    deliverable_kwh = max(coastal_kwh, storm_kwh) * (1 + shared.weather_reserve)
+    deliverable_kwh = max(coastal_kwh, storm_kwh) * (1 + shared.margins.weather)
+    # NOTE double margin: the storm buffer is already a contingency, and we then add the
+    #      standard weather reserve on top. For the tender the storm term usually dominates,
+    #      so the pack is storm-sized + weather%. Revisit whether both margins should stack.
     # NEEDS BatterySource.size(deliverable_kwh, power_kw, max_gross_t)
     #       -> (installed_kwh, slots, mass_t)   [applies dod, the power floor, the ISO mass cap]
     installed_kwh, slots, mass_t = battery.size(
@@ -108,7 +111,7 @@ def tether_charge(case: dc.Case, point: dict) -> dict:    # returns lcot + plott
                          dt.operations.availability)
     # the pack's slots + mass displace cargo; the drivetrain overhead is fixed
     cargo = carried(pl, dt.overhead.slots, slots, mass_t,
-                    shared.load_factor, route.load_factor_imbalance)
+                    route.load_factor, route.load_factor_imbalance)
     if cargo <= 0:
         return _infeasible(op_v_kn, d_km)
 
@@ -135,7 +138,7 @@ def tether_charge(case: dc.Case, point: dict) -> dict:    # returns lcot + plott
     # the operating speed, so it is not on the slow-steam sweep. The battery and the tender
     # reactor above ARE sized to the operating speed.
     design_prop_kw = helpers.prop_power_kw(pl.resistance, route.design_v_kn, pf)
-    motor_kw = design_prop_kw * (1 + shared.sea_margin)   # NEEDS shared.sea_margin (0.15)
+    motor_kw = design_prop_kw * (1 + shared.margins.sea)   # NEEDS shared.margins.sea (0.15)
     battery_life = battery.life_yr(legs)                  # NEEDS BatterySource.life_yr(legs)
     annual_fixed = (
         pl.capex.hull_usd * helpers.crf(r, pl.capex.life_yr)
@@ -190,7 +193,8 @@ def port_swap_battery(case: dc.Case, point: dict) -> dict:    # returns lcot + p
     # --- size the pack to the whole leg: max(leg, storm buffer) + reserve --------
     leg_kwh = bus_kw * sail_h
     storm_kwh = bus_kw * route.storm_duration_h
-    deliverable_kwh = max(leg_kwh, storm_kwh) * (1 + shared.weather_reserve)
+    # NOTE same double margin as tether_charge (storm buffer + weather reserve stacked).
+    deliverable_kwh = max(leg_kwh, storm_kwh) * (1 + shared.margins.weather)
     installed_kwh, slots, mass_t = battery.size(            # same call as tether_charge
         deliverable_kwh, bus_kw, pl.slot_limits.container_max_gross_t)
 
@@ -198,7 +202,7 @@ def port_swap_battery(case: dc.Case, point: dict) -> dict:    # returns lcot + p
     legs = legs_per_year(op_v_kn, d_km, dt.operations.port_hours,
                          dt.operations.availability)
     cargo = carried(pl, dt.overhead.slots, slots, mass_t,
-                    shared.load_factor, route.load_factor_imbalance)
+                    route.load_factor, route.load_factor_imbalance)
     if cargo <= 0:
         return _infeasible(op_v_kn, d_km)
 
@@ -211,7 +215,7 @@ def port_swap_battery(case: dc.Case, point: dict) -> dict:    # returns lcot + p
     # --- capital + fixed O&M ----------------------------------------------------
     r = shared.discount_rate
     design_prop_kw = helpers.prop_power_kw(pl.resistance, route.design_v_kn, pf)
-    motor_kw = design_prop_kw * (1 + shared.sea_margin)
+    motor_kw = design_prop_kw * (1 + shared.margins.sea)
     battery_life = battery.life_yr(legs)
     annual_fixed = (
         pl.capex.hull_usd * helpers.crf(r, pl.capex.life_yr)
@@ -268,14 +272,14 @@ def fuel_burn(case: dc.Case, point: dict) -> dict:    # returns lcot + plotting 
                          dt.operations.availability)
     # bunkers displace deadweight (mass); no extra slot footprint (tanks sit in the overhead)
     cargo = carried(pl, dt.overhead.slots, 0.0, fuel.energy_mass_t,
-                    shared.load_factor, route.load_factor_imbalance)
+                    route.load_factor, route.load_factor_imbalance)
     if cargo <= 0:
         return _infeasible(op_v_kn, d_km)
 
     # --- capital + fixed O&M ----------------------------------------------------
     r = shared.discount_rate
     design_prop_kw = helpers.prop_power_kw(pl.resistance, route.design_v_kn, pf)
-    engine_kw = design_prop_kw * (1 + shared.sea_margin)   # converter = the main engine
+    engine_kw = design_prop_kw * (1 + shared.margins.sea)   # converter = the main engine
     annual_fixed = (
         pl.capex.hull_usd * helpers.crf(r, pl.capex.life_yr)
         + dt.capex.converter_usd_per_kw * engine_kw * helpers.crf(r, dt.capex.life_yr)
@@ -325,14 +329,14 @@ def reactor_direct(case: dc.Case, point: dict) -> dict:    # returns lcot + plot
     legs = legs_per_year(op_v_kn, d_km, dt.operations.port_hours, dt.operations.availability)
     # integrated reactor + shielding is a fixed slot overhead on the drivetrain; ~no carried mass
     cargo = carried(pl, dt.overhead.slots, 0.0, 0.0,
-                    shared.load_factor, route.load_factor_imbalance)
+                    route.load_factor, route.load_factor_imbalance)
     if cargo <= 0:
         return _infeasible(op_v_kn, d_km)
 
     r = shared.discount_rate
     # the reactor (expensive) is sized to the OPERATING speed + sea margin: no free oversizing.
     # converter_usd_per_kw here is the whole reactor+steam+shaft plant, per shaft kW.
-    reactor_shaft_kw = prop_kw * (1 + shared.sea_margin)
+    reactor_shaft_kw = prop_kw * (1 + shared.margins.sea)
     annual_fixed = (
         pl.capex.hull_usd * helpers.crf(r, pl.capex.life_yr)
         + dt.capex.converter_usd_per_kw * reactor_shaft_kw * helpers.crf(r, dt.capex.life_yr)
@@ -381,14 +385,14 @@ def reactor_electric_integrated(case: dc.Case, point: dict) -> dict:    # return
 
     legs = legs_per_year(op_v_kn, d_km, dt.operations.port_hours, dt.operations.availability)
     cargo = carried(pl, dt.overhead.slots, 0.0, 0.0,
-                    shared.load_factor, route.load_factor_imbalance)
+                    route.load_factor, route.load_factor_imbalance)
     if cargo <= 0:
         return _infeasible(op_v_kn, d_km)
 
     r = shared.discount_rate
     # reactor+generator sized to the operating-speed electric bus (+ sea margin on propulsion);
     # the motor to the operating-speed shaft power. Two capex stages on two separate lives.
-    motor_shaft_kw = prop_kw * (1 + shared.sea_margin)
+    motor_shaft_kw = prop_kw * (1 + shared.margins.sea)
     reactor_elec_kw = motor_shaft_kw / dt.efficiency.drive + hotel_kw / dt.efficiency.hotel
     annual_fixed = (
         pl.capex.hull_usd * helpers.crf(r, pl.capex.life_yr)
@@ -432,7 +436,7 @@ def reactor_electric(case: dc.Case, point: dict) -> dict:    # returns lcot + pl
     hotel_kw = pl.hotel_base_kw + dt.operations.hotel_delta_kw + reactor.hotel_delta_kw
     prop_kw = helpers.prop_power_kw(pl.resistance, op_v_kn, pf)
     bus_kw = prop_kw / dt.efficiency.drive + hotel_kw / dt.efficiency.hotel
-    sizing_kw = prop_kw * (1 + shared.sea_margin) / dt.efficiency.drive + hotel_kw / dt.efficiency.hotel
+    sizing_kw = prop_kw * (1 + shared.margins.sea) / dt.efficiency.drive + hotel_kw / dt.efficiency.hotel
 
     # NEEDS containerized ReactorSource.size(sizing_kw, discount_rate)
     #       -> (usd_per_kwh, reactor_kw, slots). Sizes the reactor to the electric bus power,
@@ -446,13 +450,13 @@ def reactor_electric(case: dc.Case, point: dict) -> dict:    # returns lcot + pl
     legs = legs_per_year(op_v_kn, d_km, dt.operations.port_hours, dt.operations.availability)
     # the reactor's slots displace cargo (like a battery's); drivetrain overhead is the bare motor
     cargo = carried(pl, dt.overhead.slots, reactor_slots, 0.0,
-                    shared.load_factor, route.load_factor_imbalance)
+                    route.load_factor, route.load_factor_imbalance)
     if cargo <= 0:
         return _infeasible(op_v_kn, d_km)
 
     r = shared.discount_rate
     design_prop_kw = helpers.prop_power_kw(pl.resistance, route.design_v_kn, pf)
-    motor_kw = design_prop_kw * (1 + shared.sea_margin)   # the bare motor (cheap), design-speed-sized
+    motor_kw = design_prop_kw * (1 + shared.margins.sea)   # the bare motor (cheap), design-speed-sized
     annual_fixed = (
         pl.capex.hull_usd * helpers.crf(r, pl.capex.life_yr)
         + dt.capex.converter_usd_per_kw * motor_kw * helpers.crf(r, dt.capex.life_yr)
