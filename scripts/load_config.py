@@ -9,8 +9,12 @@ Loading is mechanical: `Block(**yaml_subdict)`. Sources dispatch on `type`.
 import data_classes as dc
 
 
-def _shared(d: dict) -> dc.Economics:
-    return dc.Economics(d["discount_rate"], d["crew_cost_usd_yr"], dc.Margins(**d["margins"]))
+def _economics(d: dict) -> dc.Economics:
+    return dc.Economics(d["discount_rate"], d["crew_cost_usd_yr"])
+
+
+def _margins(d: dict) -> dc.Margins:
+    return dc.Margins(**d["margins"])
 
 
 def _platform(name: str, d: dict) -> dc.Platform:
@@ -49,13 +53,19 @@ def _source(name: str, d: dict) -> dc.EnergySource:
     raise ValueError(f"unknown source type {t!r} for source {name!r}")
 
 
-def load_config(path) -> dc.Config:
+def load_config(path) -> dict:
+    """Parse config.yaml into schema objects. INTERIM return: the component library plus
+    the cross-case economics/margins, as a dict of built (frozen) objects. `Config` is gone;
+    once the `cases:` block + a case generator exist, this returns the built Cases instead
+    (each bundling these into its `Params` + `optimize`/`sweep` axes)."""
     import yaml
     with open(path) as f:
         d = yaml.safe_load(f)
-    return dc.Config(
-        shared=_shared(d["shared"]),
-        platforms={n: _platform(n, b) for n, b in d["platforms"].items()},
-        drivetrains={n: _drivetrain(n, b) for n, b in d["drivetrains"].items()},
-        sources={n: _source(n, b) for n, b in d["sources"].items()},
-    )
+    s = d["shared"]
+    return {
+        "economics": _economics(s),
+        "margins": _margins(s),
+        "platforms": {n: _platform(n, b) for n, b in d["platforms"].items()},
+        "drivetrains": {n: _drivetrain(n, b) for n, b in d["drivetrains"].items()},
+        "sources": {n: _source(n, b) for n, b in d["sources"].items()},
+    }
