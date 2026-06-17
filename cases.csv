@@ -1,0 +1,10 @@
+name,platform,drivetrain,source,strategy,load_factor,load_factor_imbalance,design_v_kn,storm_duration_h,standoff_nm,idle_h,optimize_param,optimize_lo,optimize_hi,optimize_n,sweep_param,sweep_lo,sweep_hi,sweep_n
+fossil,container,mechanical-fossil,vlsfo,fuel_burn,0.80,0.2,18.0,,,,op_v_kn,5,22,18,d_km,500,18000,36
+e-methanol,container,mechanical-fossil,e-methanol,fuel_burn,0.80,0.2,18.0,,,,op_v_kn,5,22,18,d_km,500,18000,36
+lfp,container,electric,lfp,port_swap_battery,0.80,0.2,18.0,12.0,,,op_v_kn,5,22,18,d_km,500,18000,36
+iron-air,container,electric,iron-air,port_swap_battery,0.80,0.2,18.0,12.0,,,op_v_kn,5,22,18,d_km,500,18000,36
+nuclear-direct,container,mechanical-nuclear,fission-fuel,reactor_direct,0.80,0.2,,,,,op_v_kn,5,22,18,d_km,500,18000,36
+nuclear-int-el,container,electric-nuclear,fission-fuel,reactor_electric_integrated,0.80,0.2,,,,,op_v_kn,5,22,18,d_km,500,18000,36
+nuclear-cont,container,electric,containerized-reactor,reactor_electric,0.80,0.2,18.0,,,,op_v_kn,5,22,18,d_km,500,18000,36
+tender,container,electric,lfp,tether_charge,0.80,0.2,18.0,12.0,200.0,12.0,op_v_kn,5,22,18,d_km,500,18000,36
+tender,,,tender-reactor,,,,,,,,,,,,,,,

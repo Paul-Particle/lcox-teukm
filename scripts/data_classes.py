@@ -223,6 +223,8 @@ class Operations:
     availability: float
     tug_usd_per_call: float
     hotel_delta_kw: float
+    crew_count: float               # complement, x crew_cost_usd_yr -> annual crew cost
+    om_other_usd_yr: float          # other fixed O&M (maintenance, insurance, stores, admin)
 
 
 @dataclass(frozen=True)

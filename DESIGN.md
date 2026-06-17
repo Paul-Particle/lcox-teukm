@@ -178,16 +178,24 @@ a `strategies.py` function the strategy calls to annualize the route.
 
 ## Configuration layout
 
-Hierarchical YAML, populated into frozen schema dataclasses (`data_classes.py` — the
-old flat inventory regrouped by axis):
+Two inputs, both populated into frozen schema dataclasses (`data_classes.py` — the old
+flat inventory regrouped by axis). `config.yaml` is the reusable COMPONENT LIBRARY
+(hierarchical); `cases.csv` is the flat CASE TABLE (one row per case, machine-generated
+later by a Sobol sweep — dozens–thousands of rows — with the seeds hand-written for now):
 
 ```yaml
+# config.yaml — the component library
 shared:        # cross-case economics + margins (discount rate, crew cost, weather/sea margins)
 platforms:     # container (TEU)  [bulk (tonne) when it earns its keep]
-drivetrains:   # mechanical-fossil | mechanical-nuclear | electric
+drivetrains:   # mechanical-fossil | mechanical-nuclear | electric | electric-nuclear
 sources:       # VLSFO | LFP | iron-air | SMR-* | mobile-tender-reactor | …
-cases:         # named: platform + drivetrain + [sources] + strategy + a `route` block
-               #        + `optimize` axes (op_v_kn search) + `sweep` axes (D_max range, …)
+```
+```text
+# cases.csv — a tidy table, read with pandas (snakemake-style); one case per group of rows
+name,platform,drivetrain,source,strategy,<route fields…>,optimize_{param,lo,hi,n},sweep_{param,lo,hi,n}
+  A case's first row carries the scalars + its first source + first optimize/sweep axis;
+  EXTRA sources or axes get continuation rows keyed by `name` (other cells blank). A blank
+  `source` = fueled-for-life; route fields blank where the strategy doesn't read them.
 ```
 
 ## Output artifact
@@ -228,10 +236,11 @@ not full regeneration on every run.
 |-------------------|---------------------------------------------------|----------------|
 | `units.py`        | unit conversions                                  | keep as-is |
 | `helpers.py`      | shared only: `crf` + ship physics (`prop_power_kw`, `propulsion_factor`) | done (rewritten against the new schema; renamed from `physics.py`/`energy.py`) |
-| `data_classes.py` | config schema: Platform / Drivetrain / EnergySource / Case + its `Params` (Economics / Margins / Route) + `Axis` | nouns + Case + Params/Axis present (no top-level Config); source cost models to move onto EnergySource |
-| `load_config.py`  | thin YAML → schema loader                         | exists |
-| `config.yaml`     | hierarchical input                                | draft; 8 seed `cases:` (some placeholder values) |
-| `strategies.py`   | the 6 per-case strategy functions `(case, point) -> dict`, + strategy-only route math (`legs_per_year`, `carried`) | all 6 drafted (`fuel_burn`, `port_swap_battery`, `tether_charge`, `reactor_direct`, `reactor_electric_integrated`, `reactor_electric`); they define the source interface via `# NEEDS` |
+| `data_classes.py` | config schema: Platform / Drivetrain / EnergySource (Fuel / Battery / {Tender,Containerized}Reactor) / Case + its `Params` (Economics / Margins / Route) + `Axis` | nouns + Case + Params/Axis present (no top-level Config); reactor split applied; source cost models to move onto EnergySource |
+| `load_config.py`  | YAML library + pandas CSV cases → built Cases     | exists (returns `dict[name → Case]`) |
+| `config.yaml`     | component library (platforms/drivetrains/sources + shared economics) | draft (some placeholder crew/O&M values) |
+| `cases.csv`       | the case table (tidy; one case per group of rows) | 8 seed cases (some placeholder route/axis values) |
+| `strategies.py`   | the 6 per-case strategy functions `(case, point) -> dict`, + shared scaffolding + strategy-only route math (`legs_per_year`, `carried`) | all 6 drafted + de-duplicated (`_resolve_demand`, `_annual_platform_crew`, `_lcot`, `_row`); they define the source interface via `# NEEDS` |
 | `optimizer.py`    | the `optimize` (free-param search) + `run` (sweep) functions; both take/return plain dicts | to create from scratch (old `determine_cost.py` deleted) |
 | `run.py`          | entry point → load config → `run(case)` → artifact | fully stale |
 | `plots.py`, `style.py` | presentation                                 | deferred until an artifact exists |

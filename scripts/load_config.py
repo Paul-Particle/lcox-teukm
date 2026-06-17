@@ -1,10 +1,14 @@
 """
-load_config.py — read config.yaml into the frozen schema (data_classes.py).
+load_config.py — read the component library (config.yaml) + the case table (cases.csv)
+into the frozen schema (data_classes.py), returning the built Cases keyed by name.
 
 Trusted input — no validation beyond what the dataclass constructors enforce (an
 unknown or missing key raises a TypeError, which is enough for a small project).
-Loading is mechanical: `Block(**yaml_subdict)`. Sources dispatch on `type`.
+Library loading is mechanical: `Block(**yaml_subdict)`, sources dispatch on `type`.
+Cases are a tidy CSV read with pandas (snakemake-style), one case per group of rows.
 """
+
+import pandas as pd
 
 import data_classes as dc
 
@@ -53,36 +57,63 @@ def _source(name: str, d: dict) -> dc.EnergySource:
     raise ValueError(f"unknown source type {t!r} for source {name!r}")
 
 
-def _case(name: str, d: dict, economics: dc.Economics, margins: dc.Margins,
+# ---- cases.csv: a tidy table read with pandas (snakemake-style sample sheet) ----
+# One case spans one OR MORE rows sharing `name`: the first row carries the scalar fields
+# (platform / drivetrain / strategy / route), and EXTRA sources or optimize/sweep axes get
+# continuation rows (only `name` + that one extra cell filled). So per case we group by name,
+# read scalars off the first row, and collect every non-blank source / axis across the group.
+# Blank cells arrive as NaN; route fields blank where the strategy doesn't read them.
+_ROUTE_FIELDS = ("load_factor", "load_factor_imbalance", "design_v_kn",
+                 "storm_duration_h", "standoff_nm", "idle_h")
+
+
+def _route(head) -> dc.Route:
+    """Route from the case's first row — only the fields present (blank/NaN ones omitted)."""
+    return dc.Route(**{f: float(head[f]) for f in _ROUTE_FIELDS if pd.notna(head[f])})
+
+
+def _axis(row, prefix: str) -> dc.Axis | None:
+    """An `optimize`/`sweep` axis from one row's `{prefix}_param/_lo/_hi/_n` cells, or None
+    if the row carries no axis of that kind (blank `param`)."""
+    if pd.isna(row[f"{prefix}_param"]):
+        return None
+    return dc.Axis(row[f"{prefix}_param"], float(row[f"{prefix}_lo"]),
+                   float(row[f"{prefix}_hi"]), int(row[f"{prefix}_n"]))
+
+
+def _case(group, economics: dc.Economics, margins: dc.Margins,
           platforms: dict, drivetrains: dict, sources: dict) -> dc.Case:
-    """Build one Case: look its components up by name in the libraries, bundle the cross-case
-    economics/margins with this case's `route` into `Params`, and read the optimize/sweep axes.
-    `economics` and `margins` are shared BY REFERENCE across every case (one of each)."""
-    params = dc.Params(economics, margins, dc.Route(**d["route"]))
+    """Build one Case from its group of rows: scalars off the first row, every non-blank
+    source/axis collected across the group. `economics`/`margins` are shared BY REFERENCE."""
+    head = group.iloc[0]
+    source_names = group["source"].dropna().tolist()       # "" sources -> fueled-for-life
+    optimize = tuple(a for _, r in group.iterrows() if (a := _axis(r, "optimize")))
+    sweep = tuple(a for _, r in group.iterrows() if (a := _axis(r, "sweep")))
     return dc.Case(
-        name=name,
-        sources=tuple(sources[s] for s in d["sources"]),
-        platform=platforms[d["platform"]],
-        drivetrain=drivetrains[d["drivetrain"]],
-        strategy=d["strategy"],
-        params=params,
-        optimize=tuple(dc.Axis(**a) for a in d.get("optimize", [])),
-        sweep=tuple(dc.Axis(**a) for a in d.get("sweep", [])),
+        name=head["name"],
+        sources=tuple(sources[s] for s in source_names),
+        platform=platforms[head["platform"]],
+        drivetrain=drivetrains[head["drivetrain"]],
+        strategy=head["strategy"],
+        params=dc.Params(economics, margins, _route(head)),
+        optimize=optimize,
+        sweep=sweep,
     )
 
 
-def load_config(path) -> dict[str, dc.Case]:
-    """Parse config.yaml into the built Cases, keyed by name. Builds the component libraries
-    (platforms / drivetrains / sources) and the cross-case economics/margins first, then
-    assembles each case in the `cases:` block — every case is self-contained (holds its
-    components + `Params` + axes), so a runner needs only this mapping."""
+def load_config(config_path, cases_path) -> dict[str, dc.Case]:
+    """Build the Cases (keyed by name) from the component library (config.yaml) + the case
+    table (cases.csv). Builds the platforms / drivetrains / sources libraries and the
+    cross-case economics/margins from the YAML, then assembles one Case per group of CSV rows —
+    every Case is self-contained (its components + `Params` + axes), so a runner needs only this map."""
     import yaml
-    with open(path) as f:
+    with open(config_path) as f:
         d = yaml.safe_load(f)
     s = d["shared"]
     economics, margins = _economics(s), _margins(s)
     platforms = {n: _platform(n, b) for n, b in d["platforms"].items()}
     drivetrains = {n: _drivetrain(n, b) for n, b in d["drivetrains"].items()}
     sources = {n: _source(n, b) for n, b in d["sources"].items()}
-    return {n: _case(n, b, economics, margins, platforms, drivetrains, sources)
-            for n, b in d["cases"].items()}
+    cases = pd.read_csv(cases_path)
+    return {name: _case(group, economics, margins, platforms, drivetrains, sources)
+            for name, group in cases.groupby("name", sort=False)}
