@@ -1,68 +1,7 @@
 """
-lcox-teukm — levelized cost of transport (LCOT, US$/TEU·km) for a container
-ship across powertrains: fossil; battery-electric (LFP and iron-air, port
-swap); onboard nuclear (direct-drive SMR); nuclear-electric (reactor -> motor,
-containerized or integrated); and a battery ship recharged at sea by a mobile
-nuclear tender.
+run.py — entry point (pending the rebuild).
 
-Comparison axis: D_max = the longest hop between swap-capable ports (km).
-This sets the battery size (hence CAPEX + displaced cargo), independent of
-total route length. Everything that scales the ships together (load factor,
-port time, route geometry beyond D_max) is fixed to representative values so
-we can read ABSOLUTE LCOT, not just ratios.
-
-Structure of the route in this Tier-1 cut: the ship runs back-to-back legs of
-length D_max, with one combined cargo+swap port call at each end. Cycles/year
-(hence utilization and annual TEU-km) therefore fall out of D_max and speed.
-
-Speed is optimized separately for each ship. The battery ships have an extra
-incentive to slow down (slower -> less energy/km -> smaller battery -> fewer
-displaced slots + less CAPEX); iron-air's 100-h discharge rating makes its
-pack power-bound (installed kWh >= peak kW x 100 h), pinning it near minimum
-speed. The nuclear ship is the opposite: cheap fuel and expensive capital push
-it to maximum speed, and its LCOT depends on D_max only through port-call
-frequency.
-
-This file is the entry point only. The model is split across sibling modules:
-    units.py     unit conversions (single source of truth)
-    params.py    Params schema + load_params(config.yaml)
-    finance.py   capital recovery factor
-    energy.py    ship physics (power, leg energy, legs/year)
-    lcot.py      the cost models: fossil, LFP & iron-air battery (port swap),
-                 onboard nuclear (direct-drive), two nuclear-electric variants
-                 (containerized / integrated), and a battery ship charged at sea
-                 by a mobile nuclear tender. carried() now applies volume, mass
-                 and asymmetric-leg constraints.
-    analysis.py  speed optimization + crossover distance
-    report.py    console tables (+ the CASES registry)
-    plots.py     Plotly figures (interactive HTML + static PNG)
-
-All energy in kWh, power in kW, time in hours, distance in km, speed in knots.
+Will: load_config(config.yaml, cases.csv) -> run(case) for each Case -> write the results
+artifact. The old entry point (against the pre-rebuild modules) was deleted; this awaits
+optimizer.py and the EnergySource cost methods. See TODO.md and README.md.
 """
-
-import os
-
-from params import load_params
-from report import print_report
-from plots import (plot_lcot_vs_dmax, plot_speed_vs_dmax, plot_tornados,
-                   plot_teu_tech_tradeoff)
-
-REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-CONFIG_PATH = os.path.join(REPO_ROOT, "config.yaml")
-RESULTS_DIR = os.path.join(REPO_ROOT, "results")
-
-
-def main():
-    p = load_params(CONFIG_PATH)
-    print_report(p)
-
-    saved = plot_lcot_vs_dmax(p, RESULTS_DIR)
-    saved += plot_speed_vs_dmax(p, RESULTS_DIR)
-    saved += plot_tornados(p, 1000, RESULTS_DIR)
-    saved += plot_teu_tech_tradeoff(p, 500, RESULTS_DIR)
-    for path in saved:
-        print(f"Saved plot: {os.path.relpath(path, REPO_ROOT)}")
-
-
-if __name__ == "__main__":
-    main()

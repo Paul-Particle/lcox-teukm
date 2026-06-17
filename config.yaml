@@ -1,11 +1,9 @@
-# config.yaml — DRAFT grouping (3rd pass; see DESIGN.md "integration rule")
+# config.yaml — the component library (platforms / drivetrains / sources + shared economics).
 #
-# The old flat params.py regrouped by axis, with fields grouped into thematic
-# sub-blocks. Rule: CAPEX follows integration — integral converters (engine,
-# integrated reactor) carry CAPEX on the DRIVETRAIN with a thin/absent EnergySource;
-# separable supply (containerized reactor, tender, swappable battery) carries CAPEX
-# on the EnergySource, with its commodity price folded in. `type:` is the loader's
-# cost-model discriminator. `# ?` marks an open choice. `cases:` is deferred.
+# CAPEX follows integration (see README): integral converters (engine, integrated reactor)
+# carry CAPEX on the DRIVETRAIN with a thin/absent EnergySource; separable supply (containerized
+# reactor, tender, swappable battery) carries CAPEX on the EnergySource, price folded in. `type:`
+# is the loader's cost-model discriminator.
 #
 # Units: energy kWh, power kW, time h, distance km, speed kn, mass kg, money US$.
 
