@@ -219,3 +219,14 @@ not full regeneration on every run.
 - **Journey representation:** the concrete shape of the resolved segment plan.
 - **Extra swept axes** beyond `D_max` (to ease later Sobol exploration): structure
   for it, but low priority.
+- **Modular flexibility / option value is out of scope (way down the line).** LCOT
+  here is a deterministic, single-route, steady-state *floor*. It credits reactor
+  **sharing** — one tender (or containerized module) amortized over many ship-hours —
+  through the duty cycle in the levelized $/kWh. It does **not** credit reactor
+  **flexibility**: reallocating a scarce reactor across heterogeneous, time-varying
+  demand (long vs. short routes), independent reactor/hull/battery lifetimes, and
+  graceful degradation/redundancy. That option value is real and systematically
+  **under-credits the modular cases** (tender, containerized) relative to integrated
+  nuclear, but pricing it needs a stochastic *fleet-level* simulation with a realistic
+  route/demand mix — far beyond this model. Read the modular cases' LCOT as a floor
+  with an unpriced option premium on top, not as the last word vs. integrated.
