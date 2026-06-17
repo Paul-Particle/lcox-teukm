@@ -1,19 +1,11 @@
 """
 data_classes.py — the frozen config schema.
 
-Dataclasses that mirror config.yaml's sub-blocks one-to-one, so the loader
-(load_config.py) can build them mechanically (`Block(**yaml_subdict)`) with no
-adapter logic. Three config nouns — Platform, Drivetrain, EnergySource (fuel /
-battery / reactor). The `Case` (the unit we evaluate) composes those and adds everything
-non-component via a `Params` block (economics + margins + route), a strategy name, and the
-optimize/sweep axes.
-
-The top-level structures come first (Case + the nouns + the source family); the small
-sub-block dataclasses they're composed of are at the bottom — once you've read config.yaml
-they're self-evident.
-
-Units (see units.py): energy kWh, power kW, time h, distance km, speed kn, mass kg,
-money US$.
+Dataclasses mirror config.yaml's sub-blocks one-to-one, so the loader builds them
+mechanically (`Block(**yaml_subdict)`). Three nouns — Platform, Drivetrain, EnergySource
+(fuel / battery / reactor); a `Case` composes them plus everything non-component (a `Params`
+block, a strategy name, optimize/sweep axes). Top-level structures first; the sub-blocks they
+compose at the bottom. Units: see units.py.
 """
 
 from __future__ import annotations
@@ -25,11 +17,8 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class Case:
-    """The unit we evaluate: one composition plus how to explore it. Holds the three
-    components and everything that isn't one of them — a `params` block (economics +
-    margins + route), the strategy name, and the optimize/sweep axes. Pure data: a runner
-    reads `sweep`/`optimize` and drives sweep → optimize → strategy; nothing here has
-    behaviour of its own."""
+    """One composition plus how to explore it. Pure data: a runner reads `sweep`/`optimize`
+    and drives sweep -> optimize -> strategy."""
     name: str
     sources: tuple[EnergySource, ...]   # zero or more (zero = fueled-for-life converter)
     platform: Platform
@@ -41,8 +30,8 @@ class Case:
 
 @dataclass(frozen=True)
 class EnergySource:
-    """Base for the energy-supplying technologies. The concrete subclass IS the
-    `type` (fuel / battery / reactor), so it isn't stored as a field."""
+    """Base for the energy-supplying technologies. The concrete subclass IS the type
+    (fuel / battery / reactor), so type isn't a field."""
     name: str
 
 
@@ -88,10 +77,9 @@ class BatterySource(EnergySource):
 
 @dataclass(frozen=True)
 class ReactorSource(EnergySource):
-    """Base for the two reactor-as-source variants (both `type: reactor`). Holds only what
-    they share — the reactor block: capex, thermal fuel price, and thermal->electric
-    efficiency. Each concrete subtype adds its integration-specific fields and (later) its
-    own cost method, so strategies match on the SUBTYPE, not this base."""
+    """Base for the two reactor-as-source variants. Holds only the shared reactor block;
+    each subtype adds its integration-specific fields and cost method, so strategies match
+    on the SUBTYPE, not this base."""
     capex: ReactorCapex
     fuel_usd_per_kwh_th: float
     generation: float               # reactor thermal -> electricity
@@ -99,9 +87,8 @@ class ReactorSource(EnergySource):
 
 @dataclass(frozen=True)
 class ContainerizedReactor(ReactorSource):
-    """A reactor module that replaces cargo containers on an electric ship: it occupies
-    slots (overhead), adds an onboard crew/security hotel load, and bills $/kWh levelized
-    over its fleet-pooled utilization."""
+    """A reactor module that replaces cargo containers on an electric ship: occupies slots,
+    adds an onboard hotel load, bills $/kWh levelized over its fleet-pooled utilization."""
     overhead: Overhead              # slot footprint (teu_per_mwe, sized from power)
     hotel_delta_kw: float           # onboard crew/security
     pool: Pool                      # fleet-pooled utilization
@@ -110,8 +97,8 @@ class ContainerizedReactor(ReactorSource):
 @dataclass(frozen=True)
 class TenderReactor(ReactorSource):
     """A separate uncrewed vessel (capex.hull_usd is the ship ex-reactor) that tethers an
-    electric ship and feeds it over a cable; its $/kWh is levelized over a tethered/idle
-    duty cycle, not a slot footprint."""
+    electric ship and feeds it over a cable; $/kWh levelized over a tethered/idle duty
+    cycle, not a slot footprint."""
     parasitic_kw: float             # uncrewed DP station-keeping + cooling
     om_other_usd_yr: float          # uncrewed remote ops + asset-loss insurance
     availability: float
@@ -120,8 +107,8 @@ class TenderReactor(ReactorSource):
 # ---- case ----
 @dataclass(frozen=True)
 class Params:
-    """The Case's non-component inputs. `economics` and `margins` are cross-case (one of
-    each, referenced by every case); `route` is per-case."""
+    """The Case's non-component inputs. `economics`/`margins` are cross-case (by reference);
+    `route` is per-case."""
     economics: Economics    # cross-case, by reference
     margins: Margins        # cross-case, by reference
     route: Route            # per-case fixed route/condition params
@@ -129,9 +116,8 @@ class Params:
 
 @dataclass(frozen=True)
 class Economics:
-    """Cross-case economics. Per-case quantities — load factors, speed bounds — live on the
-    Case (its `route` params / `optimize` axes), not here: cases are Sobol-generated
-    (potentially thousands), so those are not global."""
+    """Cross-case economics. Per-case quantities (load factors, speed bounds) live on the
+    Case, not here — cases are Sobol-generated, so those vary per case."""
     discount_rate: float
     crew_cost_usd_yr: float         # loaded annual cost per crew member
 
@@ -145,9 +131,8 @@ class Margins:
 
 @dataclass(frozen=True)
 class Route:
-    """Per-case fixed route/condition params a strategy reads — the inputs that are neither
-    a component nor swept/free. Strategy-specific fields are optional: a fuel case needs
-    none of the battery/tender ones."""
+    """Per-case fixed route/condition params (neither a component nor swept/free).
+    Strategy-specific fields are optional: a fuel case needs none of the battery/tender ones."""
     load_factor: float                      # mean cargo load factor (route/market)
     load_factor_imbalance: float            # head/back-haul split (all strategies, via carried)
     design_v_kn: float | None = None        # design speed the cheap engine/motor is sized to
@@ -158,9 +143,8 @@ class Route:
 
 @dataclass(frozen=True)
 class Axis:
-    """A point-coordinate the runner varies over a grid. Same shape for an `optimize` axis
-    (searched for min lcot) and a `sweep` axis (traced as an LCOT-vs-X curve) — the Case
-    decides which list it lands in. First cut; revisit when the optimizer is built."""
+    """A point-coordinate the runner varies over a grid. Same shape whether `optimize`
+    (searched for min lcot) or `sweep` (traced as LCOT-vs-X) — the Case's list decides which."""
     param: str                      # the point-dict key it sets, e.g. "op_v_kn" or "d_km"
     lo: float
     hi: float
@@ -211,8 +195,8 @@ class DrivetrainCapex:
 
 @dataclass(frozen=True)
 class Overhead:
-    """Slot footprint. Either a fixed count or a per-MWe rate (sized from power);
-    shared by drivetrains and reactor sources."""
+    """Slot footprint: a fixed count or a per-MWe rate (sized from power). Shared by
+    drivetrains and reactor sources."""
     slots: float | None = None
     teu_per_mwe: float | None = None
 
@@ -230,7 +214,7 @@ class Operations:
 @dataclass(frozen=True)
 class PropulsionFactor:
     """Itemized hull/propeller efficiency; the product scales propulsion power.
-    propeller/wider_eff are electric-only (= 1.0 on mechanical drivetrains)."""
+    propeller/wider_eff are electric-only (1.0 on mechanicals)."""
     hull_form: float
     coating: float
     propeller: float

@@ -1,11 +1,10 @@
 """
-load_config.py — read the component library (config.yaml) + the case table (cases.csv)
-into the frozen schema (data_classes.py), returning the built Cases keyed by name.
+load_config.py — read the component library (config.yaml) + case table (cases.csv) into
+the frozen schema, returning Cases keyed by name.
 
-Trusted input — no validation beyond what the dataclass constructors enforce (an
-unknown or missing key raises a TypeError, which is enough for a small project).
-Library loading is mechanical: `Block(**yaml_subdict)`, sources dispatch on `type`.
-Cases are a tidy CSV read with pandas (snakemake-style), one case per group of rows.
+Trusted input: no validation beyond what the dataclass constructors enforce (a bad key
+raises TypeError). Library loading is mechanical (`Block(**yaml_subdict)`, sources dispatch
+on `type`); cases are a tidy CSV read with pandas, one case per group of rows.
 """
 
 import pandas as pd
@@ -57,13 +56,11 @@ def _source(name: str, d: dict) -> dc.EnergySource:
     raise ValueError(f"unknown source type {t!r} for source {name!r}")
 
 
-# ---- cases.csv: a tidy table read with pandas (snakemake-style sample sheet) ----
-# One case spans one OR MORE rows sharing `name`. The case-level scalars (platform /
-# drivetrain / strategy / route) are REPEATED on every row of the case; the multi-valued
-# fields — `source` and the optimize/sweep axes — are enumerated one per row, so a second
-# source or axis is just a continuation row (its scalars repeated, the other multi-valued
-# cells blank). Per case we group by name, read scalars off the first row, and collect every
-# non-blank source / axis across the group. Blank cells arrive as NaN.
+# ---- cases.csv: one case per group of rows sharing `name` ----
+# Case-level scalars (platform/drivetrain/strategy/route) repeat on every row; the
+# multi-valued fields (`source` + the optimize/sweep axes) are enumerated one per row, so an
+# extra source/axis is just a continuation row. We group by name, read scalars off the first
+# row, and collect every non-blank source/axis across the group. Blank cells arrive as NaN.
 _ROUTE_FIELDS = ("load_factor", "load_factor_imbalance", "design_v_kn",
                  "storm_duration_h", "standoff_nm", "idle_h")
 
@@ -103,10 +100,9 @@ def _case(group, economics: dc.Economics, margins: dc.Margins,
 
 
 def load_config(config_path, cases_path) -> dict[str, dc.Case]:
-    """Build the Cases (keyed by name) from the component library (config.yaml) + the case
-    table (cases.csv). Builds the platforms / drivetrains / sources libraries and the
-    cross-case economics/margins from the YAML, then assembles one Case per group of CSV rows —
-    every Case is self-contained (its components + `Params` + axes), so a runner needs only this map."""
+    """Build the Cases (keyed by name) from config.yaml + cases.csv: the platforms /
+    drivetrains / sources libraries and cross-case economics/margins from the YAML, then one
+    self-contained Case per group of CSV rows."""
     import yaml
     with open(config_path) as f:
         d = yaml.safe_load(f)
