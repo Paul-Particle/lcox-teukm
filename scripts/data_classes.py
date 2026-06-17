@@ -4,12 +4,13 @@ data_classes.py — the frozen config schema.
 Dataclasses that mirror config.yaml's sub-blocks one-to-one, so the loader
 (load_config.py) can build them mechanically (`Block(**yaml_subdict)`) with no
 adapter logic. Three config nouns — Platform, Drivetrain, EnergySource (fuel /
-battery / reactor) — plus a Shared block, aggregated into a `Config`.
+battery / reactor) — plus a Shared block, aggregated into a `Config`. The `Case` (the
+unit we evaluate) composes those and adds everything non-component: its `route` params,
+the strategy name, and the optimize/sweep axes.
 
-The top-level structures come first (Config + the nouns + the source family); the
+The top-level structures come first (Config + the nouns + the source family + Case); the
 small sub-block dataclasses they're composed of are at the bottom — once you've read
-config.yaml they're self-evident. The Case / Strategy behavior is built on these and
-is not here yet.
+config.yaml they're self-evident.
 
 Units (see units.py): energy kWh, power kW, time h, distance km, speed kn, mass kg,
 money US$.
@@ -33,11 +34,13 @@ class Config:
 class Shared:
     discount_rate: float
     crew_cost_usd_yr: float
-    weather_reserve: float
-    load_factor: float
-    load_factor_imbalance: float
-    v_min_kn: float
-    v_max_kn: float
+    weather_reserve: float          # energy margin on a battery ship's pack
+    sea_margin: float               # power margin on installed propulsion (sizing)
+    load_factor: float              # mean cargo load factor
+    v_min_kn: float                 # operating-speed search floor
+    v_max_kn: float                 # operating-speed search ceiling
+    # NOTE load_factor_imbalance moved to Route (it's per-case). v_min/v_max are candidates
+    # for the op_v_kn `optimize` axis on the Case — see the flag in the chat / Axis below.
 
 
 @dataclass(frozen=True)
@@ -101,6 +104,24 @@ class ReactorSource(EnergySource):
     om_other_usd_yr: float | None = None    # tender
     availability: float | None = None       # tender
     tether: Tether | None = None            # tender
+
+
+@dataclass(frozen=True)
+class Case:
+    """The unit we evaluate: one composition plus how to explore it. Holds the three
+    components and everything that isn't one of them — the `shared` block (one instance,
+    by reference), the per-case `route` params, the strategy name, and the optimize/sweep
+    axes. Pure data: a runner reads `sweep`/`optimize` and drives sweep → optimize →
+    strategy; nothing here has behaviour of its own."""
+    name: str
+    platform: Platform
+    drivetrain: Drivetrain
+    sources: tuple[EnergySource, ...]   # zero or more (zero = fueled-for-life converter)
+    strategy: str                       # names the function in strategies.py
+    shared: Shared                      # the one shared block, by reference
+    route: Route                        # per-case fixed route/condition params
+    optimize: tuple[Axis, ...]          # FREE axes: searched per swept point for min lcot
+    sweep: tuple[Axis, ...]             # SWEPT axes: iterated to trace LCOT-vs-X (D_max…)
 
 
 # ================= sub-blocks (detail; mirror config.yaml's sub-blocks) ====
@@ -221,3 +242,27 @@ class Pool:
 class Tether:
     cable_efficiency: float
     cable_v_cap_kn: float           # max speed while tethered (source-imposed speed cap)
+
+
+# ---- case ----
+@dataclass(frozen=True)
+class Route:
+    """Per-case fixed route/condition params a strategy reads — the inputs that are neither
+    a component nor swept/free. Strategy-specific fields are optional: a fuel case needs
+    none of the battery/tender ones."""
+    load_factor_imbalance: float            # head/back-haul split (all strategies, via carried)
+    design_v_kn: float | None = None        # design speed the cheap engine/motor is sized to
+    storm_duration_h: float | None = None   # storm-buffer energy (battery ships)
+    standoff_nm: float | None = None        # coastal sub-leg each side of the tether (tender)
+    idle_h: float | None = None             # tender reposition-or-wait between escorts
+
+
+@dataclass(frozen=True)
+class Axis:
+    """A point-coordinate the runner varies over a grid. Same shape for an `optimize` axis
+    (searched for min lcot) and a `sweep` axis (traced as an LCOT-vs-X curve) — the Case
+    decides which list it lands in. First cut; revisit when the optimizer is built."""
+    param: str                      # the point-dict key it sets, e.g. "op_v_kn" or "d_km"
+    lo: float
+    hi: float
+    n: int                          # number of grid points

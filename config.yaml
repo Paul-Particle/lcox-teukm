@@ -13,11 +13,13 @@
 shared:
   discount_rate: 0.08
   crew_cost_usd_yr: 90000.0        # loaded annual cost per crew member
-  weather_reserve: 0.20            # route energy margin for any battery ship
-  load_factor: 0.80                # route/market (was on Platform)
-  load_factor_imbalance: 0.2       # head/back-haul split
-  v_min_kn: 5.0                    # optimizer speed-search floor
-  v_max_kn: 22.0                   # ceiling on the design speed the optimizer may choose
+  weather_reserve: 0.20            # energy margin on any battery ship's pack
+  sea_margin: 0.15                 # power margin on installed propulsion (sizing)
+  load_factor: 0.80                # mean cargo load factor (route/market)
+  v_min_kn: 5.0                    # operating-speed search floor
+  v_max_kn: 22.0                   # operating-speed search ceiling
+  # load_factor_imbalance (0.2) moved to each case's `route` block (it's per-case);
+  # v_min/v_max are candidates for the op_v_kn `optimize` axis once cases are wired.
 
 # ========================================================= platforms ====
 platforms:
