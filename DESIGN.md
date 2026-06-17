@@ -51,10 +51,15 @@ analysis consume it downstream and are out of scope for the rebuild's early step
 ### Verb
 
 - **Case** — a frozen composition: one Platform + one Drivetrain + **zero or more
-  EnergySources** + a named **Strategy** + operating/design parameters + flags for
-  which inputs are optimizable. The unit we evaluate. A Case can be multi-source:
-  the nuclear-tender case is *also* a battery case (onboard buffer + at-sea
-  charger), so the architecture supports N sources from the start.
+  EnergySources** + a named **Strategy** + fixed parameters + a declaration of which
+  inputs are **free** (the optimizer searches them to argmin LCOT, with bounds) and
+  which are **swept** (an outer runner iterates them, with their ranges, to trace LCOT
+  vs. X — `D_max` by default). A Case is therefore a **complete, self-contained
+  evaluation spec**: evaluating it yields a whole results table (sweep × per-point
+  optimum), not a single number. It stays **pure frozen data** — a generic runner reads
+  the declaration and drives sweep → optimize → strategy; the Case has no behavior of its
+  own. A Case can be multi-source: the nuclear-tender case is *also* a battery case
+  (onboard buffer + at-sea charger), so the architecture supports N sources from the start.
 
 ### Behavior
 
@@ -121,12 +126,13 @@ or the EnergySource (iron-air's C/50 power limit; the tender's cable speed cap).
 ```
 run.py
   └─ load config (YAML ─> frozen dataclasses)
-       └─ build Cases (Platform × Drivetrain × [EnergySource…] × Strategy)
-            └─ for each Case × D_max in the grid:        (always sweep D_max; the grid is
-                 Optimizer.evaluate(case, d_max)          structured to allow extra swept axes
-                   ├─ pick trial inputs (flagged)         later — eases the planned Sobol work,
-                   ├─ Strategy ─> Journey(s)              not a near-term priority)
-                   ├─ EnergySources.cost(journey, …) ─> cost data
+       └─ build Cases (Platform × Drivetrain × [EnergySource…] × Strategy
+            │            + fixed params + free-param & swept-param declarations)
+            └─ for each Case, for each point in case.sweep:   (D_max by default; a Case may
+                 Optimizer.argmin(case, swept_point)           declare extra swept axes — eases
+                   ├─ search the Case's free params            the planned Sobol work, not a
+                   ├─ Strategy(case, point) ─> Journey + cost  near-term priority)
+                   ├─ EnergySources own their cost models
                    ├─ physics (carried, legs/yr) + helpers ─> assemble LCOT
                    └─ argmin LCOT ─> Result row
             └─ write artifact  (Parquet, CSV option)
@@ -135,6 +141,11 @@ run.py
 ## Optimization
 
 - **Objective:** minimize LCOT.
+- **Free vs. swept — the Case declares both.** The Optimizer searches only the **free**
+  params, at one fixed **swept** point handed to it. The **swept** params (`D_max` by
+  default) are iterated by an outer runner, *not* the Optimizer. Because both live on the
+  Case, it is self-describing: a runner needs nothing beyond the Case to produce its full
+  results table.
 - **Free variables (near-term):** operating/service speed (almost always) and
   reactor size (reactor-bearing cases). Installed power is *derived* from the
   chosen speed (+ a sea/weather margin) — this removes the old design-speed vs.
@@ -171,7 +182,8 @@ shared:        # route + economics that aren't axis-specific (discount rate, cre
 platforms:     # container (TEU)  [bulk (tonne) when it earns its keep]
 drivetrains:   # mechanical-fossil | mechanical-nuclear | electric
 sources:       # VLSFO | LFP | iron-air | SMR-* | mobile-tender-reactor | …
-cases:         # named: a platform + drivetrain + [sources] + strategy + params + opt flags
+cases:         # named: platform + drivetrain + [sources] + strategy + fixed params
+               #        + free-param decl (optimized) + swept-param decl (D_max range, …)
 ```
 
 ## Output artifact

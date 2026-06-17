@@ -7,9 +7,10 @@ drivetrain, sources, journey params, design speed) plus ONE point in parameter s
 supplied by the optimizer, then designs the journey for that point — segment the route,
 decide which source supplies what, size the stores, assemble the cost. It reads fixed
 params off the case and the varied coordinates off the point; it does not know or care
-which point-coordinates the optimizer is *searching* (to argmin LCOT) versus which an
-outer loop is *sweeping* (e.g. D_max). The case tells the optimizer which params are
-free; LCOT-vs-sweep lives outside the optimizer, as a loop/vector over cases.
+which point-coordinates the optimizer is *searching* (to argmin LCOT) versus which the
+outer runner is *sweeping* (e.g. D_max). The case itself declares both — which params are
+free and which are swept (with their ranges) — so it is a complete evaluation spec; a
+generic runner reads that and drives sweep → optimize → strategy.
 
 This is the FIRST strategy: `tether_charge` (the nuclear-tender case). Written before
 the source cost methods and some schema fields exist, on purpose — the calls it makes
