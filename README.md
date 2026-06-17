@@ -5,14 +5,12 @@ cargo-unit·km — US¢/TEU·km for the container platform) of ship technology *
 function of **`D_max`**, the longest port-to-port hop on a route, so powertrains and energy
 strategies compare on an absolute basis, not just as ratios.
 
-> **Status: under reconstruction (branch `rebuild-schema`).** The model is mid-rebuild onto a
-> clean 3-axis schema and does **not run end-to-end yet**. Done: the frozen config schema
-> (`data_classes.py`), the loader (`load_config.py`), shared physics/finance (`helpers.py`,
-> `units.py`), and all six strategy functions (`strategies.py`). Not done: `optimizer.py`, the
-> EnergySource cost methods the strategies call (flagged `# NEEDS` in `strategies.py`), the
-> `run.py` entry point, the results artifact, and presentation (`plots.py`/`style.py` are
-> stale). See **TODO.md** for the build list. The notes below are reference material kept out
-> of git history pending a proper rewrite once the rebuild lands.
+> **Status: rebuilt onto a clean 3-axis schema; runs end-to-end.** `uv run scripts/run.py`
+> loads the config, optimizes each of the 8 seed cases over the `D_max` sweep, and writes the
+> results artifact; `uv run scripts/plots.py` renders the LCOT- and speed-vs-`D_max` figures
+> from it. What's left is refinement, not core machinery — see **TODO.md** (presentation
+> polish, incremental artifact writes, and the modeling follow-ups). The notes below are
+> reference material kept out of git history pending a proper rewrite.
 
 ---
 
@@ -44,9 +42,11 @@ multi-source (the tender case is also a battery case).
 the Case. Segments the route, orchestrates the sources, sizes the stores, computes
 `carried`/`legs_per_year`, returns the levelized cost (`lcot`) plus artifact fields.
 
-**Optimizer** *(to build)* — `optimize(case, swept_point) -> dict` searches the Case's **free**
-axes (sizing/dispatch) at one fixed swept point, keeping the min-`lcot` row. **`run(case)`**
-iterates the **swept** axes (`D_max` by default), collecting one optimal row per point.
+**Optimizer** — `optimize(case, swept_point) -> dict` searches the Case's **free** axes
+(sizing/dispatch) at one fixed swept point, keeping the min-`lcot` row. **`run(case)`** iterates
+the **swept** axes (`D_max` by default), collecting one optimal row per point. The search is an
+exhaustive grid (each `Axis` → `n` linearly-spaced points); swap in a real solver later without
+touching the strategies.
 
 #### Module map
 
@@ -56,13 +56,14 @@ iterates the **swept** axes (`D_max` by default), collecting one optimal row per
 | `helpers.py` | shared only: `crf` + ship physics (`prop_power_kw`, `propulsion_factor`) | done |
 | `data_classes.py` | frozen config schema (Platform / Drivetrain / EnergySource family / Case / Params / Axis) | done |
 | `load_config.py` | YAML library + pandas CSV cases → built Cases (`dict[name → Case]`) | done |
-| `strategies.py` | the 6 strategy functions + shared scaffolding + route math (`legs_per_year`, `carried`) | done; calls source cost methods that don't exist yet (`# NEEDS`) |
+| `strategies.py` | the 6 strategy functions + shared scaffolding + route math (`legs_per_year`, `carried`) | done |
+| EnergySource cost methods | `size` / `levelize` / `usd_per_kwh` / `life_yr` per source (on the dataclasses) | done |
 | `config.yaml` | component library (platforms/drivetrains/sources + shared economics) | draft (some placeholder crew/O&M) |
 | `cases.csv` | the case table (tidy; one case per group of rows) | 8 seed cases (some placeholder route/axis values) |
-| EnergySource cost methods | `size` / `levelize` / `usd_per_kwh` / `life_yr` per source | to build (see `# NEEDS`) |
-| `optimizer.py` | `optimize` (free-param search) + `run` (sweep) | to build |
-| `run.py` | entry point → load → run → artifact | stub, pending |
-| `plots.py`, `style.py` | presentation | deferred until an artifact exists; `plots.py` stale |
+| `optimizer.py` | `optimize` (free-param grid search) + `run` (sweep) | done |
+| `run.py` | entry point → load → run → artifact | done |
+| `plots.py` | LCOT- and speed-vs-`D_max` figures from the artifact | done |
+| `style.py` | FCA house plotting style (template, palette, brand chrome) | done |
 
 ### The cases & the integration rule
 
@@ -133,12 +134,13 @@ to slow down (less energy/km → smaller pack → fewer displaced slots + less C
 100-h discharge rating makes its pack power-bound, pinning it near minimum speed; the nuclear
 ships' cheap fuel + expensive capital push them to maximum speed.
 
-### Output artifact (planned)
+### Output artifact
 
-A tidy table, one row per (case, `D_max`, any other swept input): LCOT, optimal speed, reactor
-size, the energy/capital/O&M breakdown, energy-store size, and a feasibility flag. **Parquet**
-primary, **CSV** optional. Designed for large sweeps and incremental generation (append /
-partitioned writes), not full regeneration each run.
+`run.py` writes a tidy table (`results/lcot.parquet` + `results/lcot.csv`), one row per (case,
+`D_max`, any other swept input): LCOT, optimal speed, reactor/store size, the
+energy/capital/O&M breakdown, and a feasibility flag. Columns are unioned across the
+heterogeneous strategy rows (absent fields are NaN). Currently regenerated whole each run;
+incremental/partitioned writes for large sweeps are a TODO.
 
 ### Concept notes
 
@@ -195,9 +197,9 @@ with an unpriced option premium on top.
 
 ### Setup (uv)
 
-Once the model runs, it will use [uv](https://docs.astral.sh/uv/) (Python 3.11+ provisioned
-automatically): `uv sync` then `uv run scripts/run.py`. Dependencies are in `pyproject.toml`,
-pinned in `uv.lock`.
+Uses [uv](https://docs.astral.sh/uv/) (Python 3.11+ provisioned automatically): `uv sync`, then
+`uv run scripts/run.py` to compute the artifact and `uv run scripts/plots.py` to render the
+figures. Dependencies are in `pyproject.toml`, pinned in `uv.lock`.
 
 ## License
 
