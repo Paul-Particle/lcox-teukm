@@ -4,31 +4,30 @@ Open items only — completed work is in the git history.
 
 **Current focus — finish the rebuild on `main`.** The model is being rebuilt onto a clean
 3-axis schema (`Platform × Drivetrain × EnergySource`, composed into `Case`s, costed by
-per-case `strategy` functions). The schema, loader, shared physics, and all six strategies are
-done; the pieces below make it run end-to-end. The earlier feature branches (scale factors,
-Sobol sensitivity, MRV fleet data) are set aside, to be redone from the refactored base.
+per-case `strategy` functions). The schema, loader, shared physics, all six strategies, the
+optimizer, and the entry point are done — the model now runs end-to-end and writes the artifact.
+What's left is presentation. The earlier feature branches (scale factors, Sobol sensitivity, MRV
+fleet data) are set aside, to be redone from the refactored base.
 
 ## Rebuild — what's left to build
 
-- **`optimizer.py`** — `optimize(case, swept_point)` searches the Case's free axes (sizing/
-  dispatch) for min `lcot` at one swept point; `run(case)` iterates the swept axes (`D_max`).
-  Both plain-dict in/out. The strategies and their EnergySource cost methods are done and produce
-  finite, sane LCOTs across the seed cases — the optimizer + `run` are what's left to drive them.
-- **`run.py`** — rewrite as the entry point: load_config → `run(case)` per Case → artifact.
-- **Results artifact** — tidy table, one row per (case, `D_max`, other swept inputs): LCOT,
-  optimal speed, reactor size, energy/capital/O&M breakdown, store size, feasibility. **Parquet**
-  primary (CSV optional); designed for incremental generation (append / partitioned writes).
 - **Presentation** — rebuild `plots.py`/`style.py` against the artifact (`plots.py` is stale,
-  importing pre-rebuild modules; deferred until the artifact exists).
+  importing pre-rebuild modules).
+- **Incremental artifact** — `run.py` currently rebuilds `results/lcot.{parquet,csv}` whole each
+  run. Add append / partitioned writes once the case/sweep grid is big enough to want it.
 - **Config placeholders** — some crew/O&M values in `config.yaml`; some route/axis values in
   `cases.csv` are placeholders pending real data.
 
 ## Open design decisions
 
-- **Strategy ↔ Optimizer boundary** — resolved for now: the strategy owns the whole per-point
-  cost (segments the route, sizes stores, computes `carried`/`legs`, assembles LCOT) and returns
-  a row dict; `optimize` only *searches* free inputs and compares `lcot`. Revisit if a case
-  needs the optimizer to see partial structure.
+- **Strategy ↔ Optimizer boundary** — resolved: the strategy owns the whole per-point cost
+  (segments the route, sizes stores, computes `carried`/`legs`, assembles LCOT) and returns a row
+  dict; `optimize` only *searches* free inputs and compares `lcot`. Revisit if a case needs the
+  optimizer to see partial structure.
+- **Grid search** — `optimizer.py` searches free axes by exhaustive cartesian grid (each Axis ->
+  `n` linearly-spaced points). Fine for the current low-dimensional axes (just `op_v_kn`), but the
+  optimal speeds land on grid points (integer knots at the seed `n`); refine the grid or swap in a
+  real 1-D minimizer if the speed resolution matters.
 - **Containerized-reactor pool utilization** — `ContainerizedReactor.size` levelizes over a
   route-independent fleet utilization (`pool.availability`), per the owned==leased collapse. So
   `pool.idle_h` is currently **unused**; wiring it would mean a route-coupled pool model (passing
