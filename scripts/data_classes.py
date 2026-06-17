@@ -22,23 +22,23 @@ from dataclasses import dataclass
 
 
 # ================================================ top-level structures ====
-@dataclass(frozen=True)
-class Config:
-    shared: Shared
-    platforms: dict[str, Platform]
-    drivetrains: dict[str, Drivetrain]
-    sources: dict[str, EnergySource]
-
 
 @dataclass(frozen=True)
-class Shared:
-    """Genuinely cross-case economics + design margins. Everything that varies per case —
-    load factors, speed bounds — lives on the Case (its `route` params / `optimize` axes),
-    not here: cases are Sobol-generated (potentially thousands), so those are not global."""
-    discount_rate: float
-    crew_cost_usd_yr: float         # loaded annual cost per crew member
-    margins: Margins
-
+class Case:
+    """The unit we evaluate: one composition plus how to explore it. Holds the three
+    components and everything that isn't one of them — the `shared` block (one instance,
+    by reference), the per-case `route` params, the strategy name, and the optimize/sweep
+    axes. Pure data: a runner reads `sweep`/`optimize` and drives sweep → optimize →
+    strategy; nothing here has behaviour of its own."""
+    name: str
+    platform: Platform
+    drivetrain: Drivetrain
+    sources: tuple[EnergySource, ...]   # zero or more (zero = fueled-for-life converter)
+    strategy: str                       # names the function in strategies.py
+    shared: Shared                      # the one shared block, by reference
+    route: Route                        # per-case fixed route/condition params
+    optimize: tuple[Axis, ...]          # FREE axes: searched per swept point for min lcot
+    sweep: tuple[Axis, ...]             # SWEPT axes: iterated to trace LCOT-vs-X (D_max…)
 
 @dataclass(frozen=True)
 class Platform:
@@ -103,25 +103,18 @@ class ReactorSource(EnergySource):
     tether: Tether | None = None            # tender
 
 
-@dataclass(frozen=True)
-class Case:
-    """The unit we evaluate: one composition plus how to explore it. Holds the three
-    components and everything that isn't one of them — the `shared` block (one instance,
-    by reference), the per-case `route` params, the strategy name, and the optimize/sweep
-    axes. Pure data: a runner reads `sweep`/`optimize` and drives sweep → optimize →
-    strategy; nothing here has behaviour of its own."""
-    name: str
-    platform: Platform
-    drivetrain: Drivetrain
-    sources: tuple[EnergySource, ...]   # zero or more (zero = fueled-for-life converter)
-    strategy: str                       # names the function in strategies.py
-    shared: Shared                      # the one shared block, by reference
-    route: Route                        # per-case fixed route/condition params
-    optimize: tuple[Axis, ...]          # FREE axes: searched per swept point for min lcot
-    sweep: tuple[Axis, ...]             # SWEPT axes: iterated to trace LCOT-vs-X (D_max…)
 
 
 # ================= sub-blocks (detail; mirror config.yaml's sub-blocks) ====
+
+@dataclass(frozen=True)
+class Shared:
+    """Genuinely cross-case economics + design margins. Everything that varies per case —
+    load factors, speed bounds — lives on the Case (its `route` params / `optimize` axes),
+    not here: cases are Sobol-generated (potentially thousands), so those are not global."""
+    discount_rate: float
+    crew_cost_usd_yr: float         # loaded annual cost per crew member
+    margins: Margins
 
 # ---- shared ----
 @dataclass(frozen=True)
