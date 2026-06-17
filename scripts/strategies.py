@@ -14,10 +14,15 @@ optimizer is *searching* (to argmin LCOT) versus which the outer runner is *swee
 Architecture convention: nouns are frozen dataclasses, verbs are plain functions; the
 one exception is EnergySource, which carries its own (polymorphic) cost methods.
 
-This is the FIRST strategy: `tether_charge` (the nuclear-tender case). Written before
-the source cost methods and several types/fields exist, on purpose — the calls it makes
-ARE the interface spec. `# NEEDS` flags what the schema / sources / Point / Result must
-provide next.
+The strategies so far (each written before the source cost methods / some types exist, on
+purpose — the calls they make ARE the interface spec; `# NEEDS` flags what the schema /
+sources / Point / Result must provide next):
+  - `tether_charge`     — nuclear-tender case: battery ship whose crossing is carried by an
+                          at-sea reactor over a cable.
+  - `port_swap_battery` — LFP / iron-air case: the pack carries a whole D_max leg and is
+                          swapped/recharged at port. Same battery interface as the tender.
+  - `fuel_burn`         — fossil / e-methanol case: a mechanical drivetrain burns a thin
+                          commodity-fuel source over full legs.
 """
 
 from __future__ import annotations
@@ -140,6 +145,141 @@ def tether_charge(case: dc.Case, point) -> dict:    # NEEDS Result return type (
         "battery_slots": slots, "battery_kwh": installed_kwh, "motor_kw": motor_kw,
         "tender_reactor_kw": reactor_kw, "tender_usd_per_kwh": tender_usd_per_kwh,
         "ships_per_tender": (sail_h + dt.operations.port_hours) / (tethered_h + route.idle_h),
+    }
+
+
+def port_swap_battery(case: dc.Case, point) -> dict:    # NEEDS Result return type (for now a dict)
+    """LCOT for a port-swap battery ship (the LFP / iron-air cases) at one evaluation
+    `point`. An electric ship propels a full D_max leg on its pack and swaps to a charged
+    pack at each port call (grid charge price folded in). Like `tether_charge` but with no
+    tender: the pack carries the WHOLE leg, and the grid — not a reactor — refills it.
+
+    Same two-speed sizing: motor to the fixed design speed + sea margin; the pack to the
+    operating-speed energy (so slow-steaming shrinks it — and for iron-air the C/50 power
+    floor inside BatterySource.size pins the economic speed low). Exercises exactly the
+    BatterySource interface tether_charge already defined — nothing new is needed here.
+    """
+    pl, dt = case.platform, case.drivetrain
+    shared = case.shared
+    route = case.route
+    d_km, op_v_kn = point.d_km, point.op_v_kn
+    battery = next(s for s in case.sources if isinstance(s, dc.BatterySource))
+
+    # --- journey plan: one full leg at the operating speed ----------------------
+    kmh = op_v_kn * KMH_PER_KNOT
+    sail_h = d_km / kmh
+
+    # --- power demand at the operating speed ------------------------------------
+    pf = helpers.propulsion_factor(dt.propulsion_factor)
+    hotel_kw = pl.hotel_base_kw + dt.operations.hotel_delta_kw
+    prop_kw = helpers.prop_power_kw(pl.resistance, op_v_kn, pf)
+    bus_kw = prop_kw / dt.efficiency.drive + hotel_kw / dt.efficiency.hotel
+
+    # --- size the pack to the whole leg: max(leg, storm buffer) + reserve --------
+    leg_kwh = bus_kw * sail_h
+    storm_kwh = bus_kw * route.storm_duration_h
+    deliverable_kwh = max(leg_kwh, storm_kwh) * (1 + shared.weather_reserve)
+    installed_kwh, slots, mass_t = battery.size(            # same call as tether_charge
+        deliverable_kwh, bus_kw, pl.slot_limits.container_max_gross_t)
+
+    # --- annual leg count + revenue cargo carried -------------------------------
+    legs = legs_per_year(op_v_kn, d_km, dt.operations.port_hours,
+                         dt.operations.availability)
+    cargo = carried(pl, dt.overhead.slots, slots, mass_t,
+                    shared.load_factor, route.load_factor_imbalance)
+    if cargo <= 0:
+        return _infeasible(op_v_kn, d_km)
+
+    # --- energy: the swap refills one full deliverable each leg at the grid price -
+    # (same conservative assumption as tether_charge: the full deliverable is cycled.)
+    rt = battery.efficiency.charge * battery.efficiency.discharge
+    recharge_kwh = deliverable_kwh / rt
+    grid_cost_leg = recharge_kwh * battery.charge_usd_per_kwh
+
+    # --- capital + fixed O&M ----------------------------------------------------
+    r = shared.discount_rate
+    design_prop_kw = helpers.prop_power_kw(pl.resistance, route.design_v_kn, pf)
+    motor_kw = design_prop_kw * (1 + shared.sea_margin)
+    battery_life = battery.life_yr(legs)
+    annual_fixed = (
+        pl.capex.hull_usd * helpers.crf(r, pl.capex.life_yr)
+        + dt.capex.converter_usd_per_kw * motor_kw * helpers.crf(r, dt.capex.life_yr)
+        + battery.capex.usd_per_kwh * installed_kwh * helpers.crf(r, battery_life)
+        + dt.operations.crew_count * shared.crew_cost_usd_yr
+        + dt.operations.om_other_usd_yr
+        + dt.operations.tug_usd_per_call * legs)
+
+    annual_energy = grid_cost_leg * legs
+    annual_unitkm = legs * d_km * cargo
+    lcot = (annual_fixed + annual_energy) / annual_unitkm
+
+    return {
+        "feasible": True, "lcot": lcot, "op_v_kn": op_v_kn, "d_km": d_km,
+        "carried": cargo, "legs": legs,
+        "annual_fixed": annual_fixed, "annual_energy": annual_energy,
+        "battery_slots": slots, "battery_kwh": installed_kwh, "motor_kw": motor_kw,
+    }
+
+
+def fuel_burn(case: dc.Case, point) -> dict:    # NEEDS Result return type (for now a dict)
+    """LCOT for a fuel-burning ship (the fossil / e-methanol cases) at one evaluation
+    `point`. A mechanical drivetrain burns a commodity fuel over full D_max legs. The fuel
+    is a THIN EnergySource — just a normalized price and its bunker mass; no sizing.
+
+    Engine (converter) sized to the fixed design speed + sea margin; fuel burn scales with
+    the operating speed. Surfaces the one thing a fuel source must provide: a price
+    normalized to $/kWh of fuel energy.
+    """
+    pl, dt = case.platform, case.drivetrain
+    shared = case.shared
+    route = case.route
+    d_km, op_v_kn = point.d_km, point.op_v_kn
+    fuel = next(s for s in case.sources if isinstance(s, dc.FuelSource))
+
+    # --- journey plan: one full leg at the operating speed ----------------------
+    kmh = op_v_kn * KMH_PER_KNOT
+    sail_h = d_km / kmh
+
+    # --- fuel energy burned this leg --------------------------------------------
+    pf = helpers.propulsion_factor(dt.propulsion_factor)
+    hotel_kw = pl.hotel_base_kw + dt.operations.hotel_delta_kw
+    prop_kw = helpers.prop_power_kw(pl.resistance, op_v_kn, pf)
+    # fuel-energy INPUT rate: shaft via the drive efficiency, hotel via the genset efficiency
+    fuel_kw = prop_kw / dt.efficiency.drive + hotel_kw / dt.efficiency.hotel
+    fuel_kwh_leg = fuel_kw * sail_h
+    # NEEDS FuelSource.usd_per_kwh() -> $ per kWh of fuel energy, normalizing the price quotes
+    #       (usd_per_t + lhv_kwh_per_kg | usd_per_kwh_chem | usd_per_kwh_th).
+    fuel_cost_leg = fuel_kwh_leg * fuel.usd_per_kwh()
+
+    # --- annual leg count + revenue cargo carried -------------------------------
+    legs = legs_per_year(op_v_kn, d_km, dt.operations.port_hours,
+                         dt.operations.availability)
+    # bunkers displace deadweight (mass); no extra slot footprint (tanks sit in the overhead)
+    cargo = carried(pl, dt.overhead.slots, 0.0, fuel.energy_mass_t,
+                    shared.load_factor, route.load_factor_imbalance)
+    if cargo <= 0:
+        return _infeasible(op_v_kn, d_km)
+
+    # --- capital + fixed O&M ----------------------------------------------------
+    r = shared.discount_rate
+    design_prop_kw = helpers.prop_power_kw(pl.resistance, route.design_v_kn, pf)
+    engine_kw = design_prop_kw * (1 + shared.sea_margin)   # converter = the main engine
+    annual_fixed = (
+        pl.capex.hull_usd * helpers.crf(r, pl.capex.life_yr)
+        + dt.capex.converter_usd_per_kw * engine_kw * helpers.crf(r, dt.capex.life_yr)
+        + dt.operations.crew_count * shared.crew_cost_usd_yr
+        + dt.operations.om_other_usd_yr
+        + dt.operations.tug_usd_per_call * legs)
+
+    annual_energy = fuel_cost_leg * legs
+    annual_unitkm = legs * d_km * cargo
+    lcot = (annual_fixed + annual_energy) / annual_unitkm
+
+    return {
+        "feasible": True, "lcot": lcot, "op_v_kn": op_v_kn, "d_km": d_km,
+        "carried": cargo, "legs": legs,
+        "annual_fixed": annual_fixed, "annual_energy": annual_energy,
+        "engine_kw": engine_kw, "fuel_kwh_leg": fuel_kwh_leg,
     }
 
 
