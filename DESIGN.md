@@ -18,7 +18,7 @@ analysis consume it downstream and are out of scope for the rebuild's early step
    schema dataclasses. No flat/structured duplication, no hand-wired factory.
 2. **The three axes are real boundaries.** Platform, Drivetrain, EnergySource are
    configured independently and composed, not special-cased by a central switch.
-3. **EnergySources own their cost models.** Given a Journey (or other parameters)
+3. **EnergySources own their cost models.** Given the power/energy a strategy asks for,
    a source returns what's needed to compute LCOT — a flat price or a full
    levelization (tender, lease) — with no special-casing leaking elsewhere.
 4. **Config is immutable.** The Optimizer explores by constructing trial design +
@@ -50,35 +50,35 @@ analysis consume it downstream and are out of scope for the rebuild's early step
 
 ### Verb
 
-- **Case** — a frozen composition: one Platform + one Drivetrain + **zero or more
-  EnergySources** + a named **Strategy** + fixed parameters + a declaration of which
-  inputs are **free** (the optimizer searches them to argmin LCOT, with bounds) and
-  which are **swept** (an outer runner iterates them, with their ranges, to trace LCOT
-  vs. X — `D_max` by default). A Case is therefore a **complete, self-contained
-  evaluation spec**: evaluating it yields a whole results table (sweep × per-point
-  optimum), not a single number. It stays **pure frozen data** — a generic runner reads
-  the declaration and drives sweep → optimize → strategy; the Case has no behavior of its
-  own. A Case can be multi-source: the nuclear-tender case is *also* a battery case
-  (onboard buffer + at-sea charger), so the architecture supports N sources from the start.
+- **Case** — a frozen composition and the **single place a strategy looks**: one Platform +
+  one Drivetrain + **zero or more EnergySources**, plus **everything that isn't one of those
+  three**. That "everything" is: the `shared` economics block (one instance, referenced by
+  every case), a `route` block of fixed per-case params (some general — `design_v_kn`,
+  `load_factor_imbalance`; some strategy-specific — `standoff_nm`, `storm_duration_h`,
+  `idle_h`), a named **strategy**, and a declaration of which inputs are **free** (the
+  optimizer searches them to argmin LCOT, with bounds) and which are **swept** (the outer
+  runner iterates them, with ranges, to trace LCOT vs. X — `D_max` by default). `shared` and
+  `route` are just sub-dataclasses (hierarchy headings), not separate top-level nouns. So a
+  Case is a **complete, self-contained evaluation spec** — evaluating it yields a whole
+  results table (sweep × per-point optimum) — and it has no behavior of its own: a generic
+  runner reads its declarations and drives sweep → optimize → strategy. A Case can be
+  multi-source: the nuclear-tender case is *also* a battery case (onboard buffer + at-sea
+  charger), so the architecture supports N sources from the start.
 
 ### Behavior
 
-- **Strategy** — a plain **function** `strategy(case, point) -> Result`, named and
-  deliberately bespoke per case-type (e.g. `fuel-burn`, `battery-swap`, `reactor-direct`,
-  `reactor-electric`, `tether-charge`); registered by name, and the Case names the one it
-  uses. It designs the **Journey** for the point and orchestrates the bundled sources
-  (which source serves what), computing `carried` / `legs_per_year` and assembling the
-  cost. A source often implicitly *suggests* a strategy but does not lock the Case in.
-- **Journey** — the **resolved dispatch plan** for one hop (a frozen dataclass the
-  Strategy produces at runtime): route segments (e.g. coastal/untethered vs. tethered
-  open-ocean), storm exposure, speed policy. **Not** a configuration axis — there is no
-  `Scenario` config section, and the Case's fixed route/condition params live in its
-  `route` block (a different thing); route-reshaping is the Strategy's job, expressed as a
-  Journey.
-- **Optimizer** — a generic **function** `optimize(case, swept_point) -> Result`: at one
-  fixed swept point it searches the Case's flagged free inputs (sizing and/or dispatch),
-  calling the strategy for each trial point, and returns the cost-optimal Result. The
-  outer **`run(case)`** function iterates the Case's swept points and collects the table.
+- **Strategy** — a plain **function** `strategy(case, point) -> dict`, named and deliberately
+  bespoke per case-type (`fuel_burn`, `port_swap_battery`, `tether_charge`, `reactor_direct`,
+  `reactor_electric_integrated`, `reactor_electric`); the Case names the one it uses. `point`
+  is a small dict of the parameter-space coordinates the optimizer is at (e.g. `d_km`,
+  `op_v_kn`). The strategy segments the route, orchestrates the bundled sources (which serves
+  what), sizes the stores, computes `carried` / `legs_per_year`, and returns a dict: the
+  levelized cost (`lcot`) plus extra numbers for the artifact. A source often implicitly
+  *suggests* a strategy but does not lock the Case in.
+- **Optimizer** — a generic **function** `optimize(case, swept_point) -> dict`: at one fixed
+  swept point it searches the Case's free inputs (sizing and/or dispatch), calling the
+  strategy for each trial and keeping the min-`lcot` row. The outer **`run(case)`** iterates
+  the Case's swept points, collecting one optimal row each into the results table.
 
 ### Primitives
 
@@ -133,12 +133,12 @@ run.py ─ run(case) for each built Case
             └─ for each point in case.sweep:                  (D_max by default; a Case may
                  optimize(case, swept_point)                   declare extra swept axes — eases
                    └─ search the Case's free params            the planned Sobol work, not a
-                        strategy(case, point) ─> Result        near-term priority)
-                          ├─ design the Journey (route segments)
+                        strategy(case, point) ─> row (dict)     near-term priority)
+                          ├─ segment the route
                           ├─ EnergySources own their cost models
                           ├─ route math (carried, legs/yr) + helpers (crf, physics) ─> LCOT
-                          └─ argmin LCOT ─> the point's Result
-            └─ write artifact  (Parquet, CSV option)
+                          └─ keep min-lcot ─> the point's row
+            └─ write artifact  (rows ─> Parquet, CSV option)
 ```
 
 ## Optimization
@@ -199,17 +199,22 @@ not full regeneration on every run.
 
 ## Terminology hygiene
 
-- **Objects vs. functions:** nouns are **frozen dataclasses** (Platform, Drivetrain,
-  Shared, Case, Route, Point, Journey, Result); verbs are **plain functions** (the
-  strategies, `optimize`, `run`). The *one* exception is **EnergySource**, which carries
-  its own cost methods (`size` / `levelize` / …) because that cost model is intrinsically
-  polymorphic by source type. No `.evaluate()` / `.execute()` elsewhere.
+- **Frozen dataclasses for config, plain dicts for runtime data.** The loaded config is
+  frozen dataclasses (Platform, Drivetrain, EnergySource, Case, and its `shared` / `route`
+  sub-blocks) — immutable, validated, safely shared across the sweep. Transient runtime data
+  is plain dicts: the `point` the optimizer passes in and the cost `row` the strategy returns
+  (rows go straight to the Parquet artifact, so a class would be ceremony). We don't name the
+  strategy's internal route computation, and there is no `Journey` / `Result` / `Point` type.
+- **Verbs are functions.** The strategies, `optimize`, `run` are plain functions. The *one*
+  method-bearing exception is **EnergySource**, which carries its own cost methods (`size` /
+  `levelize` / `usd_per_kwh`) because that cost model is polymorphic by source type. No
+  `.evaluate()` / `.execute()` elsewhere.
 - The noun is **EnergySource**; its computation is its **energy cost model**. We do
   **not** use the word "supply".
-- **Journey** = the resolved dispatch plan the strategy *produces*. **`route`** = the
-  Case's fixed route/condition params in config. Never reuse "journey" for the config bundle.
-- **Strategy** = a named function `(case, point) -> Result`. **Optimizer** = the function
-  `optimize(case, swept_point)` searching free inputs. **`run`** = the outer sweep.
+- **`route`** = the Case's fixed route/condition params (config). **`shared`** = the
+  cross-case economics block, reached via the case. Both are sub-dataclasses of the Case.
+- **Strategy** = a named function `(case, point) -> dict`. **Optimizer** = the function
+  `optimize(case, swept_point)` searching free inputs for min `lcot`. **`run`** = the outer sweep.
 - **helpers.py** = only *shared* computation — `crf` + the ship physics sizing leans on
   (`prop_power_kw`, `propulsion_factor`); named helpers (not physics) since `crf` is not
   physics. Strategy-only route math (`legs_per_year`, `carried`) lives in `strategies.py`.
@@ -223,8 +228,8 @@ not full regeneration on every run.
 | `data_classes.py` | config schema: Shared / Platform / Drivetrain / EnergySource / Case / Route | nouns present; `Case` + `Route` to add; source cost models to move onto EnergySource |
 | `load_config.py`  | thin YAML → schema loader                         | exists |
 | `config.yaml`     | hierarchical input                                | draft; `cases:` deferred |
-| `strategies.py`   | the 6 per-case strategy functions `(case, point) -> Result`, + strategy-only route math (`legs_per_year`, `carried`) | all 6 drafted (`fuel_burn`, `port_swap_battery`, `tether_charge`, `reactor_direct`, `reactor_electric_integrated`, `reactor_electric`); they define the source interface via `# NEEDS` |
-| `optimizer.py`    | the `optimize` (free-param search) + `run` (sweep) functions, + the `Point` / `Result` types | to create from scratch (old `determine_cost.py` deleted) |
+| `strategies.py`   | the 6 per-case strategy functions `(case, point) -> dict`, + strategy-only route math (`legs_per_year`, `carried`) | all 6 drafted (`fuel_burn`, `port_swap_battery`, `tether_charge`, `reactor_direct`, `reactor_electric_integrated`, `reactor_electric`); they define the source interface via `# NEEDS` |
+| `optimizer.py`    | the `optimize` (free-param search) + `run` (sweep) functions; both take/return plain dicts | to create from scratch (old `determine_cost.py` deleted) |
 | `run.py`          | entry point → load config → `run(case)` → artifact | fully stale |
 | `plots.py`, `style.py` | presentation                                 | deferred until an artifact exists |
 | (energy sources)  | the EnergySource cost methods (`size`, `levelize`, `usd_per_kwh`, …) | to build from scratch against the strategies' `# NEEDS` (old `supply.py` deleted) |
@@ -234,9 +239,9 @@ not full regeneration on every run.
 - **Source roles** in multi-source cases: a plain list for now; natural roles
   (buffer / charger / …) may emerge as we write the cases.
 - **Strategy ↔ Optimizer boundary:** resolved for now — the strategy owns the whole
-  per-point cost (designs the Journey, sizes the stores, computes `carried`/`legs`,
-  assembles LCOT) and returns a Result; `optimize` only *searches* the free inputs over
-  points. Revisit if a case needs the optimizer to see partial structure.
+  per-point cost (segments the route, sizes the stores, computes `carried`/`legs`, assembles
+  LCOT) and returns a row dict; `optimize` only *searches* the free inputs over points and
+  compares `lcot`. Revisit if a case needs the optimizer to see partial structure.
 - **EnergySource cost-model interface:** the exact signature and the shape of the
   data a source returns to the strategy (the `# NEEDS` lines in `strategies.py` are the
   current working spec). Settled so far: `BatterySource.size` + `life_yr` (shared by
@@ -249,7 +254,6 @@ not full regeneration on every run.
   slot footprint + an onboard `hotel_delta_kw`). The two share almost no fields or method —
   lean toward a `TenderReactor` / `ContainerizedReactor` split rather than one all-optional
   class. Decide when building the sources.
-- **Journey representation:** the concrete shape of the resolved segment plan.
 - **Extra swept axes** beyond `D_max` (to ease later Sobol exploration): structure
   for it, but low priority.
 - **Modular flexibility / option value is out of scope (way down the line).** LCOT
