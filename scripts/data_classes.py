@@ -10,7 +10,13 @@ compose at the bottom. Units: see units.py.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
+
+from units import HOURS_PER_YEAR, KG_PER_TONNE, KWH_PER_MWH, WH_PER_KWH
+
+# `crf` is imported inside the cost methods, not here: helpers imports this module for its
+# type hints, so a top-level import would be circular.
 
 
 # ================================================ top-level structures ====
@@ -65,6 +71,18 @@ class FuelSource(EnergySource):
     price: FuelPrice
     energy_mass_t: float            # onboard energy-carrier mass (bunkers; 0 for fission fuel)
 
+    def usd_per_kwh(self) -> float:
+        """Price per kWh of fuel energy, in whatever currency the burner consumes it (chemical
+        for an engine, thermal for a reactor). The price block carries exactly one quote."""
+        p = self.price
+        if p.usd_per_kwh_chem is not None:
+            return p.usd_per_kwh_chem
+        if p.usd_per_kwh_th is not None:
+            return p.usd_per_kwh_th
+        if p.usd_per_t is not None and p.lhv_kwh_per_kg is not None:
+            return p.usd_per_t / KG_PER_TONNE / p.lhv_kwh_per_kg     # $/t -> $/kg -> $/kWh
+        raise ValueError(f"{self.name}: no usable fuel-price quote")
+
 
 @dataclass(frozen=True)
 class BatterySource(EnergySource):
@@ -73,6 +91,28 @@ class BatterySource(EnergySource):
     efficiency: BatteryEfficiency
     min_discharge_h: float          # power limit (max kW = installed kWh / this); 0 = none
     charge_usd_per_kwh: float       # grid/shore charge price, folded in
+
+    def size(self, deliverable_kwh: float, power_kw: float,
+             max_gross_t: float) -> tuple[float, float, float]:
+        """Size the pack to a usable-energy demand and a peak power; returns (installed_kwh,
+        slots, mass_t). Installed capacity is the greater of the energy floor (demand / dod)
+        and the power floor (peak x min_discharge_h, the C-rate limit; 0 = none — this is what
+        pins iron-air's economic speed). Slots are the greater of the energy footprint and the
+        mass footprint (a container can't exceed the ISO gross cap `max_gross_t`)."""
+        e = self.energy
+        installed_kwh = deliverable_kwh / e.dod
+        if self.min_discharge_h > 0.0:
+            installed_kwh = max(installed_kwh, power_kw * self.min_discharge_h)
+        mass_t = installed_kwh * WH_PER_KWH / e.pack_wh_per_kg / KG_PER_TONNE
+        slots = max(installed_kwh / e.kwh_per_teu, mass_t / max_gross_t)
+        return installed_kwh, slots, mass_t
+
+    def life_yr(self, legs: float) -> float:
+        """Pack life: the lesser of calendar life and cycle life at `legs` full cycles/year
+        (the strategy cycles one full deliverable per leg)."""
+        cap = self.capex
+        cycle_limited = cap.cycle_life / legs if legs > 0 else cap.calendar_life_yr
+        return min(cap.calendar_life_yr, cycle_limited)
 
 
 @dataclass(frozen=True)
@@ -93,6 +133,26 @@ class ContainerizedReactor(ReactorSource):
     hotel_delta_kw: float           # onboard crew/security
     pool: Pool                      # fleet-pooled utilization
 
+    def size(self, bus_kw: float, discount_rate: float) -> tuple[float, float, float]:
+        """Levelized $/kWh, the reactor's electric rating, and its slot footprint. Sized to the
+        onboard electric bus `bus_kw`; CAPEX (no separate hull) + thermal fuel are levelized over
+        the reactor's fleet-pool utilization (`pool.availability`), so the ship is not billed for
+        the reactor's pool idle. Slots scale with power (`teu_per_mwe`), rounded up to a half-TEU.
+
+        NOTE: a route-independent fleet utilization, per the owned==leased collapse — `pool.idle_h`
+        is not yet wired (it would feed a route-coupled pool model). See TODO."""
+        from helpers import crf
+        reactor_kw = bus_kw
+        generating_h_yr = HOURS_PER_YEAR * self.pool.availability
+        delivered_kwh_yr = reactor_kw * generating_h_yr
+        capital_yr = self.capex.usd_per_kw * reactor_kw * crf(discount_rate, self.capex.life_yr)
+        fuel_yr = (reactor_kw / self.generation) * generating_h_yr * self.fuel_usd_per_kwh_th
+        usd_per_kwh = (capital_yr + fuel_yr) / delivered_kwh_yr
+        base_slots = self.overhead.slots or 0.0
+        power_slots = (self.overhead.teu_per_mwe or 0.0) * reactor_kw / KWH_PER_MWH
+        slots = math.ceil((base_slots + power_slots) * 2) / 2       # round up to 0.5 TEU
+        return usd_per_kwh, reactor_kw, slots
+
 
 @dataclass(frozen=True)
 class TenderReactor(ReactorSource):
@@ -103,6 +163,24 @@ class TenderReactor(ReactorSource):
     om_other_usd_yr: float          # uncrewed remote ops + asset-loss insurance
     availability: float
     tether: Tether                  # cable efficiency + source-imposed speed cap
+
+    def levelize(self, bus_kw: float, tethered_h: float, idle_h: float,
+                 discount_rate: float) -> tuple[float, float]:
+        """Levelized $/kWh of cable-delivered energy, and the reactor's electric rating. The
+        reactor is sized to push `bus_kw` across the cable (through `cable_efficiency`) plus its
+        own parasitic draw. Its annualized cost (hull + reactor CAPEX, fixed O&M, thermal fuel)
+        is spread over the energy it actually delivers — set by the tethered/(tethered+idle) duty
+        cycle and `availability`."""
+        from helpers import crf
+        reactor_kw = bus_kw / self.tether.cable_efficiency + self.parasitic_kw
+        duty = tethered_h / (tethered_h + idle_h)
+        delivered_h_yr = HOURS_PER_YEAR * self.availability * duty
+        delivered_kwh_yr = bus_kw * delivered_h_yr
+        capital_yr = ((self.capex.hull_usd + self.capex.usd_per_kw * reactor_kw)
+                      * crf(discount_rate, self.capex.life_yr))
+        fuel_yr = (reactor_kw / self.generation) * delivered_h_yr * self.fuel_usd_per_kwh_th
+        usd_per_kwh = (capital_yr + self.om_other_usd_yr + fuel_yr) / delivered_kwh_yr
+        return usd_per_kwh, reactor_kw
 
 # ---- case ----
 @dataclass(frozen=True)

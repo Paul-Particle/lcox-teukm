@@ -8,8 +8,8 @@ dict — `lcot` (all the optimizer reads) plus extra numbers for the artifact. C
 dataclasses; the point in and row out are plain dicts (rows go straight to the artifact).
 
 One strategy per structurally-distinct case-type; cases differing only in parameters share one
-(fossil/e-methanol; LFP/iron-air). The source cost methods they call don't exist yet — the
-calls ARE the interface spec, flagged `# NEEDS`:
+(fossil/e-methanol; LFP/iron-air). Each orchestrates the source cost methods on its EnergySource
+(`size` / `life_yr` / `usd_per_kwh` / `levelize`, defined in data_classes.py):
   - fuel_burn                   — fossil / e-methanol: mechanical drivetrain, thin commodity fuel.
   - port_swap_battery           — LFP / iron-air: electric, pack carries a whole leg, swapped at port.
   - tether_charge               — nuclear tender: battery ship, crossing carried by an at-sea reactor.
@@ -64,8 +64,6 @@ def tether_charge(case: dc.Case, point: dict) -> dict:
     coastal_kwh = bus_kw * coastal_h
     storm_kwh = bus_kw * route.storm_duration_h
     deliverable_kwh = max(coastal_kwh, storm_kwh) * (1 + margins.weather)  # double margin (see TODO)
-    # NEEDS BatterySource.size(deliverable_kwh, power_kw, max_gross_t)
-    #       -> (installed_kwh, slots, mass_t)  [applies dod, power floor, ISO mass cap]
     installed_kwh, slots, mass_t = battery.size(
         deliverable_kwh, bus_kw, pl.slot_limits.container_max_gross_t)
 
@@ -84,9 +82,6 @@ def tether_charge(case: dc.Case, point: dict) -> dict:
     charge_kw = recharge_kwh / tethered_h
     tender_bus_kw = bus_kw + charge_kw
     tender_bus_kwh = tender_bus_kw * tethered_h
-    # NEEDS TenderReactor.levelize(tender_bus_kw, tethered_h, idle_h, discount_rate)
-    #       -> (usd_per_kwh, reactor_kw). Sizes the reactor to that bus power (cable_efficiency
-    #       + parasitic); the tethered/(tethered+idle) duty cycle sets the kWh/yr it delivers.
     tender_usd_per_kwh, reactor_kw = tender.levelize(
         tender_bus_kw, tethered_h, route.idle_h, econ.discount_rate)
     tender_cost_leg = tender_bus_kwh * tender_usd_per_kwh
@@ -95,7 +90,7 @@ def tether_charge(case: dc.Case, point: dict) -> dict:
     r = econ.discount_rate
     # motor sized to the FIXED design speed (cheap, off the slow-steam sweep)
     motor_kw = helpers.prop_power_kw(pl.resistance, route.design_v_kn, pf) * (1 + margins.sea)
-    battery_life = battery.life_yr(legs)                  # NEEDS BatterySource.life_yr(legs)
+    battery_life = battery.life_yr(legs)
     annual_fixed = (
         _annual_platform_crew(pl, dt, econ, legs, r)
         + dt.capex.converter_usd_per_kw * motor_kw * helpers.crf(r, dt.capex.life_yr)
@@ -172,8 +167,6 @@ def fuel_burn(case: dc.Case, point: dict) -> dict:
     sail_h = d_km / (op_v_kn * KMH_PER_KNOT)
     pf, _prop_kw, _hotel_kw, fuel_kw = _resolve_demand(pl, dt, op_v_kn)
     fuel_kwh_leg = fuel_kw * sail_h
-    # NEEDS FuelSource.usd_per_kwh() -> $/kWh of fuel energy, normalizing the price quotes
-    #       (usd_per_t + lhv_kwh_per_kg | usd_per_kwh_chem | usd_per_kwh_th).
     fuel_cost_leg = fuel_kwh_leg * fuel.usd_per_kwh()
 
     # --- annual legs + revenue cargo (bunkers displace deadweight, no slot footprint) ---
@@ -288,12 +281,6 @@ def reactor_electric(case: dc.Case, point: dict) -> dict:
     sail_h = d_km / (op_v_kn * KMH_PER_KNOT)
     pf, prop_kw, hotel_kw, bus_kw = _resolve_demand(pl, dt, op_v_kn, reactor.hotel_delta_kw)
     sizing_kw = prop_kw * (1 + margins.sea) / dt.efficiency.drive + hotel_kw / dt.efficiency.hotel
-
-    # NEEDS ContainerizedReactor.size(sizing_kw, discount_rate)
-    #       -> (usd_per_kwh, reactor_kw, slots). Sizes the reactor to the electric bus power,
-    #       returns the teu_per_mwe slot footprint, and levelizes (capex + thermal fuel) over its
-    #       pool-availability annual kWh. DIFFERS from TenderReactor.levelize (no cable / tethered
-    #       / idle; pool utilization instead) — which is why they are now separate subtypes.
     reactor_usd_per_kwh, reactor_kw, reactor_slots = reactor.size(sizing_kw, econ.discount_rate)
     reactor_cost_leg = bus_kw * sail_h * reactor_usd_per_kwh
 
