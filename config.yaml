@@ -152,8 +152,8 @@ sources:
     # ship-side hotel handled by the plain electric drivetrain (tender is uncrewed)
 
 # ============================================================= cases ====
-# DEFERRED (needs Strategy + Optimizer). A case names: platform + drivetrain +
-# [sources] + strategy + opt flags + per-case fields. `sources: []` models a
+# DEFERRED (needs the strategy + optimizer functions). A case names: platform +
+# drivetrain + [sources] + strategy + opt flags + per-case fields. `sources: []` models a
 # fueled-for-life converter (no variable energy, no slow-steam incentive). All
 # reactors (integrated, containerized, tender) are optimizer-sized.
 #
@@ -167,8 +167,11 @@ sources:
 #   nuclear-cont    container + electric           + [containerized-reactor]   reactor-electric
 #   tender          container + electric           + [lfp, tender-reactor]     tether-charge
 #
-# Per-case fields that collect here: crew_count (22/20/30), om_other_usd_yr residuals
-# (1.52M/1.2M/7.3M/5.3M/7.3M; tender's lives on its source), optimization flags+bounds,
-# the tender Journey params (coastal_untethered_distance_nm, storm_survival_duration_h),
-# tender idle_h, and per-case port overrides (e.g. tender port_hours: 12).
+# Per-case fields that collect here: a `route` block (design_v_kn, load_factor_imbalance,
+# and for the tender standoff_nm, storm_duration_h, idle_h), the free-param decl (optimized,
+# e.g. op_v_kn bounds) + swept-param decl (D_max range), and per-case port overrides (e.g.
+# tender port_hours: 12). NOTE crew_count (22/20/30) and om_other_usd_yr residuals
+# (1.52M/1.2M/7.3M/5.3M/7.3M) live on each Drivetrain's operations, not here (the tender's
+# om_other lives on its source). "route" is the config bundle; "Journey" is the resolved
+# plan the strategy produces — kept distinct.
 cases: {}
