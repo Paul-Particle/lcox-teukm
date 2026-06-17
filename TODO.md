@@ -12,16 +12,8 @@ Sobol sensitivity, MRV fleet data) are set aside, to be redone from the refactor
 
 - **`optimizer.py`** — `optimize(case, swept_point)` searches the Case's free axes (sizing/
   dispatch) for min `lcot` at one swept point; `run(case)` iterates the swept axes (`D_max`).
-  Both plain-dict in/out.
-- **EnergySource cost methods** — the `# NEEDS` lines in `strategies.py` are the working spec:
-  - `BatterySource.size(deliverable_kwh, power_kw, max_gross_t) -> (installed_kwh, slots,
-    mass_t)` (applies dod, the power floor, the ISO mass cap); `BatterySource.life_yr(legs)`.
-  - `FuelSource.usd_per_kwh()` — $/kWh of fuel energy, normalizing the price quotes.
-  - `TenderReactor.levelize(bus_kw, tethered_h, idle_h, discount_rate) -> (usd_per_kwh,
-    reactor_kw)` — sizes to bus power via cable efficiency + parasitic; tethered/(tethered+idle)
-    duty cycle sets the kWh/yr levelized over.
-  - `ContainerizedReactor.size(bus_kw, discount_rate) -> (usd_per_kwh, reactor_kw, slots)` —
-    sizes to the bus, `teu_per_mwe` slot footprint, levelized over pool-availability kWh.
+  Both plain-dict in/out. The strategies and their EnergySource cost methods are done and produce
+  finite, sane LCOTs across the seed cases — the optimizer + `run` are what's left to drive them.
 - **`run.py`** — rewrite as the entry point: load_config → `run(case)` per Case → artifact.
 - **Results artifact** — tidy table, one row per (case, `D_max`, other swept inputs): LCOT,
   optimal speed, reactor size, energy/capital/O&M breakdown, store size, feasibility. **Parquet**
@@ -37,8 +29,13 @@ Sobol sensitivity, MRV fleet data) are set aside, to be redone from the refactor
   cost (segments the route, sizes stores, computes `carried`/`legs`, assembles LCOT) and returns
   a row dict; `optimize` only *searches* free inputs and compares `lcot`. Revisit if a case
   needs the optimizer to see partial structure.
-- **EnergySource cost-model interface** — exact signatures and return shapes are the `# NEEDS`
-  working spec (above); settle as the methods are built.
+- **Containerized-reactor pool utilization** — `ContainerizedReactor.size` levelizes over a
+  route-independent fleet utilization (`pool.availability`), per the owned==leased collapse. So
+  `pool.idle_h` is currently **unused**; wiring it would mean a route-coupled pool model (passing
+  the duty cycle into `size`), which the interface deliberately doesn't do yet. Decide whether the
+  fleet-constant is good enough or the route coupling is worth the extra signature.
+- **Tender CAPEX on one life** — `TenderReactor.levelize` amortizes hull + reactor CAPEX over a
+  single `capex.life_yr`; split if the hull and reactor lives should differ.
 - **Source roles in multi-source cases** — a plain list for now; natural roles (buffer / charger)
   may emerge as more cases are written.
 - **Double sizing margin** — `tether_charge` and `port_swap_battery` stack the storm buffer and
