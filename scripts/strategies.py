@@ -1,23 +1,24 @@
 """
 strategies.py — the per-case strategy functions.
 
-A strategy is a plain function `(case, point) -> Result`: it reads the case's FIXED
-setup (platform, drivetrain, sources, the `route` params, design speed) plus ONE point
-in parameter space supplied by the optimizer, designs the journey for that point —
-segment the route, decide which source supplies what, size the stores — and returns a
-Result (LCOT + breakdown + feasibility). It reads fixed params off the case and the
-varied coordinates off the point; it does not know or care which point-coordinates the
-optimizer is *searching* (to argmin LCOT) versus which the outer runner is *sweeping*
-(e.g. D_max). The case declares both, so it is a complete evaluation spec; the generic
-`optimize` / `run` functions read that and drive sweep -> optimize -> strategy.
+A strategy is a plain function `(case, point) -> dict`: it reads the case's FIXED setup
+(platform, drivetrain, sources, the `route` params, design speed) plus ONE point — a small
+dict of parameter-space coordinates the optimizer passes in (e.g. `{"d_km":…, "op_v_kn":…}`)
+— segments the route, decides which source supplies what, sizes the stores, and returns a
+dict: the levelized cost (`lcot`) plus extra numbers for plotting. The optimizer only looks
+at `lcot`; the rest is for the artifact. It reads fixed params off the case and the varied
+coordinates off the point, and does not know or care which point-coordinates the optimizer
+is *searching* (to argmin LCOT) versus which the outer runner is *sweeping* (e.g. D_max).
 
-Architecture convention: nouns are frozen dataclasses, verbs are plain functions; the
-one exception is EnergySource, which carries its own (polymorphic) cost methods.
+Data convention: **frozen dataclasses for loaded config** (the three nouns + their blocks +
+the Case); **plain dicts for transient runtime data** (the point in, the cost row out — the
+rows go straight to the Parquet artifact, so a class would be ceremony). The one method-
+bearing exception is EnergySource, which carries its own (polymorphic) cost methods.
 
 One strategy per structurally-distinct case-type; cases that differ only in parameters
 share a strategy (fossil/e-methanol; LFP/iron-air). Each is written before the source cost
-methods / some types exist, on purpose — the calls they make ARE the interface spec;
-`# NEEDS` flags what the schema / sources / Point / Result must provide next:
+methods / some schema fields exist, on purpose — the calls they make ARE the interface
+spec; `# NEEDS` flags what the schema / sources must provide next:
   - `fuel_burn`                   — fossil / e-methanol: mechanical drivetrain burns a thin
                                     commodity fuel; cheap engine, design-speed-sized.
   - `port_swap_battery`           — LFP / iron-air: electric ship, the pack carries a whole
@@ -46,7 +47,7 @@ import helpers
 from units import KM_PER_NM, KMH_PER_KNOT, HOURS_PER_YEAR
 
 
-def tether_charge(case: dc.Case, point) -> dict:    # NEEDS Result return type (for now a dict)
+def tether_charge(case: dc.Case, point: dict) -> dict:    # returns lcot + plotting fields (a plain dict)
     """LCOT for the nuclear-tender case at one evaluation `point` (a hop `d_km` run at
     operating speed `op_v_kn`).
 
@@ -68,15 +69,14 @@ def tether_charge(case: dc.Case, point) -> dict:    # NEEDS Result return type (
     pl, dt = case.platform, case.drivetrain
     shared = case.shared                                # NEEDS Case.shared (the case reaches the shared block)
     route = case.route                                  # NEEDS Case.route (the fixed Route params, see below)
-    d_km, op_v_kn = point.d_km, point.op_v_kn           # NEEDS optimizer Point: d_km + op_v_kn (room to grow)
+    d_km, op_v_kn = point["d_km"], point["op_v_kn"]     # the optimizer's point dict; today {d_km, op_v_kn}, room to grow
     # bespoke: this strategy expects exactly one battery + one (tender) reactor source
     battery = next(s for s in case.sources if isinstance(s, dc.BatterySource))
     tender = next(s for s in case.sources if isinstance(s, dc.ReactorSource))
 
-    # --- journey plan: route segments at the operating speed ---------------------
+    # --- route plan: route segments at the operating speed ---------------------
     # NEEDS Route dataclass (frozen): standoff_nm, storm_duration_h, idle_h,
-    #       load_factor_imbalance, design_v_kn.  (open: package the segments below as a
-    #       Journey object rather than locals — see DESIGN "Journey representation".)
+    #       load_factor_imbalance, design_v_kn.
     coastal_km = route.standoff_nm * KM_PER_NM          # one identical to/from-tender sub-leg
     tethered_km = d_km - 2 * coastal_km
     if tethered_km <= 0 or op_v_kn > tender.tether.cable_v_cap_kn:
@@ -149,7 +149,7 @@ def tether_charge(case: dc.Case, point) -> dict:    # NEEDS Result return type (
     annual_unitkm = legs * d_km * cargo
     lcot = (annual_fixed + annual_energy) / annual_unitkm
 
-    # NEEDS Result dataclass (lcot + breakdown + feasibility); a dict stands in for now.
+    # the cost row: lcot + breakdown, a plain dict headed for the artifact.
     return {
         "feasible": True, "lcot": lcot, "op_v_kn": op_v_kn, "d_km": d_km,
         "carried": cargo, "legs": legs,
@@ -160,7 +160,7 @@ def tether_charge(case: dc.Case, point) -> dict:    # NEEDS Result return type (
     }
 
 
-def port_swap_battery(case: dc.Case, point) -> dict:    # NEEDS Result return type (for now a dict)
+def port_swap_battery(case: dc.Case, point: dict) -> dict:    # returns lcot + plotting fields (a plain dict)
     """LCOT for a port-swap battery ship (the LFP / iron-air cases) at one evaluation
     `point`. An electric ship propels a full D_max leg on its pack and swaps to a charged
     pack at each port call (grid charge price folded in). Like `tether_charge` but with no
@@ -174,10 +174,10 @@ def port_swap_battery(case: dc.Case, point) -> dict:    # NEEDS Result return ty
     pl, dt = case.platform, case.drivetrain
     shared = case.shared
     route = case.route
-    d_km, op_v_kn = point.d_km, point.op_v_kn
+    d_km, op_v_kn = point["d_km"], point["op_v_kn"]
     battery = next(s for s in case.sources if isinstance(s, dc.BatterySource))
 
-    # --- journey plan: one full leg at the operating speed ----------------------
+    # --- route plan: one full leg at the operating speed ----------------------
     kmh = op_v_kn * KMH_PER_KNOT
     sail_h = d_km / kmh
 
@@ -233,7 +233,7 @@ def port_swap_battery(case: dc.Case, point) -> dict:    # NEEDS Result return ty
     }
 
 
-def fuel_burn(case: dc.Case, point) -> dict:    # NEEDS Result return type (for now a dict)
+def fuel_burn(case: dc.Case, point: dict) -> dict:    # returns lcot + plotting fields (a plain dict)
     """LCOT for a fuel-burning ship (the fossil / e-methanol cases) at one evaluation
     `point`. A mechanical drivetrain burns a commodity fuel over full D_max legs. The fuel
     is a THIN EnergySource — just a normalized price and its bunker mass; no sizing.
@@ -245,10 +245,10 @@ def fuel_burn(case: dc.Case, point) -> dict:    # NEEDS Result return type (for 
     pl, dt = case.platform, case.drivetrain
     shared = case.shared
     route = case.route
-    d_km, op_v_kn = point.d_km, point.op_v_kn
+    d_km, op_v_kn = point["d_km"], point["op_v_kn"]
     fuel = next(s for s in case.sources if isinstance(s, dc.FuelSource))
 
-    # --- journey plan: one full leg at the operating speed ----------------------
+    # --- route plan: one full leg at the operating speed ----------------------
     kmh = op_v_kn * KMH_PER_KNOT
     sail_h = d_km / kmh
 
@@ -295,7 +295,7 @@ def fuel_burn(case: dc.Case, point) -> dict:    # NEEDS Result return type (for 
     }
 
 
-def reactor_direct(case: dc.Case, point) -> dict:    # NEEDS Result return type (for now a dict)
+def reactor_direct(case: dc.Case, point: dict) -> dict:    # returns lcot + plotting fields (a plain dict)
     """LCOT for an integrated-reactor, DIRECT-drive ship (the nuclear-direct case). The
     reactor IS the drivetrain converter (its CAPEX sits on the Drivetrain), turning reactor
     heat straight into shaft power. The energy source is THIN — either fission fuel (a thermal
@@ -306,7 +306,7 @@ def reactor_direct(case: dc.Case, point) -> dict:    # NEEDS Result return type 
     pl, dt = case.platform, case.drivetrain
     shared = case.shared
     route = case.route
-    d_km, op_v_kn = point.d_km, point.op_v_kn
+    d_km, op_v_kn = point["d_km"], point["op_v_kn"]
     fuels = [s for s in case.sources if isinstance(s, dc.FuelSource)]
     fuel = fuels[0] if fuels else None                  # None => fueled-for-life (no energy cost)
 
@@ -352,7 +352,7 @@ def reactor_direct(case: dc.Case, point) -> dict:    # NEEDS Result return type 
     }
 
 
-def reactor_electric_integrated(case: dc.Case, point) -> dict:    # NEEDS Result return type
+def reactor_electric_integrated(case: dc.Case, point: dict) -> dict:    # returns lcot + plotting fields (a plain dict)
     """LCOT for an integrated-reactor, ELECTRIC-drive ship (the nuclear-int-el case): reactor
     + generator + motor, all integrated (CAPEX on the Drivetrain, with the reactor+generator
     and the motor amortized on their own lives). Energy is fission fuel (thermal $/kWh) or
@@ -363,7 +363,7 @@ def reactor_electric_integrated(case: dc.Case, point) -> dict:    # NEEDS Result
     pl, dt = case.platform, case.drivetrain
     shared = case.shared
     route = case.route
-    d_km, op_v_kn = point.d_km, point.op_v_kn
+    d_km, op_v_kn = point["d_km"], point["op_v_kn"]
     fuels = [s for s in case.sources if isinstance(s, dc.FuelSource)]
     fuel = fuels[0] if fuels else None
 
@@ -411,7 +411,7 @@ def reactor_electric_integrated(case: dc.Case, point) -> dict:    # NEEDS Result
     }
 
 
-def reactor_electric(case: dc.Case, point) -> dict:    # NEEDS Result return type (for now a dict)
+def reactor_electric(case: dc.Case, point: dict) -> dict:    # returns lcot + plotting fields (a plain dict)
     """LCOT for an electric ship powered by a CONTAINERIZED reactor (the nuclear-cont case).
     Unlike the integrated cases, the reactor is a SEPARABLE EnergySource carrying its own
     CAPEX + cost model: it occupies cargo slots (teu_per_mwe), adds an onboard hotel load,
@@ -421,7 +421,7 @@ def reactor_electric(case: dc.Case, point) -> dict:    # NEEDS Result return typ
     pl, dt = case.platform, case.drivetrain
     shared = case.shared
     route = case.route
-    d_km, op_v_kn = point.d_km, point.op_v_kn
+    d_km, op_v_kn = point["d_km"], point["op_v_kn"]
     reactor = next(s for s in case.sources if isinstance(s, dc.ReactorSource))
 
     kmh = op_v_kn * KMH_PER_KNOT
