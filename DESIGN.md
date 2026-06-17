@@ -248,12 +248,13 @@ not full regeneration on every run.
   `port_swap_battery` and `tether_charge`); `FuelSource.usd_per_kwh` (shared by `fuel_burn`
   and the integrated-reactor strategies). The **integrated** reactors (`reactor_direct`,
   `reactor_electric_integrated`) carry the reactor as Drivetrain CAPEX — no source method.
-- **Split ReactorSource into two subtypes.** `tether_charge` calls `levelize(bus_kw,
-  tethered_h, idle_h, …)` (cable + reposition duty cycle); `reactor_electric` calls
-  `size(bus_kw, …) -> (usd_per_kwh, reactor_kw, slots)` (pool utilization + a `teu_per_mwe`
-  slot footprint + an onboard `hotel_delta_kw`). The two share almost no fields or method —
-  lean toward a `TenderReactor` / `ContainerizedReactor` split rather than one all-optional
-  class. Decide when building the sources.
+- **Split ReactorSource → `TenderReactor` + `ContainerizedReactor` (RESOLVED).**
+  `tether_charge` calls `levelize(bus_kw, tethered_h, idle_h, …)` (cable + reposition duty
+  cycle); `reactor_electric` calls `size(bus_kw, …) -> (usd_per_kwh, reactor_kw, slots)`
+  (pool utilization + a `teu_per_mwe` slot footprint + an onboard `hotel_delta_kw`). They
+  share almost no fields or method, so they become two subtypes rather than one all-optional
+  class — applied when we build the source cost methods (the strategies' `isinstance` checks
+  + the loader's `type: reactor` dispatch update at the same time).
 - **Extra swept axes** beyond `D_max` (to ease later Sobol exploration): structure
   for it, but low priority.
 - **Modular flexibility / option value is out of scope (way down the line).** LCOT
