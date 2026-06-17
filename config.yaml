@@ -153,26 +153,107 @@ sources:
     # ship-side hotel handled by the plain electric drivetrain (tender is uncrewed)
 
 # ============================================================= cases ====
-# DEFERRED (needs the strategy + optimizer functions). A case names: platform +
-# drivetrain + [sources] + strategy + opt flags + per-case fields. `sources: []` models a
-# fueled-for-life converter (no variable energy, no slow-steam incentive). All
+# A case = platform + drivetrain + [sources] + strategy + a per-case `route` block + the
+# `optimize` / `sweep` axes. `strategy` names the function in strategies.py. `sources: []`
+# models a fueled-for-life converter (no variable energy, no slow-steam incentive). All
 # reactors (integrated, containerized, tender) are optimizer-sized.
 #
-# The eight cases (was nine; owned/leased reactor collapsed):
-#   fossil          container + mechanical-fossil  + [vlsfo]            fuel-burn
-#   e-methanol      container + mechanical-fossil  + [e-methanol]       fuel-burn
-#   lfp             container + electric           + [lfp]              port-swap-battery
-#   iron-air        container + electric           + [iron-air]         port-swap-battery
-#   nuclear-direct  container + mechanical-nuclear + [fission-fuel|[]]  reactor-direct
-#   nuclear-int-el  container + electric-nuclear   + [fission-fuel|[]]  reactor-electric-integrated
-#   nuclear-cont    container + electric           + [containerized-reactor]   reactor-electric
-#   tender          container + electric           + [lfp, tender-reactor]     tether-charge
+# These eight are the hand-written SEED set (was nine; owned/leased reactor collapsed). The
+# Sobol generator that fans these out over the parameter space (dozens–thousands of cases)
+# is a later, programmatic step — these are its baselines, not the full population.
 #
-# Per-case fields that collect here: a `route` block (design_v_kn, load_factor_imbalance,
-# and for the tender standoff_nm, storm_duration_h, idle_h), the free-param decl (optimized,
-# e.g. op_v_kn bounds) + swept-param decl (D_max range), and per-case port overrides (e.g.
-# tender port_hours: 12). NOTE crew_count (22/20/30) and om_other_usd_yr residuals
-# (1.52M/1.2M/7.3M/5.3M/7.3M) live on each Drivetrain's operations, not here (the tender's
-# om_other lives on its source). "route" is the config bundle; "Journey" is the resolved
-# plan the strategy produces — kept distinct.
-cases: {}
+#   fossil          container + mechanical-fossil  + [vlsfo]                   fuel_burn
+#   e-methanol      container + mechanical-fossil  + [e-methanol]              fuel_burn
+#   lfp             container + electric           + [lfp]                     port_swap_battery
+#   iron-air        container + electric           + [iron-air]                port_swap_battery
+#   nuclear-direct  container + mechanical-nuclear + [fission-fuel]            reactor_direct
+#   nuclear-int-el  container + electric-nuclear   + [fission-fuel]            reactor_electric_integrated
+#   nuclear-cont    container + electric           + [containerized-reactor]   reactor_electric
+#   tender          container + electric           + [lfp, tender-reactor]     tether_charge
+#
+# Each `route` carries only the fields its strategy reads (reactor_direct / _integrated read
+# neither design_v_kn nor a storm buffer). `optimize` is the op_v_kn search (v_min..v_max);
+# `sweep` traces LCOT vs D_max. NOTE crew_count and om_other_usd_yr residuals live on each
+# Drivetrain's operations, not here (the tender's om_other lives on its source).
+#
+# PLACEHOLDER VALUES (not yet pinned anywhere) — flagged below, confirm before trusting runs:
+#   design_v_kn 18.0 ; storm_duration_h 12.0 ; standoff_nm 200.0 ; idle_h 12.0 ;
+#   op_v_kn axis 5..22 n=18 ; d_km sweep 500..18000 n=36.
+cases:
+  fossil:
+    platform: container
+    drivetrain: mechanical-fossil
+    sources: [vlsfo]
+    strategy: fuel_burn
+    route:    {load_factor: 0.80, load_factor_imbalance: 0.2, design_v_kn: 18.0}   # design_v_kn ?
+    optimize: [{param: op_v_kn, lo: 5.0, hi: 22.0, n: 18}]                          # 5..22 n ?
+    sweep:    [{param: d_km, lo: 500.0, hi: 18000.0, n: 36}]                        # D_max range ?
+
+  e-methanol:
+    platform: container
+    drivetrain: mechanical-fossil
+    sources: [e-methanol]
+    strategy: fuel_burn
+    route:    {load_factor: 0.80, load_factor_imbalance: 0.2, design_v_kn: 18.0}
+    optimize: [{param: op_v_kn, lo: 5.0, hi: 22.0, n: 18}]
+    sweep:    [{param: d_km, lo: 500.0, hi: 18000.0, n: 36}]
+
+  lfp:
+    platform: container
+    drivetrain: electric
+    sources: [lfp]
+    strategy: port_swap_battery
+    route:    {load_factor: 0.80, load_factor_imbalance: 0.2, design_v_kn: 18.0, storm_duration_h: 12.0}
+    optimize: [{param: op_v_kn, lo: 5.0, hi: 22.0, n: 18}]
+    sweep:    [{param: d_km, lo: 500.0, hi: 18000.0, n: 36}]
+
+  iron-air:
+    platform: container
+    drivetrain: electric
+    sources: [iron-air]
+    strategy: port_swap_battery
+    route:    {load_factor: 0.80, load_factor_imbalance: 0.2, design_v_kn: 18.0, storm_duration_h: 12.0}
+    optimize: [{param: op_v_kn, lo: 5.0, hi: 22.0, n: 18}]
+    sweep:    [{param: d_km, lo: 500.0, hi: 18000.0, n: 36}]
+
+  nuclear-direct:
+    platform: container
+    drivetrain: mechanical-nuclear
+    sources: [fission-fuel]
+    strategy: reactor_direct
+    route:    {load_factor: 0.80, load_factor_imbalance: 0.2}    # reactor sized to op speed; no design_v_kn
+    optimize: [{param: op_v_kn, lo: 5.0, hi: 22.0, n: 18}]
+    sweep:    [{param: d_km, lo: 500.0, hi: 18000.0, n: 36}]
+
+  nuclear-int-el:
+    platform: container
+    drivetrain: electric-nuclear
+    sources: [fission-fuel]
+    strategy: reactor_electric_integrated
+    route:    {load_factor: 0.80, load_factor_imbalance: 0.2}
+    optimize: [{param: op_v_kn, lo: 5.0, hi: 22.0, n: 18}]
+    sweep:    [{param: d_km, lo: 500.0, hi: 18000.0, n: 36}]
+
+  nuclear-cont:
+    platform: container
+    drivetrain: electric
+    sources: [containerized-reactor]
+    strategy: reactor_electric
+    route:    {load_factor: 0.80, load_factor_imbalance: 0.2, design_v_kn: 18.0}
+    optimize: [{param: op_v_kn, lo: 5.0, hi: 22.0, n: 18}]
+    sweep:    [{param: d_km, lo: 500.0, hi: 18000.0, n: 36}]
+
+  tender:
+    platform: container
+    drivetrain: electric
+    sources: [lfp, tender-reactor]
+    strategy: tether_charge
+    route:
+      load_factor: 0.80
+      load_factor_imbalance: 0.2
+      design_v_kn: 18.0
+      storm_duration_h: 12.0     # PLACEHOLDER
+      standoff_nm: 200.0         # PLACEHOLDER
+      idle_h: 12.0               # PLACEHOLDER
+    optimize: [{param: op_v_kn, lo: 5.0, hi: 22.0, n: 18}]
+    sweep:    [{param: d_km, lo: 500.0, hi: 18000.0, n: 36}]

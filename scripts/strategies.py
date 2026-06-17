@@ -73,7 +73,7 @@ def tether_charge(case: dc.Case, point: dict) -> dict:    # returns lcot + plott
     d_km, op_v_kn = point["d_km"], point["op_v_kn"]     # the optimizer's point dict; today {d_km, op_v_kn}, room to grow
     # bespoke: this strategy expects exactly one battery + one (tender) reactor source
     battery = next(s for s in case.sources if isinstance(s, dc.BatterySource))
-    tender = next(s for s in case.sources if isinstance(s, dc.ReactorSource))
+    tender = next(s for s in case.sources if isinstance(s, dc.TenderReactor))
 
     # --- route plan: route segments at the operating speed ---------------------
     coastal_km = route.standoff_nm * KM_PER_NM          # one identical to/from-tender sub-leg
@@ -429,7 +429,7 @@ def reactor_electric(case: dc.Case, point: dict) -> dict:    # returns lcot + pl
     margins = case.params.margins
     route = case.params.route
     d_km, op_v_kn = point["d_km"], point["op_v_kn"]
-    reactor = next(s for s in case.sources if isinstance(s, dc.ReactorSource))
+    reactor = next(s for s in case.sources if isinstance(s, dc.ContainerizedReactor))
 
     kmh = op_v_kn * KMH_PER_KNOT
     sail_h = d_km / kmh
@@ -441,12 +441,11 @@ def reactor_electric(case: dc.Case, point: dict) -> dict:    # returns lcot + pl
     bus_kw = prop_kw / dt.efficiency.drive + hotel_kw / dt.efficiency.hotel
     sizing_kw = prop_kw * (1 + margins.sea) / dt.efficiency.drive + hotel_kw / dt.efficiency.hotel
 
-    # NEEDS containerized ReactorSource.size(sizing_kw, discount_rate)
+    # NEEDS ContainerizedReactor.size(sizing_kw, discount_rate)
     #       -> (usd_per_kwh, reactor_kw, slots). Sizes the reactor to the electric bus power,
     #       returns the teu_per_mwe slot footprint, and levelizes (capex + thermal fuel) over its
-    #       pool-availability annual kWh. This DIFFERS from the tender's levelize (no cable /
-    #       tethered / idle; pool utilization instead) -> likely split ReactorSource into
-    #       ContainerizedReactor + TenderReactor subtypes (DESIGN open decision).
+    #       pool-availability annual kWh. DIFFERS from TenderReactor.levelize (no cable / tethered
+    #       / idle; pool utilization instead) — which is why they are now separate subtypes.
     reactor_usd_per_kwh, reactor_kw, reactor_slots = reactor.size(sizing_kw, econ.discount_rate)
     reactor_cost_leg = bus_kw * sail_h * reactor_usd_per_kwh
 
