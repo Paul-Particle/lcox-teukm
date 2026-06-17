@@ -14,15 +14,27 @@ optimizer is *searching* (to argmin LCOT) versus which the outer runner is *swee
 Architecture convention: nouns are frozen dataclasses, verbs are plain functions; the
 one exception is EnergySource, which carries its own (polymorphic) cost methods.
 
-The strategies so far (each written before the source cost methods / some types exist, on
-purpose — the calls they make ARE the interface spec; `# NEEDS` flags what the schema /
-sources / Point / Result must provide next):
-  - `tether_charge`     — nuclear-tender case: battery ship whose crossing is carried by an
-                          at-sea reactor over a cable.
-  - `port_swap_battery` — LFP / iron-air case: the pack carries a whole D_max leg and is
-                          swapped/recharged at port. Same battery interface as the tender.
-  - `fuel_burn`         — fossil / e-methanol case: a mechanical drivetrain burns a thin
-                          commodity-fuel source over full legs.
+One strategy per structurally-distinct case-type; cases that differ only in parameters
+share a strategy (fossil/e-methanol; LFP/iron-air). Each is written before the source cost
+methods / some types exist, on purpose — the calls they make ARE the interface spec;
+`# NEEDS` flags what the schema / sources / Point / Result must provide next:
+  - `fuel_burn`                   — fossil / e-methanol: mechanical drivetrain burns a thin
+                                    commodity fuel; cheap engine, design-speed-sized.
+  - `port_swap_battery`           — LFP / iron-air: electric ship, the pack carries a whole
+                                    leg, swapped/recharged at port.
+  - `tether_charge`               — nuclear tender: battery ship whose crossing is carried by
+                                    a separable at-sea reactor over a cable.
+  - `reactor_direct`              — nuclear-direct: integrated reactor, direct mechanical
+                                    drive; fission fuel or fueled-for-life.
+  - `reactor_electric_integrated` — nuclear-int-el: integrated reactor + generator + motor,
+                                    electric drive; fission fuel or fueled-for-life.
+  - `reactor_electric`            — nuclear-cont: bare electric motor + a separable
+                                    CONTAINERIZED reactor source (slots, hotel, pooled $/kWh).
+
+Expensive reactors are sized to the OPERATING speed (no free oversizing); cheap engines /
+motors to the FIXED design speed. The scaffolding (route, power demand, carried, legs,
+hull/crew/O&M) is identical across all six — only the source/energy handling and the
+converter-sizing speed differ; a shared helper can factor that out once the interface settles.
 """
 
 from __future__ import annotations
@@ -280,6 +292,184 @@ def fuel_burn(case: dc.Case, point) -> dict:    # NEEDS Result return type (for 
         "carried": cargo, "legs": legs,
         "annual_fixed": annual_fixed, "annual_energy": annual_energy,
         "engine_kw": engine_kw, "fuel_kwh_leg": fuel_kwh_leg,
+    }
+
+
+def reactor_direct(case: dc.Case, point) -> dict:    # NEEDS Result return type (for now a dict)
+    """LCOT for an integrated-reactor, DIRECT-drive ship (the nuclear-direct case). The
+    reactor IS the drivetrain converter (its CAPEX sits on the Drivetrain), turning reactor
+    heat straight into shaft power. The energy source is THIN — either fission fuel (a thermal
+    $/kWh) or NOTHING (fueled-for-life -> no marginal energy cost, so the optimizer just runs
+    to v_max). Because the reactor is expensive it is sized to the OPERATING speed (+ sea
+    margin), not a fixed design speed, unlike the cheap engine/motor cases.
+    """
+    pl, dt = case.platform, case.drivetrain
+    shared = case.shared
+    route = case.route
+    d_km, op_v_kn = point.d_km, point.op_v_kn
+    fuels = [s for s in case.sources if isinstance(s, dc.FuelSource)]
+    fuel = fuels[0] if fuels else None                  # None => fueled-for-life (no energy cost)
+
+    kmh = op_v_kn * KMH_PER_KNOT
+    sail_h = d_km / kmh
+
+    pf = helpers.propulsion_factor(dt.propulsion_factor)
+    hotel_kw = pl.hotel_base_kw + dt.operations.hotel_delta_kw
+    prop_kw = helpers.prop_power_kw(pl.resistance, op_v_kn, pf)
+    # reactor thermal input: shaft via the drive efficiency, hotel via the hotel efficiency
+    # (both come off reactor heat). drive/hotel here are thermal->shaft / thermal->hotel.
+    thermal_kw = prop_kw / dt.efficiency.drive + hotel_kw / dt.efficiency.hotel
+    fuel_kwh_leg = thermal_kw * sail_h
+    fuel_cost_leg = fuel_kwh_leg * fuel.usd_per_kwh() if fuel is not None else 0.0
+
+    legs = legs_per_year(op_v_kn, d_km, dt.operations.port_hours, dt.operations.availability)
+    # integrated reactor + shielding is a fixed slot overhead on the drivetrain; ~no carried mass
+    cargo = carried(pl, dt.overhead.slots, 0.0, 0.0,
+                    shared.load_factor, route.load_factor_imbalance)
+    if cargo <= 0:
+        return _infeasible(op_v_kn, d_km)
+
+    r = shared.discount_rate
+    # the reactor (expensive) is sized to the OPERATING speed + sea margin: no free oversizing.
+    # converter_usd_per_kw here is the whole reactor+steam+shaft plant, per shaft kW.
+    reactor_shaft_kw = prop_kw * (1 + shared.sea_margin)
+    annual_fixed = (
+        pl.capex.hull_usd * helpers.crf(r, pl.capex.life_yr)
+        + dt.capex.converter_usd_per_kw * reactor_shaft_kw * helpers.crf(r, dt.capex.life_yr)
+        + dt.operations.crew_count * shared.crew_cost_usd_yr
+        + dt.operations.om_other_usd_yr
+        + dt.operations.tug_usd_per_call * legs)
+
+    annual_energy = fuel_cost_leg * legs
+    annual_unitkm = legs * d_km * cargo
+    lcot = (annual_fixed + annual_energy) / annual_unitkm
+
+    return {
+        "feasible": True, "lcot": lcot, "op_v_kn": op_v_kn, "d_km": d_km,
+        "carried": cargo, "legs": legs,
+        "annual_fixed": annual_fixed, "annual_energy": annual_energy,
+        "reactor_shaft_kw": reactor_shaft_kw, "fuel_kwh_leg": fuel_kwh_leg,
+    }
+
+
+def reactor_electric_integrated(case: dc.Case, point) -> dict:    # NEEDS Result return type
+    """LCOT for an integrated-reactor, ELECTRIC-drive ship (the nuclear-int-el case): reactor
+    + generator + motor, all integrated (CAPEX on the Drivetrain, with the reactor+generator
+    and the motor amortized on their own lives). Energy is fission fuel (thermal $/kWh) or
+    nothing (fueled-for-life). The reactor+generator (expensive) is sized to the operating
+    speed; the motor (cheap) could be design-sized, but the reactor caps speed anyway, so it
+    is sized to the same operating point.
+    """
+    pl, dt = case.platform, case.drivetrain
+    shared = case.shared
+    route = case.route
+    d_km, op_v_kn = point.d_km, point.op_v_kn
+    fuels = [s for s in case.sources if isinstance(s, dc.FuelSource)]
+    fuel = fuels[0] if fuels else None
+
+    kmh = op_v_kn * KMH_PER_KNOT
+    sail_h = d_km / kmh
+
+    pf = helpers.propulsion_factor(dt.propulsion_factor)
+    hotel_kw = pl.hotel_base_kw + dt.operations.hotel_delta_kw
+    prop_kw = helpers.prop_power_kw(pl.resistance, op_v_kn, pf)
+    elec_bus_kw = prop_kw / dt.efficiency.drive + hotel_kw / dt.efficiency.hotel   # electric bus
+    # reactor heat -> electricity via the generation efficiency (electric-nuclear only)
+    thermal_kw = elec_bus_kw / dt.efficiency.generation       # NEEDS dt.efficiency.generation
+    fuel_kwh_leg = thermal_kw * sail_h
+    fuel_cost_leg = fuel_kwh_leg * fuel.usd_per_kwh() if fuel is not None else 0.0
+
+    legs = legs_per_year(op_v_kn, d_km, dt.operations.port_hours, dt.operations.availability)
+    cargo = carried(pl, dt.overhead.slots, 0.0, 0.0,
+                    shared.load_factor, route.load_factor_imbalance)
+    if cargo <= 0:
+        return _infeasible(op_v_kn, d_km)
+
+    r = shared.discount_rate
+    # reactor+generator sized to the operating-speed electric bus (+ sea margin on propulsion);
+    # the motor to the operating-speed shaft power. Two capex stages on two separate lives.
+    motor_shaft_kw = prop_kw * (1 + shared.sea_margin)
+    reactor_elec_kw = motor_shaft_kw / dt.efficiency.drive + hotel_kw / dt.efficiency.hotel
+    annual_fixed = (
+        pl.capex.hull_usd * helpers.crf(r, pl.capex.life_yr)
+        # NEEDS dt.capex.reactor_usd_per_kw + reactor_life_yr (electric-nuclear only)
+        + dt.capex.reactor_usd_per_kw * reactor_elec_kw * helpers.crf(r, dt.capex.reactor_life_yr)
+        + dt.capex.converter_usd_per_kw * motor_shaft_kw * helpers.crf(r, dt.capex.life_yr)
+        + dt.operations.crew_count * shared.crew_cost_usd_yr
+        + dt.operations.om_other_usd_yr
+        + dt.operations.tug_usd_per_call * legs)
+
+    annual_energy = fuel_cost_leg * legs
+    annual_unitkm = legs * d_km * cargo
+    lcot = (annual_fixed + annual_energy) / annual_unitkm
+
+    return {
+        "feasible": True, "lcot": lcot, "op_v_kn": op_v_kn, "d_km": d_km,
+        "carried": cargo, "legs": legs,
+        "annual_fixed": annual_fixed, "annual_energy": annual_energy,
+        "reactor_elec_kw": reactor_elec_kw, "motor_kw": motor_shaft_kw, "fuel_kwh_leg": fuel_kwh_leg,
+    }
+
+
+def reactor_electric(case: dc.Case, point) -> dict:    # NEEDS Result return type (for now a dict)
+    """LCOT for an electric ship powered by a CONTAINERIZED reactor (the nuclear-cont case).
+    Unlike the integrated cases, the reactor is a SEPARABLE EnergySource carrying its own
+    CAPEX + cost model: it occupies cargo slots (teu_per_mwe), adds an onboard hotel load,
+    and bills a levelized $/kWh over its fleet-pooled utilization. The bare electric motor
+    (cheap) is design-speed-sized; the reactor (expensive) is sized to the operating bus.
+    """
+    pl, dt = case.platform, case.drivetrain
+    shared = case.shared
+    route = case.route
+    d_km, op_v_kn = point.d_km, point.op_v_kn
+    reactor = next(s for s in case.sources if isinstance(s, dc.ReactorSource))
+
+    kmh = op_v_kn * KMH_PER_KNOT
+    sail_h = d_km / kmh
+
+    pf = helpers.propulsion_factor(dt.propulsion_factor)
+    # the containerized reactor sits onboard, so its crew/security hotel delta adds to the bus
+    hotel_kw = pl.hotel_base_kw + dt.operations.hotel_delta_kw + reactor.hotel_delta_kw
+    prop_kw = helpers.prop_power_kw(pl.resistance, op_v_kn, pf)
+    bus_kw = prop_kw / dt.efficiency.drive + hotel_kw / dt.efficiency.hotel
+    sizing_kw = prop_kw * (1 + shared.sea_margin) / dt.efficiency.drive + hotel_kw / dt.efficiency.hotel
+
+    # NEEDS containerized ReactorSource.size(sizing_kw, discount_rate)
+    #       -> (usd_per_kwh, reactor_kw, slots). Sizes the reactor to the electric bus power,
+    #       returns the teu_per_mwe slot footprint, and levelizes (capex + thermal fuel) over its
+    #       pool-availability annual kWh. This DIFFERS from the tender's levelize (no cable /
+    #       tethered / idle; pool utilization instead) -> likely split ReactorSource into
+    #       ContainerizedReactor + TenderReactor subtypes (DESIGN open decision).
+    reactor_usd_per_kwh, reactor_kw, reactor_slots = reactor.size(sizing_kw, shared.discount_rate)
+    reactor_cost_leg = bus_kw * sail_h * reactor_usd_per_kwh
+
+    legs = legs_per_year(op_v_kn, d_km, dt.operations.port_hours, dt.operations.availability)
+    # the reactor's slots displace cargo (like a battery's); drivetrain overhead is the bare motor
+    cargo = carried(pl, dt.overhead.slots, reactor_slots, 0.0,
+                    shared.load_factor, route.load_factor_imbalance)
+    if cargo <= 0:
+        return _infeasible(op_v_kn, d_km)
+
+    r = shared.discount_rate
+    design_prop_kw = helpers.prop_power_kw(pl.resistance, route.design_v_kn, pf)
+    motor_kw = design_prop_kw * (1 + shared.sea_margin)   # the bare motor (cheap), design-speed-sized
+    annual_fixed = (
+        pl.capex.hull_usd * helpers.crf(r, pl.capex.life_yr)
+        + dt.capex.converter_usd_per_kw * motor_kw * helpers.crf(r, dt.capex.life_yr)
+        + dt.operations.crew_count * shared.crew_cost_usd_yr
+        + dt.operations.om_other_usd_yr
+        + dt.operations.tug_usd_per_call * legs)
+
+    annual_energy = reactor_cost_leg * legs
+    annual_unitkm = legs * d_km * cargo
+    lcot = (annual_fixed + annual_energy) / annual_unitkm
+
+    return {
+        "feasible": True, "lcot": lcot, "op_v_kn": op_v_kn, "d_km": d_km,
+        "carried": cargo, "legs": legs,
+        "annual_fixed": annual_fixed, "annual_energy": annual_energy,
+        "reactor_kw": reactor_kw, "reactor_slots": reactor_slots,
+        "reactor_usd_per_kwh": reactor_usd_per_kwh, "motor_kw": motor_kw,
     }
 
 
