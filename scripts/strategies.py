@@ -67,7 +67,7 @@ def tether_charge(case: dc.Case, point: dict) -> dict:    # returns lcot + plott
     the other recharge.
     """
     pl, dt = case.platform, case.drivetrain
-    shared = case.shared                                # NEEDS Case.shared (the case reaches the shared block)
+    shared = case.economics                                # NEEDS Case.shared (the case reaches the shared block)
     route = case.route                                  # NEEDS Case.route (the fixed Route params, see below)
     d_km, op_v_kn = point["d_km"], point["op_v_kn"]     # the optimizer's point dict; today {d_km, op_v_kn}, room to grow
     # bespoke: this strategy expects exactly one battery + one (tender) reactor source
@@ -175,7 +175,7 @@ def port_swap_battery(case: dc.Case, point: dict) -> dict:    # returns lcot + p
     BatterySource interface tether_charge already defined — nothing new is needed here.
     """
     pl, dt = case.platform, case.drivetrain
-    shared = case.shared
+    shared = case.economics
     route = case.route
     d_km, op_v_kn = point["d_km"], point["op_v_kn"]
     battery = next(s for s in case.sources if isinstance(s, dc.BatterySource))
@@ -247,7 +247,7 @@ def fuel_burn(case: dc.Case, point: dict) -> dict:    # returns lcot + plotting 
     normalized to $/kWh of fuel energy.
     """
     pl, dt = case.platform, case.drivetrain
-    shared = case.shared
+    shared = case.economics
     route = case.route
     d_km, op_v_kn = point["d_km"], point["op_v_kn"]
     fuel = next(s for s in case.sources if isinstance(s, dc.FuelSource))
@@ -308,7 +308,7 @@ def reactor_direct(case: dc.Case, point: dict) -> dict:    # returns lcot + plot
     margin), not a fixed design speed, unlike the cheap engine/motor cases.
     """
     pl, dt = case.platform, case.drivetrain
-    shared = case.shared
+    shared = case.economics
     route = case.route
     d_km, op_v_kn = point["d_km"], point["op_v_kn"]
     fuels = [s for s in case.sources if isinstance(s, dc.FuelSource)]
@@ -365,7 +365,7 @@ def reactor_electric_integrated(case: dc.Case, point: dict) -> dict:    # return
     is sized to the same operating point.
     """
     pl, dt = case.platform, case.drivetrain
-    shared = case.shared
+    shared = case.economics
     route = case.route
     d_km, op_v_kn = point["d_km"], point["op_v_kn"]
     fuels = [s for s in case.sources if isinstance(s, dc.FuelSource)]
@@ -423,7 +423,7 @@ def reactor_electric(case: dc.Case, point: dict) -> dict:    # returns lcot + pl
     (cheap) is design-speed-sized; the reactor (expensive) is sized to the operating bus.
     """
     pl, dt = case.platform, case.drivetrain
-    shared = case.shared
+    shared = case.economics
     route = case.route
     d_km, op_v_kn = point["d_km"], point["op_v_kn"]
     reactor = next(s for s in case.sources if isinstance(s, dc.ReactorSource))
