@@ -32,15 +32,12 @@ class Config:
 
 @dataclass(frozen=True)
 class Shared:
+    """Genuinely cross-case economics + design margins. Everything that varies per case —
+    load factors, speed bounds — lives on the Case (its `route` params / `optimize` axes),
+    not here: cases are Sobol-generated (potentially thousands), so those are not global."""
     discount_rate: float
-    crew_cost_usd_yr: float
-    weather_reserve: float          # energy margin on a battery ship's pack
-    sea_margin: float               # power margin on installed propulsion (sizing)
-    load_factor: float              # mean cargo load factor
-    v_min_kn: float                 # operating-speed search floor
-    v_max_kn: float                 # operating-speed search ceiling
-    # NOTE load_factor_imbalance moved to Route (it's per-case). v_min/v_max are candidates
-    # for the op_v_kn `optimize` axis on the Case — see the flag in the chat / Axis below.
+    crew_cost_usd_yr: float         # loaded annual cost per crew member
+    margins: Margins
 
 
 @dataclass(frozen=True)
@@ -125,6 +122,14 @@ class Case:
 
 
 # ================= sub-blocks (detail; mirror config.yaml's sub-blocks) ====
+
+# ---- shared ----
+@dataclass(frozen=True)
+class Margins:
+    """Design margins applied during sizing."""
+    weather: float                  # energy reserve on a battery ship's pack
+    sea: float                      # power margin on installed propulsion
+
 
 # ---- platform ----
 @dataclass(frozen=True)
@@ -250,6 +255,7 @@ class Route:
     """Per-case fixed route/condition params a strategy reads — the inputs that are neither
     a component nor swept/free. Strategy-specific fields are optional: a fuel case needs
     none of the battery/tender ones."""
+    load_factor: float                      # mean cargo load factor (route/market)
     load_factor_imbalance: float            # head/back-haul split (all strategies, via carried)
     design_v_kn: float | None = None        # design speed the cheap engine/motor is sized to
     storm_duration_h: float | None = None   # storm-buffer energy (battery ships)

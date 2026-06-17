@@ -52,13 +52,14 @@ analysis consume it downstream and are out of scope for the rebuild's early step
 
 - **Case** — a frozen composition and the **single place a strategy looks**: one Platform +
   one Drivetrain + **zero or more EnergySources**, plus **everything that isn't one of those
-  three**. That "everything" is: the `shared` economics block (one instance, referenced by
-  every case), a `route` block of fixed per-case params (some general — `design_v_kn`,
-  `load_factor_imbalance`; some strategy-specific — `standoff_nm`, `storm_duration_h`,
-  `idle_h`), a named **strategy**, and a declaration of which inputs are **free** (the
-  optimizer searches them to argmin LCOT, with bounds) and which are **swept** (the outer
-  runner iterates them, with ranges, to trace LCOT vs. X — `D_max` by default). `shared` and
-  `route` are just sub-dataclasses (hierarchy headings), not separate top-level nouns. So a
+  three**. That "everything" is: the `shared` block (cross-case economics + design margins,
+  one instance referenced by every case), a `route` block of fixed per-case params (general —
+  `load_factor`, `load_factor_imbalance`, `design_v_kn`; strategy-specific — `standoff_nm`,
+  `storm_duration_h`, `idle_h`), a named **strategy**, and `optimize` / `sweep` axis lists
+  (each an `Axis(param, lo, hi, n)`): **free** axes the optimizer searches to argmin LCOT
+  (e.g. `op_v_kn`, whose bounds — the former `v_min/v_max` — live here), and **swept** axes
+  the outer runner iterates to trace LCOT vs. X (`D_max` by default). `shared` and `route`
+  are just sub-dataclasses (hierarchy headings), not separate top-level nouns. So a
   Case is a **complete, self-contained evaluation spec** — evaluating it yields a whole
   results table (sweep × per-point optimum) — and it has no behavior of its own: a generic
   runner reads its declarations and drives sweep → optimize → strategy. A Case can be

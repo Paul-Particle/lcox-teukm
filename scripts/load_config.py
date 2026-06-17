@@ -9,6 +9,10 @@ Loading is mechanical: `Block(**yaml_subdict)`. Sources dispatch on `type`.
 import data_classes as dc
 
 
+def _shared(d: dict) -> dc.Shared:
+    return dc.Shared(d["discount_rate"], d["crew_cost_usd_yr"], dc.Margins(**d["margins"]))
+
+
 def _platform(name: str, d: dict) -> dc.Platform:
     return dc.Platform(name, d["cargo_unit"], dc.Capacity(**d["capacity"]),
                        dc.HullCapex(**d["capex"]), dc.Resistance(**d["resistance"]),
@@ -50,7 +54,7 @@ def load_config(path) -> dc.Config:
     with open(path) as f:
         d = yaml.safe_load(f)
     return dc.Config(
-        shared=dc.Shared(**d["shared"]),
+        shared=_shared(d["shared"]),
         platforms={n: _platform(n, b) for n, b in d["platforms"].items()},
         drivetrains={n: _drivetrain(n, b) for n, b in d["drivetrains"].items()},
         sources={n: _source(n, b) for n, b in d["sources"].items()},
