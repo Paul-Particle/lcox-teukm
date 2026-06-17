@@ -223,7 +223,7 @@ not full regeneration on every run.
 | `data_classes.py` | config schema: Shared / Platform / Drivetrain / EnergySource / Case / Route | nouns present; `Case` + `Route` to add; source cost models to move onto EnergySource |
 | `load_config.py`  | thin YAML → schema loader                         | exists |
 | `config.yaml`     | hierarchical input                                | draft; `cases:` deferred |
-| `strategies.py`   | the per-case strategy functions `(case, point) -> Result`, + strategy-only route math (`legs_per_year`, `carried`) | `tether_charge` + `port_swap_battery` + `fuel_burn` drafted; they define the source interface via `# NEEDS` |
+| `strategies.py`   | the 6 per-case strategy functions `(case, point) -> Result`, + strategy-only route math (`legs_per_year`, `carried`) | all 6 drafted (`fuel_burn`, `port_swap_battery`, `tether_charge`, `reactor_direct`, `reactor_electric_integrated`, `reactor_electric`); they define the source interface via `# NEEDS` |
 | `optimizer.py`    | the `optimize` (free-param search) + `run` (sweep) functions, + the `Point` / `Result` types | to create from scratch (old `determine_cost.py` deleted) |
 | `run.py`          | entry point → load config → `run(case)` → artifact | fully stale |
 | `plots.py`, `style.py` | presentation                                 | deferred until an artifact exists |
@@ -239,7 +239,16 @@ not full regeneration on every run.
   points. Revisit if a case needs the optimizer to see partial structure.
 - **EnergySource cost-model interface:** the exact signature and the shape of the
   data a source returns to the strategy (the `# NEEDS` lines in `strategies.py` are the
-  current working spec).
+  current working spec). Settled so far: `BatterySource.size` + `life_yr` (shared by
+  `port_swap_battery` and `tether_charge`); `FuelSource.usd_per_kwh` (shared by `fuel_burn`
+  and the integrated-reactor strategies). The **integrated** reactors (`reactor_direct`,
+  `reactor_electric_integrated`) carry the reactor as Drivetrain CAPEX — no source method.
+- **Split ReactorSource into two subtypes.** `tether_charge` calls `levelize(bus_kw,
+  tethered_h, idle_h, …)` (cable + reposition duty cycle); `reactor_electric` calls
+  `size(bus_kw, …) -> (usd_per_kwh, reactor_kw, slots)` (pool utilization + a `teu_per_mwe`
+  slot footprint + an onboard `hotel_delta_kw`). The two share almost no fields or method —
+  lean toward a `TenderReactor` / `ContainerizedReactor` split rather than one all-optional
+  class. Decide when building the sources.
 - **Journey representation:** the concrete shape of the resolved segment plan.
 - **Extra swept axes** beyond `D_max` (to ease later Sobol exploration): structure
   for it, but low priority.
