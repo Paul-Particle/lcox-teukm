@@ -21,11 +21,16 @@ Expensive reactors are sized to the OPERATING speed (no free oversizing); cheap 
 to the FIXED design speed. The scaffolding common to all six is factored into the helpers at the
 bottom (`_resolve_demand`, `_annual_platform_crew`, `_lcot`, `_row`, + route arithmetic
 `legs_per_year`/`carried`), so each strategy reads as just its source/energy handling.
+
+Every strategy walks the same phases in the same order: setup -> route & demand -> size the
+source -> throughput & feasibility (`carried <= 0` is infeasible) -> energy cost per leg ->
+capital + fixed O&M -> combine into `lcot`. Converter sizing stays beside its CAPEX line.
 """
 
 from __future__ import annotations
 
 import math
+from typing import NamedTuple
 
 import data_classes as dc
 import helpers
@@ -41,7 +46,7 @@ def tether_charge(case: dc.Case, point: dict) -> dict:
     max(one coastal sub-leg, storm buffer), cycled every leg.
     """
     pl, dt = case.platform, case.drivetrain
-    econ, margins, route = case.params.economics, case.params.margins, case.params.route
+    economics, margins, route = case.params.economics, case.params.margins, case.params.route
     d_km, op_v_kn = point["d_km"], point["op_v_kn"]
     # expects exactly one battery + one tender reactor source
     battery = next(s for s in case.sources if isinstance(s, dc.BatterySource))
@@ -58,7 +63,8 @@ def tether_charge(case: dc.Case, point: dict) -> dict:
     tethered_h = tethered_km / kmh
 
     # --- bus demand at the operating speed (tender offboard -> no reactor hotel delta) ---
-    pf, _prop_kw, _hotel_kw, bus_kw = _resolve_demand(pl, dt, op_v_kn)
+    demand = _resolve_demand(pl, dt, op_v_kn)
+    bus_kw = demand.bus_kw
 
     # --- size the pack to operating-speed energy: max(coastal sub-leg, storm) + reserve ----
     coastal_kwh = bus_kw * coastal_h
@@ -75,26 +81,26 @@ def tether_charge(case: dc.Case, point: dict) -> dict:
         return _infeasible(op_v_kn, d_km)
 
     # --- energy split per leg: grid refills one deliverable, tender carries the crossing ---
-    rt = battery.efficiency.charge * battery.efficiency.discharge
-    recharge_kwh = deliverable_kwh / rt
+    roundtrip_efficiency = battery.efficiency.charge * battery.efficiency.discharge
+    recharge_kwh = deliverable_kwh / roundtrip_efficiency
     grid_cost_leg = recharge_kwh * battery.charge_usd_per_kwh
     # tethered, the tender holds the bus load AND trickle-charges the pack for the next sub-leg
     charge_kw = recharge_kwh / tethered_h
     tender_bus_kw = bus_kw + charge_kw
     tender_bus_kwh = tender_bus_kw * tethered_h
     tender_usd_per_kwh, reactor_kw = tender.levelize(
-        tender_bus_kw, tethered_h, route.idle_h, econ.discount_rate)
+        tender_bus_kw, tethered_h, route.idle_h, economics.discount_rate)
     tender_cost_leg = tender_bus_kwh * tender_usd_per_kwh
 
     # --- capital + fixed O&M (ship only; the tender's CAPEX is inside its $/kWh) -
-    r = econ.discount_rate
+    discount_rate = economics.discount_rate
     # motor sized to the FIXED design speed (cheap, off the slow-steam sweep)
-    motor_kw = helpers.prop_power_kw(pl.resistance, route.design_v_kn, pf) * (1 + margins.sea)
+    motor_kw = helpers.prop_power_kw(pl.resistance, route.design_v_kn, demand.propulsion_factor) * (1 + margins.sea)
     battery_life = battery.life_yr(legs)
     annual_fixed = (
-        _annual_platform_crew(pl, dt, econ, legs, r)
-        + dt.capex.converter_usd_per_kw * motor_kw * helpers.crf(r, dt.capex.life_yr)
-        + battery.capex.usd_per_kwh * installed_kwh * helpers.crf(r, battery_life))
+        _annual_platform_crew(pl, dt, economics, legs, discount_rate)
+        + dt.capex.converter_usd_per_kw * motor_kw * helpers.crf(discount_rate, dt.capex.life_yr)
+        + battery.capex.usd_per_kwh * installed_kwh * helpers.crf(discount_rate, battery_life))
     annual_energy = (grid_cost_leg + tender_cost_leg) * legs
     lcot = _lcot(annual_fixed, annual_energy, legs, d_km, cargo)
 
@@ -111,13 +117,14 @@ def port_swap_battery(case: dc.Case, point: dict) -> dict:
     floor in BatterySource.size pins the economic speed low). No new source interface.
     """
     pl, dt = case.platform, case.drivetrain
-    econ, margins, route = case.params.economics, case.params.margins, case.params.route
+    economics, margins, route = case.params.economics, case.params.margins, case.params.route
     d_km, op_v_kn = point["d_km"], point["op_v_kn"]
     battery = next(s for s in case.sources if isinstance(s, dc.BatterySource))
 
     # --- route plan + power demand at the operating speed ----------------------
     sail_h = d_km / (op_v_kn * KMH_PER_KNOT)
-    pf, _prop_kw, _hotel_kw, bus_kw = _resolve_demand(pl, dt, op_v_kn)
+    demand = _resolve_demand(pl, dt, op_v_kn)
+    bus_kw = demand.bus_kw
 
     # --- size the pack to the whole leg: max(leg, storm buffer) + reserve --------
     leg_kwh = bus_kw * sail_h
@@ -134,18 +141,18 @@ def port_swap_battery(case: dc.Case, point: dict) -> dict:
         return _infeasible(op_v_kn, d_km)
 
     # --- energy: the swap refills one full deliverable each leg at the grid price -
-    rt = battery.efficiency.charge * battery.efficiency.discharge
-    recharge_kwh = deliverable_kwh / rt
+    roundtrip_efficiency = battery.efficiency.charge * battery.efficiency.discharge
+    recharge_kwh = deliverable_kwh / roundtrip_efficiency
     grid_cost_leg = recharge_kwh * battery.charge_usd_per_kwh
 
     # --- capital + fixed O&M ----------------------------------------------------
-    r = econ.discount_rate
-    motor_kw = helpers.prop_power_kw(pl.resistance, route.design_v_kn, pf) * (1 + margins.sea)
+    discount_rate = economics.discount_rate
+    motor_kw = helpers.prop_power_kw(pl.resistance, route.design_v_kn, demand.propulsion_factor) * (1 + margins.sea)
     battery_life = battery.life_yr(legs)
     annual_fixed = (
-        _annual_platform_crew(pl, dt, econ, legs, r)
-        + dt.capex.converter_usd_per_kw * motor_kw * helpers.crf(r, dt.capex.life_yr)
-        + battery.capex.usd_per_kwh * installed_kwh * helpers.crf(r, battery_life))
+        _annual_platform_crew(pl, dt, economics, legs, discount_rate)
+        + dt.capex.converter_usd_per_kw * motor_kw * helpers.crf(discount_rate, dt.capex.life_yr)
+        + battery.capex.usd_per_kwh * installed_kwh * helpers.crf(discount_rate, battery_life))
     annual_energy = grid_cost_leg * legs
     lcot = _lcot(annual_fixed, annual_energy, legs, d_km, cargo)
 
@@ -159,15 +166,15 @@ def fuel_burn(case: dc.Case, point: dict) -> dict:
     mass, no sizing. Engine sized to the fixed design speed; burn scales with operating speed.
     """
     pl, dt = case.platform, case.drivetrain
-    econ, margins, route = case.params.economics, case.params.margins, case.params.route
+    economics, margins, route = case.params.economics, case.params.margins, case.params.route
     d_km, op_v_kn = point["d_km"], point["op_v_kn"]
     fuel = next(s for s in case.sources if isinstance(s, dc.FuelSource))
 
     # --- fuel-energy INPUT demand at the operating speed (drive/hotel = chemical->shaft/hotel) ---
     sail_h = d_km / (op_v_kn * KMH_PER_KNOT)
-    pf, _prop_kw, _hotel_kw, fuel_kw = _resolve_demand(pl, dt, op_v_kn)
+    demand = _resolve_demand(pl, dt, op_v_kn)
+    fuel_kw = demand.bus_kw
     fuel_kwh_leg = fuel_kw * sail_h
-    fuel_cost_leg = fuel_kwh_leg * fuel.usd_per_kwh()
 
     # --- annual legs + revenue cargo (bunkers displace deadweight, no slot footprint) ---
     legs = legs_per_year(op_v_kn, d_km, dt.operations.port_hours, dt.operations.availability)
@@ -176,12 +183,15 @@ def fuel_burn(case: dc.Case, point: dict) -> dict:
     if cargo <= 0:
         return _infeasible(op_v_kn, d_km)
 
+    # --- energy: full-leg burn at the normalized fuel price ----------------------
+    fuel_cost_leg = fuel_kwh_leg * fuel.usd_per_kwh()
+
     # --- capital + fixed O&M ----------------------------------------------------
-    r = econ.discount_rate
-    engine_kw = helpers.prop_power_kw(pl.resistance, route.design_v_kn, pf) * (1 + margins.sea)
+    discount_rate = economics.discount_rate
+    engine_kw = helpers.prop_power_kw(pl.resistance, route.design_v_kn, demand.propulsion_factor) * (1 + margins.sea)
     annual_fixed = (
-        _annual_platform_crew(pl, dt, econ, legs, r)
-        + dt.capex.converter_usd_per_kw * engine_kw * helpers.crf(r, dt.capex.life_yr))
+        _annual_platform_crew(pl, dt, economics, legs, discount_rate)
+        + dt.capex.converter_usd_per_kw * engine_kw * helpers.crf(discount_rate, dt.capex.life_yr))
     annual_energy = fuel_cost_leg * legs
     lcot = _lcot(annual_fixed, annual_energy, legs, d_km, cargo)
 
@@ -196,16 +206,16 @@ def reactor_direct(case: dc.Case, point: dict) -> dict:
     v_max). Being expensive, the reactor is sized to the OPERATING speed, not a fixed design one.
     """
     pl, dt = case.platform, case.drivetrain
-    econ, margins, route = case.params.economics, case.params.margins, case.params.route
+    economics, margins, route = case.params.economics, case.params.margins, case.params.route
     d_km, op_v_kn = point["d_km"], point["op_v_kn"]
     fuels = [s for s in case.sources if isinstance(s, dc.FuelSource)]
     fuel = fuels[0] if fuels else None                  # None => fueled-for-life (no energy cost)
 
     # reactor thermal input demand (drive/hotel = thermal->shaft/hotel, both off reactor heat)
     sail_h = d_km / (op_v_kn * KMH_PER_KNOT)
-    _pf, prop_kw, _hotel_kw, thermal_kw = _resolve_demand(pl, dt, op_v_kn)
+    demand = _resolve_demand(pl, dt, op_v_kn)
+    thermal_kw = demand.bus_kw
     fuel_kwh_leg = thermal_kw * sail_h
-    fuel_cost_leg = fuel_kwh_leg * fuel.usd_per_kwh() if fuel is not None else 0.0
 
     legs = legs_per_year(op_v_kn, d_km, dt.operations.port_hours, dt.operations.availability)
     # integrated reactor + shielding is a fixed slot overhead on the drivetrain; ~no carried mass
@@ -214,12 +224,15 @@ def reactor_direct(case: dc.Case, point: dict) -> dict:
     if cargo <= 0:
         return _infeasible(op_v_kn, d_km)
 
-    r = econ.discount_rate
+    # --- energy: thermal fuel over the leg (zero if fueled-for-life) -------------
+    fuel_cost_leg = fuel_kwh_leg * fuel.usd_per_kwh() if fuel is not None else 0.0
+
+    discount_rate = economics.discount_rate
     # reactor sized to the OPERATING speed; converter_usd_per_kw is the reactor+steam+shaft plant
-    reactor_shaft_kw = prop_kw * (1 + margins.sea)
+    reactor_shaft_kw = demand.prop_kw * (1 + margins.sea)
     annual_fixed = (
-        _annual_platform_crew(pl, dt, econ, legs, r)
-        + dt.capex.converter_usd_per_kw * reactor_shaft_kw * helpers.crf(r, dt.capex.life_yr))
+        _annual_platform_crew(pl, dt, economics, legs, discount_rate)
+        + dt.capex.converter_usd_per_kw * reactor_shaft_kw * helpers.crf(discount_rate, dt.capex.life_yr))
     annual_energy = fuel_cost_leg * legs
     lcot = _lcot(annual_fixed, annual_energy, legs, d_km, cargo)
 
@@ -234,16 +247,16 @@ def reactor_electric_integrated(case: dc.Case, point: dict) -> dict:
     operating speed (the reactor caps speed anyway).
     """
     pl, dt = case.platform, case.drivetrain
-    econ, margins, route = case.params.economics, case.params.margins, case.params.route
+    economics, margins, route = case.params.economics, case.params.margins, case.params.route
     d_km, op_v_kn = point["d_km"], point["op_v_kn"]
     fuels = [s for s in case.sources if isinstance(s, dc.FuelSource)]
     fuel = fuels[0] if fuels else None
 
     sail_h = d_km / (op_v_kn * KMH_PER_KNOT)
-    _pf, prop_kw, hotel_kw, elec_bus_kw = _resolve_demand(pl, dt, op_v_kn)
+    demand = _resolve_demand(pl, dt, op_v_kn)
+    elec_bus_kw = demand.bus_kw
     thermal_kw = elec_bus_kw / dt.efficiency.generation     # reactor heat -> electricity
     fuel_kwh_leg = thermal_kw * sail_h
-    fuel_cost_leg = fuel_kwh_leg * fuel.usd_per_kwh() if fuel is not None else 0.0
 
     legs = legs_per_year(op_v_kn, d_km, dt.operations.port_hours, dt.operations.availability)
     cargo = carried(pl, dt.overhead.slots, 0.0, 0.0,
@@ -251,14 +264,17 @@ def reactor_electric_integrated(case: dc.Case, point: dict) -> dict:
     if cargo <= 0:
         return _infeasible(op_v_kn, d_km)
 
-    r = econ.discount_rate
+    # --- energy: thermal fuel over the leg (zero if fueled-for-life) -------------
+    fuel_cost_leg = fuel_kwh_leg * fuel.usd_per_kwh() if fuel is not None else 0.0
+
+    discount_rate = economics.discount_rate
     # reactor+generator sized to the operating-speed bus, motor to the shaft power; separate lives
-    motor_shaft_kw = prop_kw * (1 + margins.sea)
-    reactor_elec_kw = motor_shaft_kw / dt.efficiency.drive + hotel_kw / dt.efficiency.hotel
+    motor_shaft_kw = demand.prop_kw * (1 + margins.sea)
+    reactor_elec_kw = motor_shaft_kw / dt.efficiency.drive + demand.hotel_kw / dt.efficiency.hotel
     annual_fixed = (
-        _annual_platform_crew(pl, dt, econ, legs, r)
-        + dt.capex.reactor_usd_per_kw * reactor_elec_kw * helpers.crf(r, dt.capex.reactor_life_yr)
-        + dt.capex.converter_usd_per_kw * motor_shaft_kw * helpers.crf(r, dt.capex.life_yr))
+        _annual_platform_crew(pl, dt, economics, legs, discount_rate)
+        + dt.capex.reactor_usd_per_kw * reactor_elec_kw * helpers.crf(discount_rate, dt.capex.reactor_life_yr)
+        + dt.capex.converter_usd_per_kw * motor_shaft_kw * helpers.crf(discount_rate, dt.capex.life_yr))
     annual_energy = fuel_cost_leg * legs
     lcot = _lcot(annual_fixed, annual_energy, legs, d_km, cargo)
 
@@ -273,16 +289,18 @@ def reactor_electric(case: dc.Case, point: dict) -> dict:
     utilization. The bare motor is design-sized; the reactor sized to the operating bus.
     """
     pl, dt = case.platform, case.drivetrain
-    econ, margins, route = case.params.economics, case.params.margins, case.params.route
+    economics, margins, route = case.params.economics, case.params.margins, case.params.route
     d_km, op_v_kn = point["d_km"], point["op_v_kn"]
     reactor = next(s for s in case.sources if isinstance(s, dc.ContainerizedReactor))
 
     # the containerized reactor sits onboard, so its crew/security hotel delta adds to the bus
     sail_h = d_km / (op_v_kn * KMH_PER_KNOT)
-    pf, prop_kw, hotel_kw, bus_kw = _resolve_demand(pl, dt, op_v_kn, reactor.hotel_delta_kw)
-    sizing_kw = prop_kw * (1 + margins.sea) / dt.efficiency.drive + hotel_kw / dt.efficiency.hotel
-    reactor_usd_per_kwh, reactor_kw, reactor_slots = reactor.size(sizing_kw, econ.discount_rate)
-    reactor_cost_leg = bus_kw * sail_h * reactor_usd_per_kwh
+    demand = _resolve_demand(pl, dt, op_v_kn, reactor.hotel_delta_kw)
+    bus_kw = demand.bus_kw
+    sizing_kw = demand.prop_kw * (1 + margins.sea) / dt.efficiency.drive + demand.hotel_kw / dt.efficiency.hotel
+
+    # --- size the reactor to the bus (its slots displace cargo below) ------------
+    reactor_usd_per_kwh, reactor_kw, reactor_slots = reactor.size(sizing_kw, economics.discount_rate)
 
     legs = legs_per_year(op_v_kn, d_km, dt.operations.port_hours, dt.operations.availability)
     # the reactor's slots displace cargo (like a battery's); drivetrain overhead is the bare motor
@@ -291,11 +309,15 @@ def reactor_electric(case: dc.Case, point: dict) -> dict:
     if cargo <= 0:
         return _infeasible(op_v_kn, d_km)
 
-    r = econ.discount_rate
-    motor_kw = helpers.prop_power_kw(pl.resistance, route.design_v_kn, pf) * (1 + margins.sea)  # bare motor (cheap), design-sized
+    # --- energy: pool-levelized reactor over the full-leg bus --------------------
+    reactor_cost_leg = bus_kw * sail_h * reactor_usd_per_kwh
+
+    # --- capital + fixed O&M ----------------------------------------------------
+    discount_rate = economics.discount_rate
+    motor_kw = helpers.prop_power_kw(pl.resistance, route.design_v_kn, demand.propulsion_factor) * (1 + margins.sea)  # bare motor (cheap), design-sized
     annual_fixed = (
-        _annual_platform_crew(pl, dt, econ, legs, r)
-        + dt.capex.converter_usd_per_kw * motor_kw * helpers.crf(r, dt.capex.life_yr))
+        _annual_platform_crew(pl, dt, economics, legs, discount_rate)
+        + dt.capex.converter_usd_per_kw * motor_kw * helpers.crf(discount_rate, dt.capex.life_yr))
     annual_energy = reactor_cost_leg * legs
     lcot = _lcot(annual_fixed, annual_energy, legs, d_km, cargo)
 
@@ -307,25 +329,33 @@ def reactor_electric(case: dc.Case, point: dict) -> dict:
 # ============================ shared strategy scaffolding ====
 # Pieces every strategy repeats; strategy-only, so here rather than in helpers.py.
 
+class Demand(NamedTuple):
+    """Propulsion stack + input-energy demand at the operating speed. `bus_kw = prop_kw/drive
+    + hotel_kw/hotel` is the rate the source must supply, in whatever currency `drive`/`hotel`
+    convert FROM (electric bus, fuel chemical energy, or reactor heat)."""
+    propulsion_factor: float
+    prop_kw: float
+    hotel_kw: float
+    bus_kw: float
+
+
 def _resolve_demand(pl: dc.Platform, dt: dc.Drivetrain, op_v_kn: float,
-                    extra_hotel_kw: float = 0.0) -> tuple[float, float, float, float]:
-    """Propulsion stack + input-energy demand at the operating speed: `(pf, prop_kw, hotel_kw,
-    bus_kw)`, where `bus_kw = prop_kw/drive + hotel_kw/hotel` — the rate the source must supply,
-    in whatever currency `drive`/`hotel` convert FROM (electric bus, fuel chemical energy, or
-    reactor heat). `extra_hotel_kw` adds an onboard source's hotel delta (containerized reactor)."""
-    pf = helpers.propulsion_factor(dt.propulsion_factor)
+                    extra_hotel_kw: float = 0.0) -> Demand:
+    """Resolve the `Demand` at the operating speed. `extra_hotel_kw` adds an onboard source's
+    hotel delta (containerized reactor)."""
+    propulsion_factor = helpers.propulsion_factor(dt.propulsion_factor)
     hotel_kw = pl.hotel_base_kw + dt.operations.hotel_delta_kw + extra_hotel_kw
-    prop_kw = helpers.prop_power_kw(pl.resistance, op_v_kn, pf)
+    prop_kw = helpers.prop_power_kw(pl.resistance, op_v_kn, propulsion_factor)
     bus_kw = prop_kw / dt.efficiency.drive + hotel_kw / dt.efficiency.hotel
-    return pf, prop_kw, hotel_kw, bus_kw
+    return Demand(propulsion_factor, prop_kw, hotel_kw, bus_kw)
 
 
-def _annual_platform_crew(pl: dc.Platform, dt: dc.Drivetrain, econ: dc.Economics,
-                          legs: float, r: float) -> float:
+def _annual_platform_crew(pl: dc.Platform, dt: dc.Drivetrain, economics: dc.Economics,
+                          legs: float, discount_rate: float) -> float:
     """Fixed annual costs identical across strategies: hull amortization + crew + other fixed
     O&M + per-call tug. Each strategy adds its own converter/battery/reactor CAPEX on top."""
-    return (pl.capex.hull_usd * helpers.crf(r, pl.capex.life_yr)
-            + dt.operations.crew_count * econ.crew_cost_usd_yr
+    return (pl.capex.hull_usd * helpers.crf(discount_rate, pl.capex.life_yr)
+            + dt.operations.crew_count * economics.crew_cost_usd_yr
             + dt.operations.om_other_usd_yr
             + dt.operations.tug_usd_per_call * legs)
 
