@@ -26,7 +26,7 @@ import math
 
 import data_classes as dc
 import helpers
-from units import KM_PER_NM, KMH_PER_KNOT
+from units import KM_PER_NM, KMH_PER_KNOT, HOURS_PER_YEAR
 
 
 def tether_charge(case: dc.Case, point) -> dict:    # NEEDS Result return type (for now a dict)
@@ -86,13 +86,13 @@ def tether_charge(case: dc.Case, point) -> dict:    # NEEDS Result return type (
     installed_kwh, slots, mass_t = battery.size(
         deliverable_kwh, bus_kw, pl.slot_limits.container_max_gross_t)
 
-    # --- annual leg count + revenue cargo carried -------------------------------
-    legs = helpers.legs_per_year(op_v_kn, d_km, dt.operations.port_hours,
-                                 dt.operations.availability)
+    # --- annual leg count + revenue cargo carried (route arithmetic, defined below) ---
+    legs = legs_per_year(op_v_kn, d_km, dt.operations.port_hours,
+                         dt.operations.availability)
     # the pack's slots + mass displace cargo; the drivetrain overhead is fixed
-    carried = helpers.carried(pl, dt.overhead.slots, slots, mass_t,
-                              shared.load_factor, route.load_factor_imbalance)
-    if carried <= 0:
+    cargo = carried(pl, dt.overhead.slots, slots, mass_t,
+                    shared.load_factor, route.load_factor_imbalance)
+    if cargo <= 0:
         return _infeasible(op_v_kn, d_km)
 
     # --- energy split per leg ---------------------------------------------------
@@ -129,13 +129,13 @@ def tether_charge(case: dc.Case, point) -> dict:    # NEEDS Result return type (
         + dt.operations.tug_usd_per_call * legs)
 
     annual_energy = (grid_cost_leg + tender_cost_leg) * legs
-    annual_unitkm = legs * d_km * carried
+    annual_unitkm = legs * d_km * cargo
     lcot = (annual_fixed + annual_energy) / annual_unitkm
 
     # NEEDS Result dataclass (lcot + breakdown + feasibility); a dict stands in for now.
     return {
         "feasible": True, "lcot": lcot, "op_v_kn": op_v_kn, "d_km": d_km,
-        "carried": carried, "legs": legs,
+        "carried": cargo, "legs": legs,
         "annual_fixed": annual_fixed, "annual_energy": annual_energy,
         "battery_slots": slots, "battery_kwh": installed_kwh, "motor_kw": motor_kw,
         "tender_reactor_kw": reactor_kw, "tender_usd_per_kwh": tender_usd_per_kwh,
@@ -145,3 +145,42 @@ def tether_charge(case: dc.Case, point) -> dict:    # NEEDS Result return type (
 
 def _infeasible(op_v_kn: float, d_km: float) -> dict:
     return {"feasible": False, "lcot": math.inf, "op_v_kn": op_v_kn, "d_km": d_km}
+
+
+# ============================ route arithmetic (strategy-only) ====
+# Turning a route + speed into annual throughput and revenue cargo. Only the strategies
+# need these — the EnergySource cost models and the optimizer do not — so they live here,
+# not in helpers.py (which is for genuinely shared functions).
+
+def legs_per_year(v_kn: float, d_km: float, port_hours: float, availability: float) -> float:
+    """D_max legs completed per year: one one-way hop of `d_km` plus one port call (a round
+    trip is two legs), scaled by `availability`."""
+    sail_h = d_km / (v_kn * KMH_PER_KNOT)
+    return HOURS_PER_YEAR * availability / (sail_h + port_hours)
+
+
+def carried(pl: dc.Platform, overhead_slots: float, storage_units: float, energy_mass_t: float,
+            load_factor: float, load_factor_imbalance: float) -> float:
+    """Revenue cargo per leg in the platform's `cargo_unit`, round-trip averaged.
+
+    Volume-bound and mass-bound limits act together (`min` of the two). VOLUME: cargo
+    demand is `load_factor` of the cargo-capable slots (gross minus the drivetrain
+    `overhead_slots`); energy stores occupy slots but only `batt_empty_usable_frac` of the
+    empty slack is store-usable for free, beyond which they displace cargo 1:1. MASS: the
+    energy-carrier weight `energy_mass_t` is drawn from `deadweight_t`. POWER is handled in
+    battery sizing, not here. Legs are ASYMMETRIC: `load_factor_imbalance` splits the mean
+    into a fuller headhaul and lighter backhaul, and a fixed store footprint bites the
+    fuller leg first. May return <= 0 (the store swamps the ship) -> caller treats as infeasible."""
+    cap = pl.capacity
+    cargo_cap = cap.gross - overhead_slots
+    mass_limited = (cap.deadweight_t - energy_mass_t) / cap.unit_mass_t
+
+    def carried_dir(lf: float) -> float:
+        demand = lf * cargo_cap
+        free_empty = pl.slot_limits.batt_empty_usable_frac * (cargo_cap - demand)
+        vol_carried = demand - max(0.0, storage_units - free_empty)
+        return min(vol_carried, mass_limited)
+
+    lf_head = min(1.0, load_factor * (1.0 + load_factor_imbalance))
+    lf_back = load_factor * (1.0 - load_factor_imbalance)
+    return 0.5 * (carried_dir(lf_head) + carried_dir(lf_back))
