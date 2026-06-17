@@ -224,7 +224,7 @@ not full regeneration on every run.
 | `load_config.py`  | thin YAML → schema loader                         | exists |
 | `config.yaml`     | hierarchical input                                | draft; `cases:` deferred |
 | `strategies.py`   | the per-case strategy functions `(case, point) -> Result`, + strategy-only route math (`legs_per_year`, `carried`) | renamed from `determine_journey_cost.py`; `tether_charge` drafted, defines interfaces |
-| `optimizer.py`    | the `optimize` (free-param search) + `run` (sweep) functions, + the `Point` / `Result` types | to create; `determine_cost.py` holds old archetype fns to delete |
+| `optimizer.py`    | the `optimize` (free-param search) + `run` (sweep) functions, + the `Point` / `Result` types | to create from scratch (old `determine_cost.py` deleted) |
 | `run.py`          | entry point → load config → `run(case)` → artifact | fully stale |
 | `plots.py`, `style.py` | presentation                                 | deferred until an artifact exists |
 | `supply.py`       | —                                                 | to be **dissolved**; contents become EnergySource cost models |
