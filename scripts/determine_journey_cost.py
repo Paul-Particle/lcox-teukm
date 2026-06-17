@@ -85,10 +85,13 @@ def tether_charge(case: dc.Case, shared: dc.Shared, v_kn: float, d_km: float) ->
     charge_kw = recharge_kwh / tethered_h               # the refill, spread over the crossing
     tender_bus_kw = bus_kw + charge_kw                  # prop+hotel + charge: what the tender must hold
     tender_bus_kwh = tender_bus_kw * tethered_h
-    # NEEDS ReactorSource.levelize(tender_bus_kw, discount_rate) -> (usd_per_kwh, reactor_kw)
-    #       sizes the reactor to that bus power (via cable_efficiency + parasitic) and levelizes
-    #       its annual cost over a flat-out year (matched fleet)
-    tender_usd_per_kwh, reactor_kw = tender.levelize(tender_bus_kw, shared.discount_rate)
+    # NEEDS ReactorSource.levelize(tender_bus_kw, tethered_h, idle_h, discount_rate)
+    #       -> (usd_per_kwh, reactor_kw). Sizes the reactor to that bus power (via
+    #       cable_efficiency + parasitic); the duty cycle tethered_h/(tethered_h+idle_h)
+    #       sets the kWh/yr it actually delivers, over which its annual cost is levelized.
+    # NEEDS journey["idle_h"]: reposition-or-wait between escorts (matched fleet still idles).
+    tender_usd_per_kwh, reactor_kw = tender.levelize(
+        tender_bus_kw, tethered_h, j["idle_h"], shared.discount_rate)
     tender_cost_leg = tender_bus_kwh * tender_usd_per_kwh
 
     # --- capital + fixed O&M (ship only; the tender's CAPEX is inside its $/kWh) -
@@ -113,7 +116,7 @@ def tether_charge(case: dc.Case, shared: dc.Shared, v_kn: float, d_km: float) ->
         "annual_fixed": annual_fixed, "annual_energy": annual_energy,
         "battery_slots": slots, "battery_kwh": installed_kwh,
         "tender_reactor_kw": reactor_kw, "tender_usd_per_kwh": tender_usd_per_kwh,
-        "ships_per_tender": (sail_h + dt.operations.port_hours) / tethered_h,
+        "ships_per_tender": (sail_h + dt.operations.port_hours) / (tethered_h + j["idle_h"]),
     }
 
 
