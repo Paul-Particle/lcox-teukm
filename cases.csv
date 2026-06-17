@@ -7,4 +7,4 @@ nuclear-direct,container,mechanical-nuclear,fission-fuel,reactor_direct,0.80,0.2
 nuclear-int-el,container,electric-nuclear,fission-fuel,reactor_electric_integrated,0.80,0.2,,,,,op_v_kn,5,22,18,d_km,500,18000,36
 nuclear-cont,container,electric,containerized-reactor,reactor_electric,0.80,0.2,18.0,,,,op_v_kn,5,22,18,d_km,500,18000,36
 tender,container,electric,lfp,tether_charge,0.80,0.2,18.0,12.0,200.0,12.0,op_v_kn,5,22,18,d_km,500,18000,36
-tender,,,tender-reactor,,,,,,,,,,,,,,,
+tender,container,electric,tender-reactor,tether_charge,0.80,0.2,18.0,12.0,200.0,12.0,,,,,,,,
