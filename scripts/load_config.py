@@ -9,8 +9,8 @@ Loading is mechanical: `Block(**yaml_subdict)`. Sources dispatch on `type`.
 import data_classes as dc
 
 
-def _shared(d: dict) -> dc.Shared:
-    return dc.Shared(d["discount_rate"], d["crew_cost_usd_yr"], dc.Margins(**d["margins"]))
+def _shared(d: dict) -> dc.Economics:
+    return dc.Economics(d["discount_rate"], d["crew_cost_usd_yr"], dc.Margins(**d["margins"]))
 
 
 def _platform(name: str, d: dict) -> dc.Platform:

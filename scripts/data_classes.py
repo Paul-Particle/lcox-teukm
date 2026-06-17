@@ -31,14 +31,20 @@ class Case:
     axes. Pure data: a runner reads `sweep`/`optimize` and drives sweep → optimize →
     strategy; nothing here has behaviour of its own."""
     name: str
+    sources: tuple[EnergySource, ...]   # zero or more (zero = fueled-for-life converter)
     platform: Platform
     drivetrain: Drivetrain
-    sources: tuple[EnergySource, ...]   # zero or more (zero = fueled-for-life converter)
     strategy: str                       # names the function in strategies.py
-    shared: Shared                      # the one shared block, by reference
-    route: Route                        # per-case fixed route/condition params
+    params: Params
     optimize: tuple[Axis, ...]          # FREE axes: searched per swept point for min lcot
     sweep: tuple[Axis, ...]             # SWEPT axes: iterated to trace LCOT-vs-X (D_max…)
+
+@dataclass(frozen=True)
+class EnergySource:
+    """Base for the energy-supplying technologies. The concrete subclass IS the
+    `type` (fuel / battery / reactor), so it isn't stored as a field."""
+    name: str
+
 
 @dataclass(frozen=True)
 class Platform:
@@ -62,13 +68,11 @@ class Drivetrain:
     propulsion_factor: PropulsionFactor
 
 
-@dataclass(frozen=True)
-class EnergySource:
-    """Base for the energy-supplying technologies. The concrete subclass IS the
-    `type` (fuel / battery / reactor), so it isn't stored as a field."""
-    name: str
 
 
+# ================= sub-blocks (detail; mostly mirror config.yaml's sub-blocks) ====
+
+# ---- source ----
 @dataclass(frozen=True)
 class FuelSource(EnergySource):
     price: FuelPrice
@@ -102,26 +106,51 @@ class ReactorSource(EnergySource):
     availability: float | None = None       # tender
     tether: Tether | None = None            # tender
 
-
-
-
-# ================= sub-blocks (detail; mirror config.yaml's sub-blocks) ====
+# ---- case ----
 
 @dataclass(frozen=True)
-class Shared:
+class Params:
+    economics: Economics                      # the one shared block, by reference
+    margins: Margins
+    route: Route                        # per-case fixed route/condition params
+
+@dataclass(frozen=True)
+class Economics:
     """Genuinely cross-case economics + design margins. Everything that varies per case —
     load factors, speed bounds — lives on the Case (its `route` params / `optimize` axes),
     not here: cases are Sobol-generated (potentially thousands), so those are not global."""
     discount_rate: float
     crew_cost_usd_yr: float         # loaded annual cost per crew member
-    margins: Margins
 
-# ---- shared ----
 @dataclass(frozen=True)
 class Margins:
     """Design margins applied during sizing."""
     weather: float                  # energy reserve on a battery ship's pack
     sea: float                      # power margin on installed propulsion
+
+
+@dataclass(frozen=True)
+class Route:
+    """Per-case fixed route/condition params a strategy reads — the inputs that are neither
+    a component nor swept/free. Strategy-specific fields are optional: a fuel case needs
+    none of the battery/tender ones."""
+    load_factor: float                      # mean cargo load factor (route/market)
+    load_factor_imbalance: float            # head/back-haul split (all strategies, via carried)
+    design_v_kn: float | None = None        # design speed the cheap engine/motor is sized to
+    storm_duration_h: float | None = None   # storm-buffer energy (battery ships)
+    standoff_nm: float | None = None        # coastal sub-leg each side of the tether (tender)
+    idle_h: float | None = None             # tender reposition-or-wait between escorts
+
+
+@dataclass(frozen=True)
+class Axis:
+    """A point-coordinate the runner varies over a grid. Same shape for an `optimize` axis
+    (searched for min lcot) and a `sweep` axis (traced as an LCOT-vs-X curve) — the Case
+    decides which list it lands in. First cut; revisit when the optimizer is built."""
+    param: str                      # the point-dict key it sets, e.g. "op_v_kn" or "d_km"
+    lo: float
+    hi: float
+    n: int                          # number of grid points
 
 
 # ---- platform ----
@@ -242,26 +271,3 @@ class Tether:
     cable_v_cap_kn: float           # max speed while tethered (source-imposed speed cap)
 
 
-# ---- case ----
-@dataclass(frozen=True)
-class Route:
-    """Per-case fixed route/condition params a strategy reads — the inputs that are neither
-    a component nor swept/free. Strategy-specific fields are optional: a fuel case needs
-    none of the battery/tender ones."""
-    load_factor: float                      # mean cargo load factor (route/market)
-    load_factor_imbalance: float            # head/back-haul split (all strategies, via carried)
-    design_v_kn: float | None = None        # design speed the cheap engine/motor is sized to
-    storm_duration_h: float | None = None   # storm-buffer energy (battery ships)
-    standoff_nm: float | None = None        # coastal sub-leg each side of the tether (tender)
-    idle_h: float | None = None             # tender reposition-or-wait between escorts
-
-
-@dataclass(frozen=True)
-class Axis:
-    """A point-coordinate the runner varies over a grid. Same shape for an `optimize` axis
-    (searched for min lcot) and a `sweep` axis (traced as an LCOT-vs-X curve) — the Case
-    decides which list it lands in. First cut; revisit when the optimizer is built."""
-    param: str                      # the point-dict key it sets, e.g. "op_v_kn" or "d_km"
-    lo: float
-    hi: float
-    n: int                          # number of grid points
