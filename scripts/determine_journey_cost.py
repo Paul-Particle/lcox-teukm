@@ -54,16 +54,18 @@ def tether_charge(case: dc.Case, shared: dc.Shared, v_kn: float, d_km: float) ->
     pf = physics.propulsion_factor(dt.propulsion_factor)        # product of the itemized stack
     hotel_kw = pl.hotel_base_kw + dt.operations.hotel_delta_kw  # tender is offboard -> no reactor delta
     prop_kw = physics.prop_power_kw(pl.resistance, v_kn, pf)
-    pack_draw_kw = prop_kw / dt.efficiency.drive + hotel_kw / dt.efficiency.hotel
+    # the ship's electrical bus demand, whoever feeds it: the battery on the coastal
+    # sub-legs, the tender directly while tethered.
+    bus_kw = prop_kw / dt.efficiency.drive + hotel_kw / dt.efficiency.hotel
 
     # --- size the pack: max(coastal sub-leg, storm buffer) + weather reserve ----
-    coastal_kwh = pack_draw_kw * coastal_h
-    storm_kwh = pack_draw_kw * j["storm_duration_h"]
+    coastal_kwh = bus_kw * coastal_h
+    storm_kwh = bus_kw * j["storm_duration_h"]
     deliverable_kwh = max(coastal_kwh, storm_kwh) * (1 + shared.weather_reserve)
     # NEEDS BatterySource.size(deliverable_kwh, power_kw, max_gross_t)
     #       -> (installed_kwh, slots, mass_t)   [applies dod, the power floor, the ISO mass cap]
     installed_kwh, slots, mass_t = battery.size(
-        deliverable_kwh, pack_draw_kw, pl.slot_limits.container_max_gross_t)
+        deliverable_kwh, bus_kw, pl.slot_limits.container_max_gross_t)
 
     # --- annual leg count + revenue cargo carried -------------------------------
     legs = physics.legs_per_year(v_kn, d_km, dt.operations.port_hours,
@@ -78,12 +80,15 @@ def tether_charge(case: dc.Case, shared: dc.Shared, v_kn: float, d_km: float) ->
     rt = battery.efficiency.charge * battery.efficiency.discharge
     recharge_kwh = deliverable_kwh / rt                 # input to refill one deliverable
     grid_cost_leg = recharge_kwh * battery.charge_usd_per_kwh        # port swap refills the in-leg
-    tender_bus_kwh = pack_draw_kw * tethered_h + recharge_kwh        # crossing + refill the out-leg
-    P_bus = tender_bus_kwh / tethered_h                 # power the tender must hold while escorting
-    # NEEDS ReactorSource.levelize(P_bus_kw, discount_rate) -> (usd_per_kwh, reactor_kw)
-    #       sizes the reactor to P_bus (via cable_efficiency + parasitic) and levelizes its
-    #       annual cost over a flat-out year (matched fleet)
-    tender_usd_per_kwh, reactor_kw = tender.levelize(P_bus, shared.discount_rate)
+    # while tethered the tender carries the ship's bus load AND trickle-charges the pack for the
+    # next coastal sub-leg, so its output is prop+hotel PLUS that charge power.
+    charge_kw = recharge_kwh / tethered_h               # the refill, spread over the crossing
+    tender_bus_kw = bus_kw + charge_kw                  # prop+hotel + charge: what the tender must hold
+    tender_bus_kwh = tender_bus_kw * tethered_h
+    # NEEDS ReactorSource.levelize(tender_bus_kw, discount_rate) -> (usd_per_kwh, reactor_kw)
+    #       sizes the reactor to that bus power (via cable_efficiency + parasitic) and levelizes
+    #       its annual cost over a flat-out year (matched fleet)
+    tender_usd_per_kwh, reactor_kw = tender.levelize(tender_bus_kw, shared.discount_rate)
     tender_cost_leg = tender_bus_kwh * tender_usd_per_kwh
 
     # --- capital + fixed O&M (ship only; the tender's CAPEX is inside its $/kWh) -
