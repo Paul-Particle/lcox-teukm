@@ -68,8 +68,6 @@ class Drivetrain:
     propulsion_factor: PropulsionFactor
 
 
-
-
 # ================= sub-blocks (detail; mostly mirror config.yaml's sub-blocks) ====
 
 # ---- source ----
@@ -107,7 +105,6 @@ class ReactorSource(EnergySource):
     tether: Tether | None = None            # tender
 
 # ---- case ----
-
 @dataclass(frozen=True)
 class Params:
     economics: Economics                      # the one shared block, by reference
@@ -121,6 +118,7 @@ class Economics:
     not here: cases are Sobol-generated (potentially thousands), so those are not global."""
     discount_rate: float
     crew_cost_usd_yr: float         # loaded annual cost per crew member
+
 
 @dataclass(frozen=True)
 class Margins:
