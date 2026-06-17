@@ -88,8 +88,9 @@ class BatterySource(EnergySource):
 class ReactorSource(EnergySource):
     """One class covers both reactor-as-source variants (both are `type: reactor`):
     the containerized module uses {overhead, hotel_delta_kw, pool}; the tender uses
-    {capex.hull_usd, parasitic_kw, om_other_usd_yr, availability, tether}. (Open: if
-    they diverge further, split into two subtypes — see DESIGN.md open decisions.)"""
+    {capex.hull_usd, parasitic_kw, om_other_usd_yr, availability, tether}. DECIDED: this
+    splits into `TenderReactor` + `ContainerizedReactor` when we build the cost methods
+    (they share almost nothing); for now it stays one all-optional class."""
     capex: ReactorCapex
     fuel_usd_per_kwh_th: float
     generation: float               # reactor thermal -> electricity
