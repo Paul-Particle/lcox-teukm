@@ -1,16 +1,20 @@
 """
-determine_journey_cost.py — bespoke per-case strategies that turn a
-(case, speed, distance) into the levelized cost of transport (LCOT) and a breakdown.
+determine_journey_cost.py — bespoke per-case strategies: a strategy turns a
+(case, point) into the levelized cost of transport (LCOT) and a breakdown.
 
-Written from scratch for the rebuild. Each strategy owns the journey logic for its
-case-type: segment the route, decide which source supplies what, size the energy
-stores, assemble the cost. A thin Optimizer (to come) sweeps the one free lever —
-service speed — and keeps the min-LCOT operating point per distance.
+A strategy is a pure function. It reads the FIXED setup off the case (platform,
+drivetrain, sources, journey params, design speed) plus ONE point in parameter space
+supplied by the optimizer, then designs the journey for that point — segment the route,
+decide which source supplies what, size the stores, assemble the cost. It reads fixed
+params off the case and the varied coordinates off the point; it does not know or care
+which point-coordinates the optimizer is *searching* (to argmin LCOT) versus which an
+outer loop is *sweeping* (e.g. D_max). The case tells the optimizer which params are
+free; LCOT-vs-sweep lives outside the optimizer, as a loop/vector over cases.
 
-This is the FIRST strategy: `tether_charge` (the nuclear-tender case). It is written
-before the source cost methods and some schema fields exist, on purpose — the calls
-it makes ARE the interface spec. Lines marked `# NEEDS` flag something the sources /
-schema must provide next.
+This is the FIRST strategy: `tether_charge` (the nuclear-tender case). Written before
+the source cost methods and some schema fields exist, on purpose — the calls it makes
+ARE the interface spec. Lines marked `# NEEDS` flag what the sources / schema / point
+must provide next.
 """
 
 from __future__ import annotations
@@ -22,43 +26,51 @@ import physics
 from units import KM_PER_NM, KMH_PER_KNOT
 
 
-def tether_charge(case: dc.Case, shared: dc.Shared, v_kn: float, d_km: float) -> dict:
-    """LCOT for the nuclear-tender case at cruise speed `v_kn` over a hop `d_km`.
+def tether_charge(case: dc.Case, point) -> dict:
+    """LCOT for the nuclear-tender case at one evaluation `point` (a hop `d_km` run at
+    operating speed `op_v_kn`).
 
     The ship is a grid-swap battery ship whose ocean crossing is carried by a nuclear
     tender over a tether:
       - coastal-out (within the standoff): battery propels; refilled AT SEA by the tender.
       - tethered open ocean:               tender propels directly over the cable.
       - coastal-in (within the standoff):  battery propels; refilled AT PORT by the grid swap.
-    The pack is sized for max(one coastal sub-leg, storm buffer) and — for now — that full
-    deliverable is cycled every leg. So the grid pays for one recharge, the tender for the
-    crossing plus the other recharge. The tender runs flat-out (matched fleet), so it bills a
-    single levelized $/kWh.
+
+    Two speeds, two sizing philosophies:
+      - the ship motor (cheap to oversize) is sized once to the FIXED design speed + a sea
+        margin, so it stays off the operating-speed sweep;
+      - the battery (to operating-speed energy) and the tender reactor (to operating-speed
+        bus power) are sized to what is actually run, so slow-steaming shrinks them.
+    The pack is sized for max(one coastal sub-leg, storm buffer); that full deliverable is
+    cycled every leg, so the grid pays for one recharge and the tender for the crossing plus
+    the other recharge.
     """
     pl, dt, j = case.platform, case.drivetrain, case.journey
+    shared = case.shared                                # NEEDS Case.shared (the case reaches the shared block)
+    d_km, op_v_kn = point.d_km, point.op_v_kn           # NEEDS optimizer point: d_km + op_v_kn (room to grow)
     # bespoke: this strategy expects exactly one battery + one (tender) reactor source
     battery = next(s for s in case.sources if isinstance(s, dc.BatterySource))
     tender = next(s for s in case.sources if isinstance(s, dc.ReactorSource))
 
-    # --- route geometry ---------------------------------------------------------
+    # --- route geometry (at the operating speed) --------------------------------
     coastal_km = j["standoff_nm"] * KM_PER_NM           # one identical to/from-tender sub-leg
     tethered_km = d_km - 2 * coastal_km
-    if tethered_km <= 0 or v_kn > tender.tether.cable_v_cap_kn:
-        return _infeasible(v_kn, d_km)
-    kmh = v_kn * KMH_PER_KNOT
+    if tethered_km <= 0 or op_v_kn > tender.tether.cable_v_cap_kn:
+        return _infeasible(op_v_kn, d_km)
+    kmh = op_v_kn * KMH_PER_KNOT
     sail_h = d_km / kmh
     coastal_h = coastal_km / kmh
     tethered_h = tethered_km / kmh
 
-    # --- power demand at this speed ---------------------------------------------
+    # --- power demand at the operating speed ------------------------------------
     pf = physics.propulsion_factor(dt.propulsion_factor)        # product of the itemized stack
     hotel_kw = pl.hotel_base_kw + dt.operations.hotel_delta_kw  # tender is offboard -> no reactor delta
-    prop_kw = physics.prop_power_kw(pl.resistance, v_kn, pf)
+    prop_kw = physics.prop_power_kw(pl.resistance, op_v_kn, pf)
     # the ship's electrical bus demand, whoever feeds it: the battery on the coastal
     # sub-legs, the tender directly while tethered.
     bus_kw = prop_kw / dt.efficiency.drive + hotel_kw / dt.efficiency.hotel
 
-    # --- size the pack: max(coastal sub-leg, storm buffer) + weather reserve ----
+    # --- size the pack to operating-speed energy: max(coastal sub-leg, storm) + reserve ----
     coastal_kwh = bus_kw * coastal_h
     storm_kwh = bus_kw * j["storm_duration_h"]
     deliverable_kwh = max(coastal_kwh, storm_kwh) * (1 + shared.weather_reserve)
@@ -68,13 +80,13 @@ def tether_charge(case: dc.Case, shared: dc.Shared, v_kn: float, d_km: float) ->
         deliverable_kwh, bus_kw, pl.slot_limits.container_max_gross_t)
 
     # --- annual leg count + revenue cargo carried -------------------------------
-    legs = physics.legs_per_year(v_kn, d_km, dt.operations.port_hours,
+    legs = physics.legs_per_year(op_v_kn, d_km, dt.operations.port_hours,
                                  dt.operations.availability)
     # the pack's slots + mass displace cargo; the drivetrain overhead is fixed
     carried = physics.carried(pl, dt.overhead.slots, slots, mass_t,
                               shared.load_factor, j["load_factor_imbalance"])
     if carried <= 0:
-        return _infeasible(v_kn, d_km)
+        return _infeasible(op_v_kn, d_km)
 
     # --- energy split per leg ---------------------------------------------------
     rt = battery.efficiency.charge * battery.efficiency.discharge
@@ -96,8 +108,12 @@ def tether_charge(case: dc.Case, shared: dc.Shared, v_kn: float, d_km: float) ->
 
     # --- capital + fixed O&M (ship only; the tender's CAPEX is inside its $/kWh) -
     r = shared.discount_rate
-    motor_kw = prop_kw                                  # motor sized to shaft power at this speed
-    battery_life = battery.life_yr(legs)                # NEEDS BatterySource.life_yr(legs)
+    # the motor (cheap to oversize) is sized to the FIXED design speed + a sea margin, NOT
+    # the operating speed, so it is not on the slow-steam sweep. The battery and the tender
+    # reactor above ARE sized to the operating speed.
+    design_prop_kw = physics.prop_power_kw(pl.resistance, case.design_v_kn, pf)
+    motor_kw = design_prop_kw * (1 + shared.sea_margin)   # NEEDS case.design_v_kn, shared.sea_margin (0.15)
+    battery_life = battery.life_yr(legs)                  # NEEDS BatterySource.life_yr(legs)
     annual_fixed = (
         pl.capex.hull_usd * physics.crf(r, pl.capex.life_yr)
         + dt.capex.converter_usd_per_kw * motor_kw * physics.crf(r, dt.capex.life_yr)
@@ -111,14 +127,14 @@ def tether_charge(case: dc.Case, shared: dc.Shared, v_kn: float, d_km: float) ->
     lcot = (annual_fixed + annual_energy) / annual_unitkm
 
     return {
-        "feasible": True, "lcot": lcot, "v_kn": v_kn, "d_km": d_km,
+        "feasible": True, "lcot": lcot, "op_v_kn": op_v_kn, "d_km": d_km,
         "carried": carried, "legs": legs,
         "annual_fixed": annual_fixed, "annual_energy": annual_energy,
-        "battery_slots": slots, "battery_kwh": installed_kwh,
+        "battery_slots": slots, "battery_kwh": installed_kwh, "motor_kw": motor_kw,
         "tender_reactor_kw": reactor_kw, "tender_usd_per_kwh": tender_usd_per_kwh,
         "ships_per_tender": (sail_h + dt.operations.port_hours) / (tethered_h + j["idle_h"]),
     }
 
 
-def _infeasible(v_kn: float, d_km: float) -> dict:
-    return {"feasible": False, "lcot": math.inf, "v_kn": v_kn, "d_km": d_km}
+def _infeasible(op_v_kn: float, d_km: float) -> dict:
+    return {"feasible": False, "lcot": math.inf, "op_v_kn": op_v_kn, "d_km": d_km}
