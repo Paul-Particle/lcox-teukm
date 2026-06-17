@@ -1,37 +1,39 @@
 """
-energy.py — ship physics shared by both powertrains.
+helpers.py — shared, stateless computation drawn on in more than one place.
 
-Propulsion power follows an admiralty-style cube law in speed; per-leg useful
-energy and annual leg count fall out of speed and leg distance D_max.
+Only genuinely shared functions live here: the finance math several EnergySources
+need (`crf`), and the ship physics that strategies — and sources that size to shaft
+or bus power, like the tender reactor — both use (the admiralty cube-law propulsion
+power and the propulsion-factor product). `crf` is not physics, which is exactly why
+the module is named helpers, not physics.
+
+Route-execution arithmetic that ONLY a strategy needs (legs/year, revenue cargo) does
+NOT belong here — it lives with the strategies in `strategies.py`.
+
+Units (see units.py): power kW, speed kn, money US$.
 """
 
-from params import Params
-from units import KMH_PER_KNOT, HOURS_PER_YEAR
+from __future__ import annotations
+
+import data_classes as dc
 
 
-def prop_power_kw(p: Params, v_kn: float, propulsion_factor: float = 1.0) -> float:
-    """Propulsion power demand at speed v (admiralty cube law P ~ v^3).
-
-    propulsion_factor scales the curve for powertrain-specific hull/propeller
-    efficiency (e.g. the electric ship's larger low-RPM props on pods and
-    cleaner flow); 1.0 = baseline. Applied to propulsion only, not hotel load.
-    """
-    return p.p_ref_kw * (v_kn / p.v_ref_kn) ** 3 * propulsion_factor
+# ---- finance ----
+def crf(rate: float, years: float) -> float:
+    """Capital recovery factor (annuity): the annual payment that amortizes one unit of
+    CAPEX over `years` at discount `rate`."""
+    years = max(years, 1e-6)
+    return rate * (1 + rate) ** years / ((1 + rate) ** years - 1)
 
 
-def leg_useful_energy_kwh(p: Params, v_kn: float, d_km: float,
-                          propulsion_factor: float = 1.0, hotel_kw: float = None) -> float:
-    """Useful energy at the propeller + hotel load over one leg of length d_km.
-    hotel_kw defaults to p.p_hotel_kw; pass a per-powertrain value to vary it."""
-    if hotel_kw is None:
-        hotel_kw = p.p_hotel_kw
-    sail_h = d_km / (v_kn * KMH_PER_KNOT)
-    return (prop_power_kw(p, v_kn, propulsion_factor) + hotel_kw) * sail_h
+# ---- ship physics ----
+def propulsion_factor(pf: dc.PropulsionFactor) -> float:
+    """The itemized hull/propeller efficiency stack compounded into the one factor that
+    scales propulsion power (1.0 = baseline; electric-only items are 1.0 on mechanicals)."""
+    return pf.hull_form * pf.coating * pf.propeller * pf.wider_eff * pf.routing
 
 
-def _elec_propulsion_factor(p: Params) -> float:
-    """Electric-drive hull/propeller efficiency: the itemized component factors
-    compounded (hull form x coating x propeller/pods x wider-eff x routing)."""
-    return (p.elec_hull_form_factor * p.elec_coating_factor
-            * p.elec_propeller_factor * p.elec_wider_eff_factor
-            * p.elec_routing_factor)
+def prop_power_kw(resistance: dc.Resistance, v_kn: float, factor: float = 1.0) -> float:
+    """Propulsion shaft power at speed `v_kn` (admiralty cube law P ~ v^3), scaled by the
+    compounded propulsion `factor`. Propulsion only — hotel load is handled separately."""
+    return resistance.p_ref_kw * (v_kn / resistance.v_ref_kn) ** 3 * factor
