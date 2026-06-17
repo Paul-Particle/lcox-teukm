@@ -4,13 +4,13 @@ data_classes.py — the frozen config schema.
 Dataclasses that mirror config.yaml's sub-blocks one-to-one, so the loader
 (load_config.py) can build them mechanically (`Block(**yaml_subdict)`) with no
 adapter logic. Three config nouns — Platform, Drivetrain, EnergySource (fuel /
-battery / reactor) — plus a Shared block, aggregated into a `Config`. The `Case` (the
-unit we evaluate) composes those and adds everything non-component: its `route` params,
-the strategy name, and the optimize/sweep axes.
+battery / reactor). The `Case` (the unit we evaluate) composes those and adds everything
+non-component via a `Params` block (economics + margins + route), a strategy name, and the
+optimize/sweep axes.
 
-The top-level structures come first (Config + the nouns + the source family + Case); the
-small sub-block dataclasses they're composed of are at the bottom — once you've read
-config.yaml they're self-evident.
+The top-level structures come first (Case + the nouns + the source family); the small
+sub-block dataclasses they're composed of are at the bottom — once you've read config.yaml
+they're self-evident.
 
 Units (see units.py): energy kWh, power kW, time h, distance km, speed kn, mass kg,
 money US$.
@@ -26,10 +26,10 @@ from dataclasses import dataclass
 @dataclass(frozen=True)
 class Case:
     """The unit we evaluate: one composition plus how to explore it. Holds the three
-    components and everything that isn't one of them — the `shared` block (one instance,
-    by reference), the per-case `route` params, the strategy name, and the optimize/sweep
-    axes. Pure data: a runner reads `sweep`/`optimize` and drives sweep → optimize →
-    strategy; nothing here has behaviour of its own."""
+    components and everything that isn't one of them — a `params` block (economics +
+    margins + route), the strategy name, and the optimize/sweep axes. Pure data: a runner
+    reads `sweep`/`optimize` and drives sweep → optimize → strategy; nothing here has
+    behaviour of its own."""
     name: str
     sources: tuple[EnergySource, ...]   # zero or more (zero = fueled-for-life converter)
     platform: Platform
@@ -107,15 +107,18 @@ class ReactorSource(EnergySource):
 # ---- case ----
 @dataclass(frozen=True)
 class Params:
-    economics: Economics                      # the one shared block, by reference
-    margins: Margins
-    route: Route                        # per-case fixed route/condition params
+    """The Case's non-component inputs. `economics` and `margins` are cross-case (one of
+    each, referenced by every case); `route` is per-case."""
+    economics: Economics    # cross-case, by reference
+    margins: Margins        # cross-case, by reference
+    route: Route            # per-case fixed route/condition params
+
 
 @dataclass(frozen=True)
 class Economics:
-    """Genuinely cross-case economics + design margins. Everything that varies per case —
-    load factors, speed bounds — lives on the Case (its `route` params / `optimize` axes),
-    not here: cases are Sobol-generated (potentially thousands), so those are not global."""
+    """Cross-case economics. Per-case quantities — load factors, speed bounds — live on the
+    Case (its `route` params / `optimize` axes), not here: cases are Sobol-generated
+    (potentially thousands), so those are not global."""
     discount_rate: float
     crew_cost_usd_yr: float         # loaded annual cost per crew member
 

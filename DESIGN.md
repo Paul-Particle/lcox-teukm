@@ -21,7 +21,7 @@ analysis consume it downstream and are out of scope for the rebuild's early step
 3. **EnergySources own their cost models.** Given the power/energy a strategy asks for,
    a source returns what's needed to compute LCOT — a flat price or a full
    levelization (tender, lease) — with no special-casing leaking elsewhere.
-4. **Config is immutable.** The Optimizer explores by constructing trial design +
+4. **Configuration is immutable.** The Optimizer explores by constructing trial design +
    dispatch points (sizing and operating choices); it never mutates the configured
    Case.
 5. **Domain computes, presentation consumes.** The model emits a results artifact;
@@ -52,14 +52,15 @@ analysis consume it downstream and are out of scope for the rebuild's early step
 
 - **Case** — a frozen composition and the **single place a strategy looks**: one Platform +
   one Drivetrain + **zero or more EnergySources**, plus **everything that isn't one of those
-  three**. That "everything" is: the `shared` block (cross-case economics + design margins,
-  one instance referenced by every case), a `route` block of fixed per-case params (general —
-  `load_factor`, `load_factor_imbalance`, `design_v_kn`; strategy-specific — `standoff_nm`,
-  `storm_duration_h`, `idle_h`), a named **strategy**, and `optimize` / `sweep` axis lists
-  (each an `Axis(param, lo, hi, n)`): **free** axes the optimizer searches to argmin LCOT
-  (e.g. `op_v_kn`, whose bounds — the former `v_min/v_max` — live here), and **swept** axes
-  the outer runner iterates to trace LCOT vs. X (`D_max` by default). `shared` and `route`
-  are just sub-dataclasses (hierarchy headings), not separate top-level nouns. So a
+  three**. That "everything" is a `params` block — cross-case `economics` + `margins` (one
+  of each, referenced by every case) and a per-case `route` (general — `load_factor`,
+  `load_factor_imbalance`, `design_v_kn`; strategy-specific — `standoff_nm`,
+  `storm_duration_h`, `idle_h`) — plus a named **strategy** and `optimize` / `sweep` axis
+  lists (each an `Axis(param, lo, hi, n)`): **free** axes the optimizer searches to argmin
+  LCOT (e.g. `op_v_kn`, whose bounds — the former `v_min/v_max` — live here), and **swept**
+  axes the outer runner iterates to trace LCOT vs. X (`D_max` by default). `economics` /
+  `margins` / `route` are just sub-dataclasses under `params` (hierarchy headings), not
+  separate top-level nouns. So a
   Case is a **complete, self-contained evaluation spec** — evaluating it yields a whole
   results table (sweep × per-point optimum) — and it has no behavior of its own: a generic
   runner reads its declarations and drives sweep → optimize → strategy. A Case can be
@@ -177,11 +178,11 @@ a `strategies.py` function the strategy calls to annualize the route.
 
 ## Configuration layout
 
-Hierarchical YAML, populated into frozen schema dataclasses (`params.py` becomes
-the schema — the old flat inventory regrouped by axis):
+Hierarchical YAML, populated into frozen schema dataclasses (`data_classes.py` — the
+old flat inventory regrouped by axis):
 
 ```yaml
-shared:        # route + economics that aren't axis-specific (discount rate, crew cost, margins…)
+shared:        # cross-case economics + margins (discount rate, crew cost, weather/sea margins)
 platforms:     # container (TEU)  [bulk (tonne) when it earns its keep]
 drivetrains:   # mechanical-fossil | mechanical-nuclear | electric
 sources:       # VLSFO | LFP | iron-air | SMR-* | mobile-tender-reactor | …
@@ -201,8 +202,8 @@ not full regeneration on every run.
 ## Terminology hygiene
 
 - **Frozen dataclasses for config, plain dicts for runtime data.** The loaded config is
-  frozen dataclasses (Platform, Drivetrain, EnergySource, Case, and its `shared` / `route`
-  sub-blocks) — immutable, validated, safely shared across the sweep. Transient runtime data
+  frozen dataclasses (Platform, Drivetrain, EnergySource, Case, and its `params` sub-blocks
+  economics/margins/route) — immutable, validated, safely shared across the sweep. Transient runtime data
   is plain dicts: the `point` the optimizer passes in and the cost `row` the strategy returns
   (rows go straight to the Parquet artifact, so a class would be ceremony). We don't name the
   strategy's internal route computation, and there is no `Journey` / `Result` / `Point` type.
@@ -212,8 +213,9 @@ not full regeneration on every run.
   `.evaluate()` / `.execute()` elsewhere.
 - The noun is **EnergySource**; its computation is its **energy cost model**. We do
   **not** use the word "supply".
-- **`route`** = the Case's fixed route/condition params (config). **`shared`** = the
-  cross-case economics block, reached via the case. Both are sub-dataclasses of the Case.
+- **`params`** = the Case's non-component inputs, a sub-block of three: **`economics`** +
+  **`margins`** (cross-case, by reference) and **`route`** (per-case fixed route/condition
+  params). Reached via the case (`case.params.economics` / `.margins` / `.route`).
 - **Strategy** = a named function `(case, point) -> dict`. **Optimizer** = the function
   `optimize(case, swept_point)` searching free inputs for min `lcot`. **`run`** = the outer sweep.
 - **helpers.py** = only *shared* computation — `crf` + the ship physics sizing leans on
@@ -226,7 +228,7 @@ not full regeneration on every run.
 |-------------------|---------------------------------------------------|----------------|
 | `units.py`        | unit conversions                                  | keep as-is |
 | `helpers.py`      | shared only: `crf` + ship physics (`prop_power_kw`, `propulsion_factor`) | done (rewritten against the new schema; renamed from `physics.py`/`energy.py`) |
-| `data_classes.py` | config schema: Shared / Platform / Drivetrain / EnergySource / Case / Route | nouns present; `Case` + `Route` to add; source cost models to move onto EnergySource |
+| `data_classes.py` | config schema: Platform / Drivetrain / EnergySource / Case + its `Params` (Economics / Margins / Route) + `Axis` | nouns + Case + Params/Axis present (no top-level Config); source cost models to move onto EnergySource |
 | `load_config.py`  | thin YAML → schema loader                         | exists |
 | `config.yaml`     | hierarchical input                                | draft; `cases:` deferred |
 | `strategies.py`   | the 6 per-case strategy functions `(case, point) -> dict`, + strategy-only route math (`legs_per_year`, `carried`) | all 6 drafted (`fuel_burn`, `port_swap_battery`, `tether_charge`, `reactor_direct`, `reactor_electric_integrated`, `reactor_electric`); they define the source interface via `# NEEDS` |
