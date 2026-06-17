@@ -25,7 +25,7 @@ from __future__ import annotations
 import math
 
 import data_classes as dc
-import physics
+import helpers
 from units import KM_PER_NM, KMH_PER_KNOT
 
 
@@ -70,9 +70,9 @@ def tether_charge(case: dc.Case, point) -> dict:    # NEEDS Result return type (
     tethered_h = tethered_km / kmh
 
     # --- power demand at the operating speed ------------------------------------
-    pf = physics.propulsion_factor(dt.propulsion_factor)        # product of the itemized stack
+    pf = helpers.propulsion_factor(dt.propulsion_factor)        # product of the itemized stack
     hotel_kw = pl.hotel_base_kw + dt.operations.hotel_delta_kw  # tender is offboard -> no reactor delta
-    prop_kw = physics.prop_power_kw(pl.resistance, op_v_kn, pf)
+    prop_kw = helpers.prop_power_kw(pl.resistance, op_v_kn, pf)
     # the ship's electrical bus demand, whoever feeds it: the battery on the coastal
     # sub-legs, the tender directly while tethered.
     bus_kw = prop_kw / dt.efficiency.drive + hotel_kw / dt.efficiency.hotel
@@ -87,10 +87,10 @@ def tether_charge(case: dc.Case, point) -> dict:    # NEEDS Result return type (
         deliverable_kwh, bus_kw, pl.slot_limits.container_max_gross_t)
 
     # --- annual leg count + revenue cargo carried -------------------------------
-    legs = physics.legs_per_year(op_v_kn, d_km, dt.operations.port_hours,
+    legs = helpers.legs_per_year(op_v_kn, d_km, dt.operations.port_hours,
                                  dt.operations.availability)
     # the pack's slots + mass displace cargo; the drivetrain overhead is fixed
-    carried = physics.carried(pl, dt.overhead.slots, slots, mass_t,
+    carried = helpers.carried(pl, dt.overhead.slots, slots, mass_t,
                               shared.load_factor, route.load_factor_imbalance)
     if carried <= 0:
         return _infeasible(op_v_kn, d_km)
@@ -117,13 +117,13 @@ def tether_charge(case: dc.Case, point) -> dict:    # NEEDS Result return type (
     # the motor (cheap to oversize) is sized to the FIXED design speed + a sea margin, NOT
     # the operating speed, so it is not on the slow-steam sweep. The battery and the tender
     # reactor above ARE sized to the operating speed.
-    design_prop_kw = physics.prop_power_kw(pl.resistance, route.design_v_kn, pf)
+    design_prop_kw = helpers.prop_power_kw(pl.resistance, route.design_v_kn, pf)
     motor_kw = design_prop_kw * (1 + shared.sea_margin)   # NEEDS shared.sea_margin (0.15)
     battery_life = battery.life_yr(legs)                  # NEEDS BatterySource.life_yr(legs)
     annual_fixed = (
-        pl.capex.hull_usd * physics.crf(r, pl.capex.life_yr)
-        + dt.capex.converter_usd_per_kw * motor_kw * physics.crf(r, dt.capex.life_yr)
-        + battery.capex.usd_per_kwh * installed_kwh * physics.crf(r, battery_life)
+        pl.capex.hull_usd * helpers.crf(r, pl.capex.life_yr)
+        + dt.capex.converter_usd_per_kw * motor_kw * helpers.crf(r, dt.capex.life_yr)
+        + battery.capex.usd_per_kwh * installed_kwh * helpers.crf(r, battery_life)
         + dt.operations.crew_count * shared.crew_cost_usd_yr     # NEEDS Drivetrain.operations.crew_count
         + dt.operations.om_other_usd_yr                          # NEEDS Drivetrain.operations.om_other_usd_yr
         + dt.operations.tug_usd_per_call * legs)
