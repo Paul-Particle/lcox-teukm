@@ -3,7 +3,7 @@
 Only what is used in more than one place: the finance math several EnergySources need
 (`crf`), and the ship physics that strategies — and any source sizing to shaft/bus power,
 like the tender reactor — both use. `crf` isn't physics, which is why this is `helpers`,
-not `physics`. Strategy-only route arithmetic (legs/year, carried) lives in strategies.py.
+not `physics`. Strategy-only route arithmetic (legs/year, carried) lives in strategies/_shared.py.
 """
 
 from __future__ import annotations

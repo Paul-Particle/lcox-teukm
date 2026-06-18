@@ -29,7 +29,7 @@ class Case:
     sources: tuple[EnergySource, ...]   # zero or more (zero = fueled-for-life converter)
     platform: Platform
     drivetrain: Drivetrain
-    strategy: str                       # names the function in strategies.py
+    strategy: str                       # names the function in the strategies package
     params: Params
     optimize: tuple[Axis, ...]          # FREE axes: searched per swept point for min lcot
     sweep: tuple[Axis, ...]             # SWEPT axes: iterated to trace LCOT-vs-X (D_max…)
