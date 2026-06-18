@@ -119,4 +119,12 @@ the "Tech-data library" item in `TODO.md`) and are flagged above as economics, n
 ```sh
 uv run scripts/mrv_fleet.py            # pools every data/*.xlsx, prints anchors + fits, writes the plot
 uv run scripts/mrv_fleet.py --no-plot  # numbers only
+uv run scripts/mrv_unify.py            # lossless unified dump -> data/mrv_unified.parquet (+ .csv)
 ```
+
+`mrv_unify.py` is a separate convenience step: it mirrors **all** the source workbooks (every
+ship type, row, and column) into one `data/mrv_unified.{parquet,csv}` so analysis doesn't
+re-parse seven Excels. Drifting "Annual average/Total" header prefixes are merged where safe;
+the canonical→original header map and source manifest ride along in the Parquet `attrs` and as a
+`#`-commented header in the CSV, so the rename is reversible and nothing is lost. Cells are kept
+as strings (MRV embeds error tokens like `"Division by zero!"` that numeric coercion would drop).
