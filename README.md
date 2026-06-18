@@ -56,7 +56,7 @@ touching the strategies.
 | `helpers.py` | shared only: `crf` + ship physics (`prop_power_kw`, `propulsion_factor`) | done |
 | `data_classes.py` | frozen config schema (Platform / Drivetrain / EnergySource family / Case / Params / Axis) | done |
 | `load_config.py` | YAML library + pandas CSV cases → built Cases (`dict[name → Case]`) | done |
-| `strategies.py` | the 6 strategy functions + shared scaffolding + route math (`legs_per_year`, `carried`) | done |
+| `strategies/` | package: one module per strategy (6) + `_shared.py` (scaffolding + route math `legs_per_year`/`carried`) | done |
 | EnergySource cost methods | `size` / `levelize` / `usd_per_kwh` / `life_yr` per source (on the dataclasses) | done |
 | `config.yaml` | component library (platforms/drivetrains/sources + shared economics) | draft (some placeholder crew/O&M) |
 | `cases.csv` | the case table (tidy; one case per group of rows) | 8 seed cases (some placeholder route/axis values) |
@@ -64,6 +64,7 @@ touching the strategies.
 | `run.py` | entry point → load → run → artifact | done |
 | `plots.py` | LCOT- and speed-vs-`D_max` figures from the artifact | done |
 | `style.py` | FCA house plotting style (template, palette, brand chrome) | done |
+| `mrv/` | standalone EU MRV fleet tooling (`mrv_unify`, `mrv_fleet`, `run_mrv`); grounds config anchors — see `docs/mrv_grounding.md` | done |
 
 ### The cases & the integration rule
 
@@ -105,7 +106,7 @@ run.py ─ run(case) for each built Case
 
 ### Cargo accounting (`carried`)
 
-Computed by the strategy (arithmetic in `strategies.py`): draws capacity/deadweight from the
+Computed by the strategy (arithmetic in `strategies/_shared.py`): draws capacity/deadweight from the
 Platform and the slot/mass footprint from the EnergySources, then takes the volume-bound vs.
 mass-bound minimum over asymmetric (head/back-haul) legs. May go ≤ 0 (store swamps the ship) →
 infeasible.
