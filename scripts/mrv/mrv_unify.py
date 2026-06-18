@@ -31,7 +31,7 @@ from pathlib import Path
 
 import pandas as pd
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
+REPO_ROOT = Path(__file__).resolve().parents[2]   # scripts/mrv/ -> scripts/ -> repo root
 DATA_DIR = REPO_ROOT / "data"
 OUT_STEM = DATA_DIR / "mrv_unified"
 
