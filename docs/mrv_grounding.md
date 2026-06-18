@@ -117,9 +117,10 @@ the "Tech-data library" item in `TODO.md`) and are flagged above as economics, n
 ## Reproduce
 
 ```sh
-uv run scripts/mrv_fleet.py            # pools every data/*.xlsx, prints anchors + fits, writes the plot
-uv run scripts/mrv_fleet.py --no-plot  # numbers only
-uv run scripts/mrv_unify.py            # lossless unified dump -> data/mrv_unified.parquet (+ .csv)
+uv run scripts/mrv/run_mrv.py          # the whole pipeline: unify, then summarize + plot
+uv run scripts/mrv/mrv_fleet.py        # pools every data/*.xlsx, prints anchors + fits, writes the plot
+uv run scripts/mrv/mrv_fleet.py --no-plot  # numbers only
+uv run scripts/mrv/mrv_unify.py        # lossless unified dump -> data/mrv_unified.parquet (+ .csv)
 ```
 
 `mrv_unify.py` is a separate convenience step: it mirrors **all** the source workbooks (every
