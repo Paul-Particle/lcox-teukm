@@ -12,7 +12,7 @@ shared:
   discount_rate: 0.08
   crew_cost_usd_yr: 90000.0        # loaded annual cost per crew member
   margins:
-    weather: 0.20                  # energy reserve on a battery ship's pack
+    energy_reserve: 0.20           # spare energy on a battery ship's pack (weather/contingency)
     sea: 0.15                      # power margin on installed propulsion
   # Per-case (NOT shared) — cases are Sobol-generated, so these vary per case:
   #   load_factor (0.80) + load_factor_imbalance (0.2) -> each case's `route`

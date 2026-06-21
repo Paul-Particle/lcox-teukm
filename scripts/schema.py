@@ -34,8 +34,7 @@ class Case:
 
 @dataclass(frozen=True)
 class EnergySource:
-    """Base for the energy-supplying technologies (concrete subclasses in sources.py). The
-    concrete subclass IS the type (fuel / battery / reactor), so type isn't a field."""
+    """Base for the energy-supplying technologies (concrete subclasses in sources.py)."""
     name: str
 
 
@@ -51,7 +50,7 @@ class Platform:
 
 
 @dataclass(frozen=True)
-class Drivetrain:
+class Drivetrain: #TODO add comments to fields
     name: str
     type: str               # "mechanical" | "electric"
     efficiency: DriveEfficiency
@@ -66,17 +65,16 @@ class Drivetrain:
 # ---- case ----
 @dataclass(frozen=True)
 class Params:
-    """The Case's non-component inputs. `economics`/`margins` are cross-case (by reference);
-    `route` is per-case."""
-    economics: Economics    # cross-case, by reference
+    """The Case's non-component inputs. """
+    economics: Economics    #TODO replace comments with v short explanation
     margins: Margins        # cross-case, by reference
     route: Route            # per-case fixed route/condition params
 
 
 @dataclass(frozen=True)
 class Economics:
-    """Cross-case economics. Per-case quantities (load factors, speed bounds) live on the
-    Case, not here — cases are Sobol-generated, so those vary per case."""
+    """Economic factors that should be the same across cases to keep them
+    comparable"""
     discount_rate: float
     crew_cost_usd_yr: float         # loaded annual cost per crew member
 
@@ -84,21 +82,18 @@ class Economics:
 @dataclass(frozen=True)
 class Margins:
     """Design margins applied during sizing."""
-    weather: float                  # energy reserve on a battery ship's pack
-    sea: float                      # power margin on installed propulsion
+    energy_reserve: float           # spare energy on a battery ship's pack (weather/contingency)
+    sea: float                      # "sea margin" (maritime term): power margin on installed propulsion
 
 
 @dataclass(frozen=True)
 class Route:
-    """Per-case fixed route/condition params. `d_km`/`op_v_kn` are the NOMINAL operating point:
-    a strategy reads them via `point.get(...)`, so an axis sweeping/optimizing one overrides its
-    nominal and a case that doesn't sweep it falls back here. The others are conditions strategies
-    read directly; strategy-specific ones are optional (a fuel case needs no battery/tender field)."""
+    """Per-case fixed route/condition params. Strategy-specific ones are optional (a fuel case needs no battery/tender field)."""
     load_factor: float                      # mean cargo load factor (route/market)
     load_factor_imbalance: float            # head/back-haul split (all strategies, via carried)
-    d_km: float = 10000.0                    # nominal D_max hop; the swept axis overrides it
-    op_v_kn: float = 14.0                    # nominal operating speed; the optimized axis overrides it
-    design_v_kn: float | None = None        # design speed the cheap engine/motor is sized to
+    d_km: float = 10000.0                    # nominal D_max hop; the swept axis overrides it in most cases
+    op_v_kn: float = 14.0                    # nominal operating speed; the optimized axis overrides it in most cases
+    design_v_kn: float | None = None        # design speed the engine/motor is sized to
     storm_duration_h: float | None = None   # storm-buffer energy (battery ships)
     standoff_nm: float | None = None        # coastal sub-leg each side of the tether (tender)
     idle_h: float | None = None             # tender reposition-or-wait between escorts
@@ -106,7 +101,7 @@ class Route:
 
 @dataclass(frozen=True)
 class Axis:
-    """A point-coordinate the runner varies over a grid. Same shape whether `optimize`
+    """A point-coordinate the optimizer varies over a grid. Same shape whether `optimize`
     (searched for min lcot) or `sweep` (traced as LCOT-vs-X) — the Case's list decides which."""
     param: str                      # the point-dict key it sets, e.g. "op_v_kn" or "d_km"
     lo: float
@@ -145,12 +140,12 @@ class SlotLimits:
 class DriveEfficiency:
     drive: float                    # source output -> shaft
     hotel: float                    # source output -> hotel bus
-    generation: float | None = None # reactor thermal -> electricity (integrated-electric only)
+    generation: float | None = None # reactor thermal -> electricity (integrated reactor only; the source reactors carry their own in ReactorSource)
 
 
 @dataclass(frozen=True)
 class DrivetrainCapex:
-    converter_usd_per_kw: float     # engine | motor | (direct-drive) reactor plant, per useful kW
+    converter_usd_per_kw: float     # engine | motor | direct-drive reactor plant, per useful kW #TODO expand explanation slightly
     life_yr: float
     reactor_usd_per_kw: float | None = None   # integrated-electric: reactor + generator stage
     reactor_life_yr: float | None = None
@@ -169,8 +164,8 @@ class Operations:
     port_hours: float
     availability: float
     tug_usd_per_call: float
-    hotel_delta_kw: float
-    crew_count: float               # complement, x crew_cost_usd_yr -> annual crew cost
+    hotel_delta_kw: float           # this drivetrain's adjustment to platform.hotel_base_kw (e.g. negative for electric)
+    crew_count: float               # complement, x crew_cost_usd_yr -> annual crew cost; different number of crew required based on technology
     om_other_usd_yr: float          # other fixed O&M (maintenance, insurance, stores, admin)
 
 

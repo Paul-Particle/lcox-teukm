@@ -44,8 +44,8 @@ def tether_charge(case: schema.Case, point: dict) -> dict:
     # --- size the pack to operating-speed energy: max(coastal sub-leg, storm) + reserve ----
     coastal_kwh = bus_kw * coastal_h
     storm_kwh = bus_kw * route.storm_duration_h
-    # weather margin on the coastal sub-leg only; the storm buffer is itself a weather reserve
-    deliverable_kwh = max(coastal_kwh * (1 + margins.weather), storm_kwh)
+    # energy reserve on the coastal sub-leg only; the storm buffer is itself a weather reserve
+    deliverable_kwh = max(coastal_kwh * (1 + margins.energy_reserve), storm_kwh)
     installed_kwh, slots, mass_t = battery.size(
         deliverable_kwh, bus_kw, pl.slot_limits.container_max_gross_t)
 

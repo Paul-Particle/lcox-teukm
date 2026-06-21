@@ -82,7 +82,7 @@ class ContainerizedReactor(ReactorSource):
     """A reactor module that replaces cargo containers on an electric ship: occupies slots,
     adds an onboard hotel load, bills $/kWh levelized over its fleet-pooled utilization."""
     overhead: Overhead              # slot footprint (teu_per_mwe, sized from power)
-    hotel_delta_kw: float           # onboard crew/security
+    hotel_delta_kw: float           # extra onboard hotel (crew/security) a containerized reactor adds, on top of the drivetrain's
     pool: Pool                      # fleet-pooled utilization
 
     def size(self, bus_kw: float, discount_rate: float) -> tuple[float, float, float]:
