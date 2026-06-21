@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import data_classes as dc
 import helpers
+import sources
 from units import KM_PER_NM, KMH_PER_KNOT
 
 from ._shared import (_resolve_demand, _annual_platform_crew, _lcot, _row, _infeasible,
@@ -23,8 +24,8 @@ def tether_charge(case: dc.Case, point: dict) -> dict:
     economics, margins, route = case.params.economics, case.params.margins, case.params.route
     d_km, op_v_kn = point.get("d_km", route.d_km), point.get("op_v_kn", route.op_v_kn)
     # expects exactly one battery + one tender reactor source
-    battery = next(s for s in case.sources if isinstance(s, dc.BatterySource))
-    tender = next(s for s in case.sources if isinstance(s, dc.TenderReactor))
+    battery = next(s for s in case.sources if isinstance(s, sources.BatterySource))
+    tender = next(s for s in case.sources if isinstance(s, sources.TenderReactor))
 
     # --- route plan at the operating speed -------------------------------------
     coastal_km = route.standoff_nm * KM_PER_NM          # one identical to/from-tender sub-leg

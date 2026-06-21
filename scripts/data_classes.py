@@ -7,8 +7,8 @@ mechanically (`Block(**yaml_subdict)`). Three nouns — Platform, Drivetrain, En
 block, a strategy name, optimize/sweep axes). Top-level structures first; the sub-blocks they
 compose at the bottom. Units: see units.py.
 
-The EnergySource hierarchy and its cost methods live in sources.py; they're re-exported at the
-bottom so callers still reach them as `data_classes.FuelSource` etc.
+The `EnergySource` base lives here (it's the slot `Case.sources` composes); the concrete
+fuel/battery/reactor subclasses and their cost methods live in sources.py.
 """
 
 from __future__ import annotations
@@ -30,6 +30,13 @@ class Case:
     params: Params
     optimize: tuple[Axis, ...]          # FREE axes: searched per swept point for min lcot
     sweep: tuple[Axis, ...]             # SWEPT axes: iterated to trace LCOT-vs-X (D_max…)
+
+
+@dataclass(frozen=True)
+class EnergySource:
+    """Base for the energy-supplying technologies (concrete subclasses in sources.py). The
+    concrete subclass IS the type (fuel / battery / reactor), so type isn't a field."""
+    name: str
 
 
 @dataclass(frozen=True)
@@ -176,15 +183,5 @@ class PropulsionFactor:
     propeller: float
     wider_eff: float
     routing: float
-
-
-# ---- sources ----
-# The EnergySource hierarchy + its source-only sub-blocks live in sources.py; re-exported here so
-# callers (loader, strategies) reach them as `data_classes.<Name>`. Imported at the bottom because
-# sources.py refers back to this module (Overhead) for type-checking only.
-from sources import (  # noqa: E402
-    EnergySource, FuelSource, BatterySource, ReactorSource, ContainerizedReactor, TenderReactor,
-    FuelPrice, BatteryCapex, BatteryEnergy, BatteryEfficiency, ReactorCapex, Pool, Tether,
-)
 
 

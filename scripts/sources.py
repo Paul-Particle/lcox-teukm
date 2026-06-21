@@ -1,33 +1,21 @@
 """
-sources.py — the energy-source technologies and their cost logic.
+sources.py — the concrete energy-source technologies and their cost logic.
 
-The EnergySource hierarchy (fuel / battery / reactor) plus the source-only config sub-blocks,
+The fuel/battery/reactor subclasses of `EnergySource` plus their source-only config sub-blocks,
 split out of data_classes.py so each source's per-unit cost method (`usd_per_kwh`, `size`,
-`life_yr`, `levelize`) sits with the data it costs. The rest of the frozen schema — platform,
-drivetrain, case — stays in data_classes.py, which re-exports these so callers still reach them
-as `data_classes.FuelSource` etc. Strategies match on the concrete subclass, then call its method.
-
-`crf` is imported inside the cost methods, not at module top: helpers imports data_classes (which
-re-exports this module), so a top-level helpers import here would be circular. Units: see units.py.
+`life_yr`, `levelize`) sits with the data it costs. The `EnergySource` base and the rest of the
+frozen schema (platform, drivetrain, case, the shared `Overhead`) stay in data_classes.py.
+Strategies match on the concrete subclass, then call its method. Units: see units.py.
 """
 
 from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
 
+from data_classes import EnergySource, Overhead
+from helpers import crf
 from units import HOURS_PER_YEAR, KG_PER_TONNE, KWH_PER_MWH, WH_PER_KWH
-
-if TYPE_CHECKING:                       # annotation-only; Overhead is shared, lives in data_classes
-    from data_classes import Overhead
-
-
-@dataclass(frozen=True)
-class EnergySource:
-    """Base for the energy-supplying technologies. The concrete subclass IS the type
-    (fuel / battery / reactor), so type isn't a field."""
-    name: str
 
 
 @dataclass(frozen=True)
@@ -105,7 +93,6 @@ class ContainerizedReactor(ReactorSource):
 
         NOTE: a route-independent fleet utilization, per the owned==leased collapse — `pool.idle_h`
         is not yet wired (it would feed a route-coupled pool model). See TODO."""
-        from helpers import crf
         reactor_kw = bus_kw
         generating_h_yr = HOURS_PER_YEAR * self.pool.availability
         delivered_kwh_yr = reactor_kw * generating_h_yr
@@ -135,7 +122,6 @@ class TenderReactor(ReactorSource):
         own parasitic draw. Its annualized cost (hull + reactor CAPEX, fixed O&M, thermal fuel)
         is spread over the energy it actually delivers — set by the tethered/(tethered+idle) duty
         cycle and `availability`."""
-        from helpers import crf
         reactor_kw = bus_kw / self.tether.cable_efficiency + self.parasitic_kw
         duty = tethered_h / (tethered_h + idle_h)
         delivered_h_yr = HOURS_PER_YEAR * self.availability * duty

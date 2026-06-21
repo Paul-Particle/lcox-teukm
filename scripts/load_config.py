@@ -10,6 +10,7 @@ on `type`); cases are a tidy CSV read with pandas, one case per group of rows.
 import pandas as pd
 
 import data_classes as dc
+import sources
 
 
 def _economics(d: dict) -> dc.Economics:
@@ -33,26 +34,26 @@ def _drivetrain(name: str, d: dict) -> dc.Drivetrain:
                          dc.PropulsionFactor(**d["propulsion_factor"]))
 
 
-def _source(name: str, d: dict) -> dc.EnergySource:
+def _source(name: str, d: dict) -> sources.EnergySource:
     t = d["type"]
     if t == "fuel":
-        return dc.FuelSource(name, dc.FuelPrice(**d["price"]), d["energy_mass_t"])
+        return sources.FuelSource(name, sources.FuelPrice(**d["price"]), d["energy_mass_t"])
     if t == "battery":
-        return dc.BatterySource(name, dc.BatteryCapex(**d["capex"]),
-                                dc.BatteryEnergy(**d["energy"]),
-                                dc.BatteryEfficiency(**d["efficiency"]),
-                                d["min_discharge_h"], d["charge_usd_per_kwh"])
+        return sources.BatterySource(name, sources.BatteryCapex(**d["capex"]),
+                                     sources.BatteryEnergy(**d["energy"]),
+                                     sources.BatteryEfficiency(**d["efficiency"]),
+                                     d["min_discharge_h"], d["charge_usd_per_kwh"])
     if t == "reactor":
         # both reactor sources share the reactor block; `tether` discriminates the subtype
-        capex, fuel_th = dc.ReactorCapex(**d["capex"]), d["fuel"]["usd_per_kwh_th"]
+        capex, fuel_th = sources.ReactorCapex(**d["capex"]), d["fuel"]["usd_per_kwh_th"]
         generation = d["efficiency"]["generation"]
         if "tether" in d:
-            return dc.TenderReactor(name, capex, fuel_th, generation,
-                                    d["parasitic_kw"], d["om_other_usd_yr"],
-                                    d["availability"], dc.Tether(**d["tether"]))
-        return dc.ContainerizedReactor(name, capex, fuel_th, generation,
-                                       dc.Overhead(**d["overhead"]), d["hotel_delta_kw"],
-                                       dc.Pool(**d["pool"]))
+            return sources.TenderReactor(name, capex, fuel_th, generation,
+                                         d["parasitic_kw"], d["om_other_usd_yr"],
+                                         d["availability"], sources.Tether(**d["tether"]))
+        return sources.ContainerizedReactor(name, capex, fuel_th, generation,
+                                            dc.Overhead(**d["overhead"]), d["hotel_delta_kw"],
+                                            sources.Pool(**d["pool"]))
     raise ValueError(f"unknown source type {t!r} for source {name!r}")
 
 
