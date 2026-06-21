@@ -3,7 +3,7 @@ reactor + generator + motor, all integrated onto the drivetrain."""
 
 from __future__ import annotations
 
-import data_classes as dc
+import schema
 import helpers
 import sources
 from units import KMH_PER_KNOT
@@ -12,7 +12,7 @@ from ._shared import (_resolve_demand, _annual_platform_crew, _lcot, _row, _infe
                       legs_per_year, carried)
 
 
-def reactor_electric_integrated(case: dc.Case, point: dict) -> dict:
+def reactor_electric_integrated(case: schema.Case, point: dict) -> dict:
     """Integrated-reactor ELECTRIC-drive ship (nuclear-int-el): reactor + generator + motor,
     all integrated (CAPEX on the Drivetrain, reactor+generator and motor amortized on their
     own lives). Energy is fission fuel (thermal $/kWh) or nothing. Both stages sized to the

@@ -3,7 +3,7 @@ commodity fuel over full D_max legs."""
 
 from __future__ import annotations
 
-import data_classes as dc
+import schema
 import helpers
 import sources
 from units import KMH_PER_KNOT
@@ -12,7 +12,7 @@ from ._shared import (_resolve_demand, _annual_platform_crew, _lcot, _row, _infe
                       legs_per_year, carried)
 
 
-def fuel_burn(case: dc.Case, point: dict) -> dict:
+def fuel_burn(case: schema.Case, point: dict) -> dict:
     """Fuel-burning ship (fossil / e-methanol): a mechanical drivetrain burns a commodity
     fuel over full D_max legs. The fuel is a THIN EnergySource — a normalized price + bunker
     mass, no sizing. Engine sized to the fixed design speed; burn scales with operating speed.

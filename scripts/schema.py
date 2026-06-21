@@ -1,5 +1,5 @@
 """
-data_classes.py — the frozen config schema.
+schema.py — the frozen config schema.
 
 Dataclasses mirror config.yaml's sub-blocks one-to-one, so the loader builds them
 mechanically (`Block(**yaml_subdict)`). Three nouns — Platform, Drivetrain, EnergySource

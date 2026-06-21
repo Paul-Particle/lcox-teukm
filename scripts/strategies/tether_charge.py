@@ -3,7 +3,7 @@ carried by an at-sea nuclear tender over a tether."""
 
 from __future__ import annotations
 
-import data_classes as dc
+import schema
 import helpers
 import sources
 from units import KM_PER_NM, KMH_PER_KNOT
@@ -12,7 +12,7 @@ from ._shared import (_resolve_demand, _annual_platform_crew, _lcot, _row, _infe
                       legs_per_year, carried)
 
 
-def tether_charge(case: dc.Case, point: dict) -> dict:
+def tether_charge(case: schema.Case, point: dict) -> dict:
     """Nuclear-tender case: a battery ship whose ocean crossing is carried by a
     nuclear tender over a tether. Three segments — coastal-out (battery, refilled at sea by
     the tender), tethered open ocean (tender propels directly), coastal-in (battery, refilled
