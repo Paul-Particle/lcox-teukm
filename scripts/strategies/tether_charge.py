@@ -12,10 +12,10 @@ from ._shared import (_resolve_demand, _annual_platform_crew, _lcot, _row, _infe
 
 
 def tether_charge(case: dc.Case, point: dict) -> dict:
-    """Nuclear-tender case: a grid-swap battery ship whose ocean crossing is carried by a
+    """Nuclear-tender case: a battery ship whose ocean crossing is carried by a
     nuclear tender over a tether. Three segments — coastal-out (battery, refilled at sea by
     the tender), tethered open ocean (tender propels directly), coastal-in (battery, refilled
-    at port by the grid swap). The motor is sized to the FIXED design speed; the battery and
+    at port by the grid/swapping batteries). The motor is sized to the FIXED design speed; the battery and
     tender reactor to the OPERATING speed, so slow-steaming shrinks them. The pack covers
     max(one coastal sub-leg, storm buffer), cycled every leg.
     """
@@ -43,7 +43,8 @@ def tether_charge(case: dc.Case, point: dict) -> dict:
     # --- size the pack to operating-speed energy: max(coastal sub-leg, storm) + reserve ----
     coastal_kwh = bus_kw * coastal_h
     storm_kwh = bus_kw * route.storm_duration_h
-    deliverable_kwh = max(coastal_kwh, storm_kwh) * (1 + margins.weather)  # double margin (see TODO)
+    # weather margin on the coastal sub-leg only; the storm buffer is itself a weather reserve
+    deliverable_kwh = max(coastal_kwh * (1 + margins.weather), storm_kwh)
     installed_kwh, slots, mass_t = battery.size(
         deliverable_kwh, bus_kw, pl.slot_limits.container_max_gross_t)
 

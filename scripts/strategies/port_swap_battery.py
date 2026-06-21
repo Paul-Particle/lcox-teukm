@@ -30,7 +30,8 @@ def port_swap_battery(case: dc.Case, point: dict) -> dict:
     # --- size the pack to the whole leg: max(leg, storm buffer) + reserve --------
     leg_kwh = bus_kw * sail_h
     storm_kwh = bus_kw * route.storm_duration_h
-    deliverable_kwh = max(leg_kwh, storm_kwh) * (1 + margins.weather)  # double margin (see TODO)
+    # weather margin on the leg only; the storm buffer is itself a weather reserve
+    deliverable_kwh = max(leg_kwh * (1 + margins.weather), storm_kwh)
     installed_kwh, slots, mass_t = battery.size(
         deliverable_kwh, bus_kw, pl.slot_limits.container_max_gross_t)
 

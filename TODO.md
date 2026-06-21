@@ -37,9 +37,6 @@ fleet data) are set aside, to be redone from the refactored base.
   single `capex.life_yr`; split if the hull and reactor lives should differ.
 - **Source roles in multi-source cases** — a plain list for now; natural roles (buffer / charger)
   may emerge as more cases are written.
-- **Double sizing margin** — `tether_charge` and `port_swap_battery` stack the storm buffer and
-  the weather reserve on the battery pack (`max(leg/coastal, storm) * (1 + weather)`). The storm
-  term usually dominates, so the pack ends storm-sized + weather%. Revisit whether both should apply.
 - **Extra swept axes beyond `D_max`** — structure for it (eases later Sobol exploration), low priority.
 
 ## Speculative parameters
