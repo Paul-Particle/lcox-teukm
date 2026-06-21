@@ -209,10 +209,14 @@ class Margins:
 
 @dataclass(frozen=True)
 class Route:
-    """Per-case fixed route/condition params (neither a component nor swept/free).
-    Strategy-specific fields are optional: a fuel case needs none of the battery/tender ones."""
+    """Per-case fixed route/condition params. `d_km`/`op_v_kn` are the NOMINAL operating point:
+    a strategy reads them via `point.get(...)`, so an axis sweeping/optimizing one overrides its
+    nominal and a case that doesn't sweep it falls back here. The others are conditions strategies
+    read directly; strategy-specific ones are optional (a fuel case needs no battery/tender field)."""
     load_factor: float                      # mean cargo load factor (route/market)
     load_factor_imbalance: float            # head/back-haul split (all strategies, via carried)
+    d_km: float = 10000.0                    # nominal D_max hop; the swept axis overrides it
+    op_v_kn: float = 14.0                    # nominal operating speed; the optimized axis overrides it
     design_v_kn: float | None = None        # design speed the cheap engine/motor is sized to
     storm_duration_h: float | None = None   # storm-buffer energy (battery ships)
     standoff_nm: float | None = None        # coastal sub-leg each side of the tether (tender)
