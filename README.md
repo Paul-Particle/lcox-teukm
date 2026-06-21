@@ -64,7 +64,8 @@ The model is flat modules under `scripts/`; nothing cross-imports beyond what is
 |---|---|
 | `units.py` | unit conversions, single source of truth |
 | `helpers.py` | shared only: `crf` + ship physics (`prop_power_kw`, `propulsion_factor`) |
-| `data_classes.py` | frozen config schema (Platform / Drivetrain / EnergySource family / Case / Params / Axis) + EnergySource cost methods (`size` / `levelize` / `usd_per_kwh` / `life_yr`) |
+| `schema.py` | frozen config schema (Platform / Drivetrain / `EnergySource` base / Case / Params / Axis) — passive structure mirroring `config.yaml` |
+| `sources.py` | concrete `EnergySource` family (fuel / battery / reactor) + their cost methods (`size` / `levelize` / `usd_per_kwh` / `life_yr`) |
 | `load_config.py` | YAML library + pandas CSV cases → built Cases (`dict[name → Case]`) |
 | `strategies/` | package: one module per strategy (6) + `_shared.py` (scaffolding + route math `legs_per_year`/`carried`) |
 | `optimizer.py` | `optimize` (free-param grid search) + `run` (sweep) |

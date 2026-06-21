@@ -3,7 +3,7 @@ drivetrain converter, heat straight to shaft."""
 
 from __future__ import annotations
 
-import data_classes as dc
+import schema
 import helpers
 import sources
 from units import KMH_PER_KNOT
@@ -12,7 +12,7 @@ from ._shared import (_resolve_demand, _annual_platform_crew, _lcot, _row, _infe
                       legs_per_year, carried)
 
 
-def reactor_direct(case: dc.Case, point: dict) -> dict:
+def reactor_direct(case: schema.Case, point: dict) -> dict:
     """Integrated-reactor DIRECT-drive ship (nuclear-direct). The reactor IS the drivetrain
     converter (CAPEX on the Drivetrain), heat straight to shaft. Source is THIN — fission fuel
     (thermal $/kWh) or NOTHING (fueled-for-life -> no energy cost, so the optimizer runs to

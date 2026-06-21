@@ -8,7 +8,7 @@ not `physics`. Strategy-only route arithmetic (legs/year, carried) lives in stra
 
 from __future__ import annotations
 
-import data_classes as dc
+import schema
 
 
 def crf(rate: float, years: float) -> float:
@@ -17,13 +17,13 @@ def crf(rate: float, years: float) -> float:
     return rate * (1 + rate) ** years / ((1 + rate) ** years - 1)
 
 
-def propulsion_factor(pf: dc.PropulsionFactor) -> float:
+def propulsion_factor(pf: schema.PropulsionFactor) -> float:
     """Itemized hull/propeller efficiency stack compounded into one propulsion-power factor
     (1.0 = baseline; electric-only items are 1.0 on mechanicals)."""
     return pf.hull_form * pf.coating * pf.propeller * pf.wider_eff * pf.routing
 
 
-def prop_power_kw(resistance: dc.Resistance, v_kn: float, factor: float = 1.0) -> float:
+def prop_power_kw(resistance: schema.Resistance, v_kn: float, factor: float = 1.0) -> float:
     """Propulsion shaft power at `v_kn` (admiralty cube law P ~ v^3), scaled by `factor`.
     Propulsion only — hotel load is separate."""
     return resistance.p_ref_kw * (v_kn / resistance.v_ref_kn) ** 3 * factor

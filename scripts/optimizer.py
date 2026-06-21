@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import itertools
 
-import data_classes as dc
+import schema
 import strategies
 
 
@@ -46,7 +46,7 @@ class Point(dict):
         return super().get(key, default)
 
 
-def run(case: dc.Case) -> list[dict]:
+def run(case: schema.Case) -> list[dict]:
     """One optimized row per point on the Case's swept grid. The swept coordinates are merged
     into each row (strategies echo what they read, but this guarantees every swept axis lands
     as a column, including on infeasible rows)."""
@@ -57,7 +57,7 @@ def run(case: dc.Case) -> list[dict]:
     return rows
 
 
-def optimize(case: dc.Case, swept_point: dict, reads: set[str] | None = None) -> dict:
+def optimize(case: schema.Case, swept_point: dict, reads: set[str] | None = None) -> dict:
     """The min-`lcot` row over the Case's free axes at a fixed swept point. Infeasible points
     carry `lcot = inf`, so an all-infeasible search returns an infeasible row (feasibility
     preserved, not dropped). Accumulates each `Point`'s reads into `reads` if given."""
@@ -73,7 +73,7 @@ def optimize(case: dc.Case, swept_point: dict, reads: set[str] | None = None) ->
     return best
 
 
-def _check_axes_consumed(case: dc.Case, reads: set[str]) -> None:
+def _check_axes_consumed(case: schema.Case, reads: set[str]) -> None:
     """Every axis `param` must have been read by the strategy somewhere on the grid; an unread
     one is a misnamed axis that would otherwise vary nothing silently."""
     declared = {axis.param for axis in (*case.sweep, *case.optimize)}
@@ -86,7 +86,7 @@ def _check_axes_consumed(case: dc.Case, reads: set[str]) -> None:
 
 # ---- grid enumeration ----
 
-def _grid(axis: dc.Axis) -> list[float]:
+def _grid(axis: schema.Axis) -> list[float]:
     """`axis.n` points evenly from `lo` to `hi` (inclusive); a single point sits at `lo`."""
     if axis.n <= 1:
         return [axis.lo]
@@ -94,7 +94,7 @@ def _grid(axis: dc.Axis) -> list[float]:
     return [axis.lo + step * i for i in range(axis.n)]
 
 
-def _points(axes: tuple[dc.Axis, ...]):
+def _points(axes: tuple[schema.Axis, ...]):
     """Yield each `{param: value}` point over the cartesian grid of `axes`. With no axes,
     yields a single empty dict (one point)."""
     grids = [[(axis.param, value) for value in _grid(axis)] for axis in axes]

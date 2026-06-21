@@ -10,7 +10,7 @@ dataclasses; the point in and row out are plain dicts (rows go straight to the a
 The optimizer does `getattr(strategies, case.strategy)`, so each strategy is re-exported here
 by name. One strategy per structurally-distinct case-type; cases differing only in parameters
 share one (fossil/e-methanol; LFP/iron-air). Each orchestrates the source cost methods on its
-EnergySource (`size` / `life_yr` / `usd_per_kwh` / `levelize`, defined in data_classes.py):
+EnergySource (`size` / `life_yr` / `usd_per_kwh` / `levelize`, defined in sources.py):
   - fuel_burn                   — fossil / e-methanol: mechanical drivetrain, thin commodity fuel.
   - port_swap_battery           — LFP / iron-air: electric, pack carries a whole leg, swapped at port.
   - tether_charge               — nuclear tender: battery ship, crossing carried by an at-sea reactor.

@@ -13,7 +13,7 @@ from __future__ import annotations
 import math
 from typing import NamedTuple
 
-import data_classes as dc
+import schema
 import helpers
 from units import KMH_PER_KNOT, HOURS_PER_YEAR
 
@@ -28,7 +28,7 @@ class Demand(NamedTuple):
     bus_kw: float
 
 
-def _resolve_demand(pl: dc.Platform, dt: dc.Drivetrain, op_v_kn: float,
+def _resolve_demand(pl: schema.Platform, dt: schema.Drivetrain, op_v_kn: float,
                     extra_hotel_kw: float = 0.0) -> Demand:
     """Resolve the `Demand` at the operating speed. `extra_hotel_kw` adds an onboard source's
     hotel delta (containerized reactor)."""
@@ -39,7 +39,7 @@ def _resolve_demand(pl: dc.Platform, dt: dc.Drivetrain, op_v_kn: float,
     return Demand(propulsion_factor, prop_kw, hotel_kw, bus_kw)
 
 
-def _annual_platform_crew(pl: dc.Platform, dt: dc.Drivetrain, economics: dc.Economics,
+def _annual_platform_crew(pl: schema.Platform, dt: schema.Drivetrain, economics: schema.Economics,
                           legs: float, discount_rate: float) -> float:
     """Fixed annual costs identical across strategies: hull amortization + crew + other fixed
     O&M + per-call tug. Each strategy adds its own converter/battery/reactor CAPEX on top."""
@@ -76,7 +76,7 @@ def legs_per_year(v_kn: float, d_km: float, port_hours: float, availability: flo
     return HOURS_PER_YEAR * availability / (sail_h + port_hours)
 
 
-def carried(pl: dc.Platform, overhead_slots: float, storage_units: float, energy_mass_t: float,
+def carried(pl: schema.Platform, overhead_slots: float, storage_units: float, energy_mass_t: float,
             load_factor: float, load_factor_imbalance: float) -> float:
     """Revenue cargo per leg in the platform's `cargo_unit`, round-trip averaged. Volume- and
     mass-bound limits act together (`min`). VOLUME: demand is `load_factor` of cargo-capable

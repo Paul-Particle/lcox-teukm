@@ -2,9 +2,9 @@
 sources.py — the concrete energy-source technologies and their cost logic.
 
 The fuel/battery/reactor subclasses of `EnergySource` plus their source-only config sub-blocks,
-split out of data_classes.py so each source's per-unit cost method (`usd_per_kwh`, `size`,
+split out of schema.py so each source's per-unit cost method (`usd_per_kwh`, `size`,
 `life_yr`, `levelize`) sits with the data it costs. The `EnergySource` base and the rest of the
-frozen schema (platform, drivetrain, case, the shared `Overhead`) stay in data_classes.py.
+frozen schema (platform, drivetrain, case, the shared `Overhead`) stay in schema.py.
 Strategies match on the concrete subclass, then call its method. Units: see units.py.
 """
 
@@ -13,7 +13,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 
-from data_classes import EnergySource, Overhead
+from schema import EnergySource, Overhead
 from helpers import crf
 from units import HOURS_PER_YEAR, KG_PER_TONNE, KWH_PER_MWH, WH_PER_KWH
 

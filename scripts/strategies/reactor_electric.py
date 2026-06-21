@@ -3,7 +3,7 @@ reactor is a separable EnergySource with its own CAPEX + cost model."""
 
 from __future__ import annotations
 
-import data_classes as dc
+import schema
 import helpers
 import sources
 from units import KMH_PER_KNOT
@@ -12,7 +12,7 @@ from ._shared import (_resolve_demand, _annual_platform_crew, _lcot, _row, _infe
                       legs_per_year, carried)
 
 
-def reactor_electric(case: dc.Case, point: dict) -> dict:
+def reactor_electric(case: schema.Case, point: dict) -> dict:
     """Electric ship powered by a CONTAINERIZED reactor (nuclear-cont). Unlike the integrated
     cases, the reactor is a SEPARABLE EnergySource with its own CAPEX + cost model: it occupies
     slots (teu_per_mwe), adds an onboard hotel load, bills $/kWh over its fleet-pooled

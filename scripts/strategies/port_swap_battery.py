@@ -3,7 +3,7 @@ leg and the grid refills it at each port swap."""
 
 from __future__ import annotations
 
-import data_classes as dc
+import schema
 import helpers
 import sources
 from units import KMH_PER_KNOT
@@ -12,7 +12,7 @@ from ._shared import (_resolve_demand, _annual_platform_crew, _lcot, _row, _infe
                       legs_per_year, carried)
 
 
-def port_swap_battery(case: dc.Case, point: dict) -> dict:
+def port_swap_battery(case: schema.Case, point: dict) -> dict:
     """Port-swap battery ship (LFP / iron-air). Like `tether_charge` but with no tender: the
     pack carries the WHOLE leg and the grid refills it at each port swap. Motor sized to the
     fixed design speed; pack to the operating-speed energy (and for iron-air the C/50 power
