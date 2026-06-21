@@ -19,7 +19,7 @@ def port_swap_battery(case: dc.Case, point: dict) -> dict:
     """
     pl, dt = case.platform, case.drivetrain
     economics, margins, route = case.params.economics, case.params.margins, case.params.route
-    d_km, op_v_kn = point["d_km"], point["op_v_kn"]
+    d_km, op_v_kn = point.get("d_km", route.d_km), point.get("op_v_kn", route.op_v_kn)
     battery = next(s for s in case.sources if isinstance(s, dc.BatterySource))
 
     # --- route plan + power demand at the operating speed ----------------------

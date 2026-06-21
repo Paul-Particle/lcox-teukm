@@ -19,7 +19,7 @@ def reactor_electric_integrated(case: dc.Case, point: dict) -> dict:
     """
     pl, dt = case.platform, case.drivetrain
     economics, margins, route = case.params.economics, case.params.margins, case.params.route
-    d_km, op_v_kn = point["d_km"], point["op_v_kn"]
+    d_km, op_v_kn = point.get("d_km", route.d_km), point.get("op_v_kn", route.op_v_kn)
     fuels = [s for s in case.sources if isinstance(s, dc.FuelSource)]
     fuel = fuels[0] if fuels else None
 
