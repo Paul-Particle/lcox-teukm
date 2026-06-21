@@ -173,12 +173,15 @@ class Operations:
 
 @dataclass(frozen=True)
 class PropulsionFactor:
-    """Itemized hull/propeller efficiency; the product scales propulsion power.
-    propeller/wider_eff are electric-only (1.0 on mechanicals)."""
-    hull_form: float
-    coating: float
-    propeller: float
-    wider_eff: float
-    routing: float
+    """Itemized efficiency gains the single design-point DriveEfficiency.drive number doesn't
+    capture; their product scales required propulsion power. Most reduce the power the hull
+    DEMANDS (hull_form/coating/routing/propeller); wider_eff folds in the electric motor's
+    across-the-range efficiency (a gain the one design-point figure misses) on the same
+    multiplier. propeller/wider_eff are electric-only (1.0 on mechanicals)."""
+    hull_form: float        # optimized hull form
+    coating: float          # anti-fouling coatings
+    propeller: float        # pods / large low-RPM props (electric only)
+    wider_eff: float        # motor stays efficient across the speed range, not just at one design point (electric only)
+    routing: float          # weather routing, trim/draft optimization, on-time (no rush) speed
 
 
