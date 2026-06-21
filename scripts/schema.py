@@ -50,14 +50,16 @@ class Platform:
 
 
 @dataclass(frozen=True)
-class Drivetrain: #TODO add comments to fields
+class Drivetrain:
+    """Energy -> shaft, including the integral powerplant's CAPEX (the separable sources are on
+    the Case; what's fixed to the drivetrain is here)."""
     name: str
-    type: str               # "mechanical" | "electric"
-    efficiency: DriveEfficiency
-    capex: DrivetrainCapex
-    overhead: Overhead
-    operations: Operations
-    propulsion_factor: PropulsionFactor
+    type: str                           # "mechanical" | "electric"; selects the electric-only propulsion factors
+    efficiency: DriveEfficiency         # conversion losses source output -> shaft / hotel (and reactor thermal -> electricity)
+    capex: DrivetrainCapex              # converter (+ integrated reactor) capital cost and life
+    overhead: Overhead                  # fixed slot footprint of the drivetrain (displaces cargo)
+    operations: Operations              # port/voyage ops: crew, availability, port time, tug, O&M, hotel delta
+    propulsion_factor: PropulsionFactor # itemized hull/propeller multipliers scaling propulsion power
 
 
 # ================= sub-blocks (detail; mostly mirror config.yaml's sub-blocks) ====
@@ -145,10 +147,10 @@ class DriveEfficiency:
 
 @dataclass(frozen=True)
 class DrivetrainCapex:
-    converter_usd_per_kw: float     # engine | motor | direct-drive reactor plant, per useful kW #TODO expand explanation slightly
-    life_yr: float
-    reactor_usd_per_kw: float | None = None   # integrated-electric: reactor + generator stage
-    reactor_life_yr: float | None = None
+    converter_usd_per_kw: float     # cost per kW of rated useful (output-side) power — engine/direct-drive reactor -> shaft, motor -> electric; the strategy sizes the kW to the design or operating speed
+    life_yr: float                  # converter amortization life
+    reactor_usd_per_kw: float | None = None   # integrated-electric only: the reactor + generator stage ahead of the motor (else the reactor is a source)
+    reactor_life_yr: float | None = None       # integrated-electric only: reactor+generator amortization life
 
 
 @dataclass(frozen=True)
