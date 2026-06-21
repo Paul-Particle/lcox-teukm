@@ -37,7 +37,33 @@ fleet data) are set aside, to be redone from the refactored base.
   single `capex.life_yr`; split if the hull and reactor lives should differ.
 - **Source roles in multi-source cases** — a plain list for now; natural roles (buffer / charger)
   may emerge as more cases are written.
-- **Extra swept axes beyond `D_max`** — structure for it (eases later Sobol exploration), low priority.
+
+## Vectorization (deferred until the grid is large)
+
+**Stage 1 (done).** Any config parameter is sweepable/optimizable, not just `d_km`/`op_v_kn`.
+Strategies read varying inputs through the `Point` resolver — `point.get(name, <config default>)` —
+so a parameter becomes an axis simply by being read that way; `Route.d_km`/`op_v_kn` hold the
+nominal fallback used when that axis isn't swept. `Point` records its reads, and `optimizer.run`
+rejects an axis whose `param` no strategy consumes (instead of silently varying nothing).
+
+**Stage 2 (deferred).** Replace the per-point Python grid loop with one vectorized strategy call
+per case: `Point` carries whole-grid numpy arrays, the strategy broadcasts, `argmin` over the
+optimize dims picks the winner, gather its full row. Cases stay a Python loop (they differ
+structurally — source types, the `next(...)` source selection). Work involved:
+- numpy-ify the kernel: `max`/`min` → `np.maximum`/`np.minimum` (`carried`, `BatterySource.size`,
+  `crf`), `math.ceil` → `np.ceil` (`ContainerizedReactor.size`), `life_yr`'s `legs > 0` branch →
+  `np.where`. The pure-arithmetic functions broadcast unchanged.
+- the structural part: the six strategies' `if cargo <= 0: return _infeasible(...)` early-returns
+  (and `tether_charge`'s `tethered_km <= 0` / speed-cap guard) become element-wise masks writing
+  `lcot = inf`, with `np.errstate` over the masked-out garbage regions.
+- branches on CONFIG scalars stay (`min_discharge_h > 0`, `fuel is not None`); only branches on
+  GRID quantities become masks.
+- output stays byte-identical: infeasible ⇒ `lcot = inf` AND extra fields → `NaN` (matches today's
+  short `_infeasible` row after the column union). Verify by diffing against the scalar baseline.
+
+Deferred on engineering grounds: at the current 8 cases / ~5k evals the scalar version is instant,
+and the masks/`np.where` cost strategy readability. Worth it once the Sobol generator makes the
+grid big enough to feel; nothing in stage 1 is thrown away by waiting.
 
 ## Speculative parameters
 
