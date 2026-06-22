@@ -64,21 +64,16 @@ _COST_COMPONENTS = [
     ("cost_om",         "Other O&M",    "-"),
     ("cost_energy",     "Energy",       "|"),
 ]
-# Hatch drawn over the solid bar color, in a lighter TINT of that same color. (White-at-opacity
-# composited inconsistently in plotly.js — lighter on some bars, darker on others — so the tint
-# is computed explicitly at full opacity instead, reliably lighter than the base everywhere.)
-# `fillmode="overlay"` => marker.color is the solid base and the pattern sits on top.
-_HATCH = dict(fillmode="overlay", fgopacity=1.0, size=10, solidity=0.5)
-_HATCH_LIGHTEN = 0.55   # how far the hatch tint is blended toward white
+# Solid-white hatch over the solid bar color. `fillmode="overlay"` => the base comes from the bar
+# `marker.color` (the standard, reliably-rendered array path) and the white pattern sits on top.
+# White is a single scalar at full opacity — NOT a per-bar color array and NOT semi-transparent —
+# because plotly.js renders array pattern-colors and pattern opacity inconsistently across bars
+# (some fell back to a dark foreground). A scalar opaque white is lighter than every case color
+# and renders identically in the browser and in static PNG export.
+_HATCH = dict(fillmode="overlay", fgcolor="white", fgopacity=1.0, size=10, solidity=0.4)
 
 
 # ---- Shared helpers --------------------------------------------------------
-
-def _lighten(hex_color: str, amount: float) -> str:
-    """Blend a #rrggbb color toward white by `amount` in [0, 1] (0 = unchanged, 1 = white)."""
-    r, g, b = (int(hex_color.lstrip("#")[i:i + 2], 16) for i in (0, 2, 4))
-    r, g, b = (round(c + (255 - c) * amount) for c in (r, g, b))
-    return f"rgb({r}, {g}, {b})"
 
 
 def _save_html_png(fig, out_dir, stem: str) -> list:
@@ -223,22 +218,19 @@ def plot_cost_stack(df: pd.DataFrame, d_km: float, *, title: str, subtitle: str,
     # one row per case at this distance; LCOT contribution = annualized cost / annual cargo·km
     rows = {c: feasible[feasible["case"] == c].iloc[0] for c in cases}
     denom = {c: rows[c]["legs"] * rows[c]["d_km"] * rows[c]["carried"] for c in cases}
-    light = [_lighten(color, _HATCH_LIGHTEN) for color in colors]
-
     fig = go.Figure()
     for col, comp_label, shape in _COST_COMPONENTS:
         ys = [rows[c][col] * CENTS_PER_USD / denom[c] for c in cases]
         fig.add_trace(go.Bar(
             x=labels, y=ys, showlegend=False, customdata=[comp_label] * len(cases),
-            marker=dict(color=colors, pattern=dict(shape=shape, fgcolor=light, **_HATCH)),
+            marker=dict(color=colors, pattern=dict(shape=shape, **_HATCH)),
             hovertemplate="%{x}<br>%{customdata}: %{y:.2f} ¢/TEU·km<extra></extra>"))
 
     # pattern key: neutral-grey dummy bars (zero height) carry only the component->pattern mapping
-    grey_light = _lighten(dark_gray, _HATCH_LIGHTEN)
     for col, comp_label, shape in _COST_COMPONENTS:
         fig.add_trace(go.Bar(
             x=[labels[0]], y=[0], name=comp_label, showlegend=True, hoverinfo="skip",
-            marker=dict(color=dark_gray, pattern=dict(shape=shape, fgcolor=grey_light, **_HATCH))))
+            marker=dict(color=dark_gray, pattern=dict(shape=shape, **_HATCH))))
 
     # total LCOT label above each bar; off-scale bars (clipped by y_cap) say so explicitly
     totals = {c: sum(rows[c][col] for col, *_ in _COST_COMPONENTS) * CENTS_PER_USD / denom[c]
