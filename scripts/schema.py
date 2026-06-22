@@ -22,7 +22,7 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class Case:
-    """One composition plus how to explore it. Pure data: a runner reads `sweep`/`optimize`
+    """One composition plus how to explore it. Pure data: the optimizer reads `sweep`/`optimize`
     and drives sweep -> optimize -> strategy."""
     name: str
     sources: tuple[EnergySource, ...]   # zero or more (zero = fueled-for-life converter)

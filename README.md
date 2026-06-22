@@ -42,7 +42,7 @@ Every powertrain is a composition of three independently-configured, frozen data
 **Case** (the verb) — a frozen composition + everything that isn't one of the three: a `params`
 block (cross-case `economics` + `margins`; per-case `route`), a named **strategy**, and
 `optimize`/`sweep` axis lists. Self-contained evaluation spec with no behavior of its own — a
-generic runner reads its declarations and drives sweep → optimize → strategy. A Case can be
+the optimizer reads its declarations and drives sweep → optimize → strategy. A Case can be
 multi-source (the tender case is also a battery case).
 
 **Strategy** — a plain function `strategy(case, point) -> dict`, bespoke per case-type, named by
