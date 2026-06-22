@@ -33,6 +33,11 @@ fleet data) are set aside, to be redone from the refactored base.
   `pool.idle_h` is currently **unused**; wiring it would mean a route-coupled pool model (passing
   the duty cycle into `size`), which the interface deliberately doesn't do yet. Decide whether the
   fleet-constant is good enough or the route coupling is worth the extra signature.
+- **Design speed as a live variable** — `design_v_kn` now flows through the `point` resolver, so
+  it can be put on a sweep/optimize axis like `d_km`/`op_v_kn`. But optimizing it only bites once
+  the model has a counterforce — a peak-power / brief-sprint constraint (weather evasion, schedule
+  recovery) that rewards a larger converter. Without one, minimizing converter CAPEX drives the
+  design speed to the floor. Add such a constraint before treating it as a meaningful free variable.
 - **Tender CAPEX on one life** — `TenderReactor.levelize` amortizes hull + reactor CAPEX over a
   single `capex.life_yr`; split if the hull and reactor lives should differ.
 - **Source roles in multi-source cases** — a plain list for now; natural roles (buffer / charger)
