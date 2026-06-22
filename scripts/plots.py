@@ -50,31 +50,27 @@ _DISPLAY = {
     "tender":         ("Nuclear tender",          sand_yellow,    False),
 }
 
-# Cost-stack components: artifact column -> (legend label, dot density). Every segment of a
-# case's bar carries that CASE's color (from _DISPLAY); the components are distinguished by
-# STIPPLE DENSITY — a dot pattern in a lighter tint of the case color over the full color, sparse
-# to dense up the stack (so each reads as a lighter shade of the same color). `None` = the solid
-# Hull base. Listed bottom-to-top: capital (hull/powerplant/store), then fixed opex, then energy.
+# Cost-stack components: artifact column -> (legend label, fill pattern). Every segment of a
+# case's bar carries that CASE's color (from _DISPLAY); the PATTERN (white, half-opacity, drawn
+# over the full color) distinguishes the component. Listed bottom-to-top of the stack: capital
+# (hull/powerplant/store), then fixed opex, then energy.
 # NOTE the modular reactors (nuclear-cont, tender) levelize their reactor CAPEX into the per-kWh
 # energy rate, so that capital shows up under "Energy", not "Powerplant" (see README).
 _COST_COMPONENTS = [
-    ("cost_hull",       "Hull",         None),
-    ("cost_powerplant", "Powerplant",   0.16),
-    ("cost_store",      "Energy store", 0.30),
-    ("cost_crew",       "Crew",         0.46),
-    ("cost_om",         "Other O&M",    0.64),
-    ("cost_energy",     "Energy",       0.85),
+    ("cost_hull",       "Hull",         ""),
+    ("cost_powerplant", "Powerplant",   "/"),
+    ("cost_store",      "Energy store", "x"),
+    ("cost_crew",       "Crew",         "."),
+    ("cost_om",         "Other O&M",    "-"),
+    ("cost_energy",     "Energy",       "|"),
 ]
-_DOT_SIZE = 7   # stipple tile size (px); small dots, density set per component via solidity
+# Bold, half-opacity white hatch: clear element edges, and a white segment frame masks the
+# clipped pattern fragments at the bar boundaries.
+_HATCH = dict(fgcolor="white", fgopacity=0.5, size=10, solidity=0.5)
+_HATCH_BORDER = dict(color="white", width=2)
 
 
 # ---- Shared helpers --------------------------------------------------------
-
-def _lighten(hex_color: str, amount: float) -> str:
-    """Blend a #rrggbb color toward white by `amount` in [0, 1] (0 = unchanged, 1 = white)."""
-    r, g, b = (int(hex_color.lstrip("#")[i:i + 2], 16) for i in (0, 2, 4))
-    r, g, b = (round(c + (255 - c) * amount) for c in (r, g, b))
-    return f"rgb({r}, {g}, {b})"
 
 
 def _save_html_png(fig, out_dir, stem: str) -> list:
@@ -219,29 +215,21 @@ def plot_cost_stack(df: pd.DataFrame, d_km: float, *, title: str, subtitle: str,
     # one row per case at this distance; LCOT contribution = annualized cost / annual cargo·km
     rows = {c: feasible[feasible["case"] == c].iloc[0] for c in cases}
     denom = {c: rows[c]["legs"] * rows[c]["d_km"] * rows[c]["carried"] for c in cases}
-    # pattern lines are a lighter tint of each case color, drawn over the full-color background
-    light = [_lighten(color, 0.6) for color in colors]
-
     fig = go.Figure()
-    for col, comp_label, density in _COST_COMPONENTS:
-        shape = "" if density is None else "."
+    for col, comp_label, shape in _COST_COMPONENTS:
         ys = [rows[c][col] * CENTS_PER_USD / denom[c] for c in cases]
         fig.add_trace(go.Bar(
             x=labels, y=ys, showlegend=False, customdata=[comp_label] * len(cases),
-            marker=dict(color=colors, line=dict(width=0.6, color="white"),
-                        pattern=dict(shape=shape, bgcolor=colors, fgcolor=light,
-                                     fgopacity=1.0, size=_DOT_SIZE, solidity=density or 0.0)),
+            marker=dict(color=colors, line=_HATCH_BORDER,
+                        pattern=dict(shape=shape, bgcolor=colors, **_HATCH)),
             hovertemplate="%{x}<br>%{customdata}: %{y:.2f} ¢/TEU·km<extra></extra>"))
 
-    # pattern key: neutral-grey dummy bars (zero height) carry only the component->density mapping
-    grey_light = _lighten(dark_gray, 0.6)
-    for col, comp_label, density in _COST_COMPONENTS:
-        shape = "" if density is None else "."
+    # pattern key: neutral-grey dummy bars (zero height) carry only the component->pattern mapping
+    for col, comp_label, shape in _COST_COMPONENTS:
         fig.add_trace(go.Bar(
             x=[labels[0]], y=[0], name=comp_label, showlegend=True, hoverinfo="skip",
-            marker=dict(color=dark_gray, line=dict(width=0.6, color="white"),
-                        pattern=dict(shape=shape, bgcolor=dark_gray, fgcolor=grey_light,
-                                     fgopacity=1.0, size=_DOT_SIZE, solidity=density or 0.0))))
+            marker=dict(color=dark_gray, line=_HATCH_BORDER,
+                        pattern=dict(shape=shape, bgcolor=dark_gray, **_HATCH))))
 
     # total LCOT label above each bar; off-scale bars (clipped by y_cap) say so explicitly
     totals = {c: sum(rows[c][col] for col, *_ in _COST_COMPONENTS) * CENTS_PER_USD / denom[c]
