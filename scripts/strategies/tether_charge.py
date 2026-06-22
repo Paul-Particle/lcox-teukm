@@ -23,6 +23,7 @@ def tether_charge(case: schema.Case, point: dict) -> dict:
     pl, dt = case.platform, case.drivetrain
     economics, margins, route = case.params.economics, case.params.margins, case.params.route
     d_km, op_v_kn = point.get("d_km", route.d_km), point.get("op_v_kn", route.op_v_kn)
+    design_v_kn = point.get("design_v_kn", route.design_v_kn)
     # expects exactly one battery + one tender reactor source
     battery = next(s for s in case.sources if isinstance(s, sources.BatterySource))
     tender = next(s for s in case.sources if isinstance(s, sources.TenderReactor))
@@ -71,7 +72,7 @@ def tether_charge(case: schema.Case, point: dict) -> dict:
     # --- capital + fixed O&M (ship only; the tender's CAPEX is inside its $/kWh) -
     discount_rate = economics.discount_rate
     # motor sized to the FIXED design speed (cheap, off the slow-steam sweep)
-    motor_kw = helpers.prop_power_kw(pl.resistance, route.design_v_kn, demand.propulsion_factor) * (1 + margins.sea)
+    motor_kw = helpers.prop_power_kw(pl.resistance, design_v_kn, demand.propulsion_factor) * (1 + margins.sea)
     battery_life = battery.life_yr(legs)
     annual_fixed = (
         _annual_platform_crew(pl, dt, economics, legs, discount_rate)
