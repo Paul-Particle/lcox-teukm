@@ -118,6 +118,19 @@ def unify(paths: list[Path]) -> tuple[pd.DataFrame, dict]:
     return unified, metadata
 
 
+def _write_excel(frame: pd.DataFrame, metadata: dict, path: Path) -> None:
+    """Write the unified table plus a source manifest and header-normalization sheet."""
+    manifest_df = pd.DataFrame(metadata["source_manifest"])
+    header_map_df = pd.DataFrame([
+        {"canonical": canon, "original_names": " | ".join(sorted(origs))}
+        for canon, origs in sorted(metadata["header_normalization"].items())
+    ])
+    with pd.ExcelWriter(path, engine="openpyxl") as writer:
+        frame.to_excel(writer, sheet_name="data", index=False)
+        manifest_df.to_excel(writer, sheet_name="sources", index=False)
+        header_map_df.to_excel(writer, sheet_name="header_map", index=False)
+
+
 def _write_csv_with_metadata_header(frame: pd.DataFrame, metadata: dict, path: Path) -> None:
     """Plain CSV preceded by a '#'-commented metadata block (read back with comment='#')."""
     import json
@@ -149,11 +162,13 @@ def main() -> None:
     parquet_frame.attrs = metadata
     parquet_frame.to_parquet(f"{OUT_STEM}.parquet", index=False)
     _write_csv_with_metadata_header(unified, metadata, Path(f"{OUT_STEM}.csv"))
+    _write_excel(unified, metadata, Path(f"{OUT_STEM}.xlsx"))
 
     print(f"\n{len(unified):,} rows x {unified.shape[1]} cols across "
           f"{unified['reporting_year'].nunique()} years, "
           f"{unified['report_type'].value_counts().to_dict()}")
-    print(f"  -> {OUT_STEM.relative_to(REPO_ROOT)}.parquet (attrs metadata) + .csv (# header)")
+    print(f"  -> {OUT_STEM.relative_to(REPO_ROOT)}.parquet (attrs metadata)"
+          f" + .csv (# header) + .xlsx (data / sources / header_map)")
 
 
 if __name__ == "__main__":
