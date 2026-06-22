@@ -21,6 +21,7 @@ def reactor_electric(case: schema.Case, point: dict) -> dict:
     pl, dt = case.platform, case.drivetrain
     economics, margins, route = case.params.economics, case.params.margins, case.params.route
     d_km, op_v_kn = point.get("d_km", route.d_km), point.get("op_v_kn", route.op_v_kn)
+    design_v_kn = point.get("design_v_kn", route.design_v_kn)
     reactor = next(s for s in case.sources if isinstance(s, sources.ContainerizedReactor))
 
     # the containerized reactor sits onboard, so its crew/security hotel delta adds to the bus
@@ -44,7 +45,7 @@ def reactor_electric(case: schema.Case, point: dict) -> dict:
 
     # --- capital + fixed O&M ----------------------------------------------------
     discount_rate = economics.discount_rate
-    motor_kw = helpers.prop_power_kw(pl.resistance, route.design_v_kn, demand.propulsion_factor) * (1 + margins.sea)  # bare motor (cheap), design-sized
+    motor_kw = helpers.prop_power_kw(pl.resistance, design_v_kn, demand.propulsion_factor) * (1 + margins.sea)  # bare motor (cheap), design-sized
     annual_fixed = (
         _annual_platform_crew(pl, dt, economics, legs, discount_rate)
         + dt.capex.converter_usd_per_kw * motor_kw * helpers.crf(discount_rate, dt.capex.life_yr))

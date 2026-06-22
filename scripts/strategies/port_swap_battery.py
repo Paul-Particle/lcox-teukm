@@ -21,6 +21,7 @@ def port_swap_battery(case: schema.Case, point: dict) -> dict:
     pl, dt = case.platform, case.drivetrain
     economics, margins, route = case.params.economics, case.params.margins, case.params.route
     d_km, op_v_kn = point.get("d_km", route.d_km), point.get("op_v_kn", route.op_v_kn)
+    design_v_kn = point.get("design_v_kn", route.design_v_kn)
     battery = next(s for s in case.sources if isinstance(s, sources.BatterySource))
 
     # --- route plan + power demand at the operating speed ----------------------
@@ -28,11 +29,11 @@ def port_swap_battery(case: schema.Case, point: dict) -> dict:
     demand = _resolve_demand(pl, dt, op_v_kn)
     bus_kw = demand.bus_kw
 
-    # --- size the pack to the whole leg: max(leg, storm buffer) + reserve --------
+    # --- size the pack to the whole leg + energy reserve -------------------------
+    # the reserve (margins.energy_reserve) covers weather/contingency; no storm buffer here
+    # (the pack already carries the full leg) — that's only the tether case's concern
     leg_kwh = bus_kw * sail_h
-    storm_kwh = bus_kw * route.storm_duration_h
-    # energy reserve on the leg only; the storm buffer is itself a weather reserve
-    deliverable_kwh = max(leg_kwh * (1 + margins.energy_reserve), storm_kwh)
+    deliverable_kwh = leg_kwh * (1 + margins.energy_reserve)
     installed_kwh, slots, mass_t = battery.size(
         deliverable_kwh, bus_kw, pl.slot_limits.container_max_gross_t)
 
@@ -50,7 +51,7 @@ def port_swap_battery(case: schema.Case, point: dict) -> dict:
 
     # --- capital + fixed O&M ----------------------------------------------------
     discount_rate = economics.discount_rate
-    motor_kw = helpers.prop_power_kw(pl.resistance, route.design_v_kn, demand.propulsion_factor) * (1 + margins.sea)
+    motor_kw = helpers.prop_power_kw(pl.resistance, design_v_kn, demand.propulsion_factor) * (1 + margins.sea)
     battery_life = battery.life_yr(legs)
     annual_fixed = (
         _annual_platform_crew(pl, dt, economics, legs, discount_rate)

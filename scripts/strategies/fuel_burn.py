@@ -20,6 +20,7 @@ def fuel_burn(case: schema.Case, point: dict) -> dict:
     pl, dt = case.platform, case.drivetrain
     economics, margins, route = case.params.economics, case.params.margins, case.params.route
     d_km, op_v_kn = point.get("d_km", route.d_km), point.get("op_v_kn", route.op_v_kn)
+    design_v_kn = point.get("design_v_kn", route.design_v_kn)
     fuel = next(s for s in case.sources if isinstance(s, sources.FuelSource))
 
     # --- fuel-energy INPUT demand at the operating speed (drive/hotel = chemical->shaft/hotel) ---
@@ -40,7 +41,7 @@ def fuel_burn(case: schema.Case, point: dict) -> dict:
 
     # --- capital + fixed O&M ----------------------------------------------------
     discount_rate = economics.discount_rate
-    engine_kw = helpers.prop_power_kw(pl.resistance, route.design_v_kn, demand.propulsion_factor) * (1 + margins.sea)
+    engine_kw = helpers.prop_power_kw(pl.resistance, design_v_kn, demand.propulsion_factor) * (1 + margins.sea)
     annual_fixed = (
         _annual_platform_crew(pl, dt, economics, legs, discount_rate)
         + dt.capex.converter_usd_per_kw * engine_kw * helpers.crf(discount_rate, dt.capex.life_yr))

@@ -99,6 +99,12 @@ cases' absolute LCOTs as order-of-magnitude until grounded in real data.
 
 ## Efficiency & load modeling
 
+- **Sea-state / weather time series:** the propulsion factors and the constant drive/hotel
+  efficiencies are single voyage-average constants (e.g. `drive` is estimated from one
+  marine-engine figure; `propulsion_factor.wider_eff` is a flat credit for an electric motor
+  staying near optimum). A fuller model would resolve weather and sea state as a function of
+  position and time along the route, so required power and the near-optimum efficiency gain emerge
+  from the conditions actually encountered rather than from fixed multipliers.
 - **Slow-steaming asymmetry:** drive/hotel efficiencies are constant in speed, so both ships get
   the ideal cube-law energy-vs-speed and fossil slow-steaming is over-credited. Real engines droop
   at part-load while motors stay flat — model the fossil drive efficiency as load/speed-dependent
