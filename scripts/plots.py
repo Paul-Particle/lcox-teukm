@@ -64,9 +64,11 @@ _COST_COMPONENTS = [
     ("cost_om",         "Other O&M",    "-"),
     ("cost_energy",     "Energy",       "|"),
 ]
-# Bold, half-opacity white hatch: clear element edges, and a white segment frame masks the
-# clipped pattern fragments at the bar boundaries.
-_HATCH = dict(fgcolor="white", fgopacity=0.5, size=10, solidity=0.5)
+# Bold, half-opacity white hatch overlaid on the solid bar color (`fillmode="overlay"` so the
+# bar's `marker.color` paints the base and the pattern sits on top — renders the same in the
+# browser and in static PNG export). A white segment frame masks the clipped pattern fragments
+# at the bar boundaries.
+_HATCH = dict(fillmode="overlay", fgcolor="white", fgopacity=0.5, size=10, solidity=0.5)
 _HATCH_BORDER = dict(color="white", width=2)
 
 
@@ -221,7 +223,7 @@ def plot_cost_stack(df: pd.DataFrame, d_km: float, *, title: str, subtitle: str,
         fig.add_trace(go.Bar(
             x=labels, y=ys, showlegend=False, customdata=[comp_label] * len(cases),
             marker=dict(color=colors, line=_HATCH_BORDER,
-                        pattern=dict(shape=shape, bgcolor=colors, **_HATCH)),
+                        pattern=dict(shape=shape, **_HATCH)),
             hovertemplate="%{x}<br>%{customdata}: %{y:.2f} ¢/TEU·km<extra></extra>"))
 
     # pattern key: neutral-grey dummy bars (zero height) carry only the component->pattern mapping
@@ -229,7 +231,7 @@ def plot_cost_stack(df: pd.DataFrame, d_km: float, *, title: str, subtitle: str,
         fig.add_trace(go.Bar(
             x=[labels[0]], y=[0], name=comp_label, showlegend=True, hoverinfo="skip",
             marker=dict(color=dark_gray, line=_HATCH_BORDER,
-                        pattern=dict(shape=shape, bgcolor=dark_gray, **_HATCH))))
+                        pattern=dict(shape=shape, **_HATCH))))
 
     # total LCOT label above each bar; off-scale bars (clipped by y_cap) say so explicitly
     totals = {c: sum(rows[c][col] for col, *_ in _COST_COMPONENTS) * CENTS_PER_USD / denom[c]
