@@ -194,6 +194,31 @@ def _scaling_fit(size_t: pd.Series, value: pd.Series, label: str) -> None:
           f"r={correlation:.2f}, n={mask.sum()})")
 
 
+_CARGO_BINS = [(500, 10000), (10000, 25000), (25000, 45000),
+               (45000, 75000), (75000, 120000), (120000, np.inf)]
+
+
+def _binned_stats(fleet: pd.DataFrame) -> pd.DataFrame:
+    """Binned median power/speed by cargo-carried size; the admiralty anchor for p_ref_kw.
+    Excludes implausible speeds (<5 or >30 kn). Returns a DataFrame, one row per bin."""
+    sane = fleet[(fleet["speed_kn"] > 5) & (fleet["speed_kn"] < 30)]
+    rows = []
+    for lo, hi in _CARGO_BINS:
+        b = sane[(sane["cargo_carried_t"] >= lo) & (sane["cargo_carried_t"] < hi)]
+        if len(b) < 5:
+            continue
+        med_power, med_speed = b["useful_power_kw"].median(), b["speed_kn"].median()
+        rows.append({
+            "cargo_lo_t": lo,
+            "cargo_hi_t": None if np.isinf(hi) else hi,
+            "n": len(b),
+            "median_power_kw": med_power,
+            "median_speed_kn": med_speed,
+            f"power_at_{CONFIG_V_REF_KN:.0f}kn_kw": med_power * (CONFIG_V_REF_KN / med_speed) ** 3,
+        })
+    return pd.DataFrame(rows)
+
+
 def summarize(fleet: pd.DataFrame) -> None:
     """Print the grounded distributions, size-scaling fits, and config cross-checks."""
     if fleet.empty:
@@ -208,25 +233,18 @@ def summarize(fleet: pd.DataFrame) -> None:
     cargo = _percentiles("cargo carried (derived)", fleet["cargo_carried_t"], "t")
     _percentiles("technical efficiency", fleet["eedi"], "gCO2/t.nm")
 
-    # Speed clamp on the power fit: above ~30 kn the derived speed is a data error.
     sane = fleet[(fleet["speed_kn"] > 5) & (fleet["speed_kn"] < 30)]
     print("\n=== size-scaling fits (basis for a narrow-band ship scale factor) ===")
     _scaling_fit(sane["cargo_carried_t"], sane["useful_power_kw"], "operating power")
     _scaling_fit(sane["cargo_carried_t"], sane["speed_kn"], "operating speed")
 
     print("\n=== power vs size, binned (admiralty anchor; extrapolated to v_ref via cube law) ===")
-    bins = [(500, 10000), (10000, 25000), (25000, 45000),
-            (45000, 75000), (75000, 120000), (120000, np.inf)]
-    for lo, hi in bins:
-        b = sane[(sane["cargo_carried_t"] >= lo) & (sane["cargo_carried_t"] < hi)]
-        if len(b) < 5:
-            continue
-        med_power, med_speed = b["useful_power_kw"].median(), b["speed_kn"].median()
-        power_at_vref = med_power * (CONFIG_V_REF_KN / med_speed) ** 3
-        hi_label = "+" if np.isinf(hi) else f"{hi:,.0f}"
-        print(f"  cargo {lo:>7,.0f}-{hi_label:<8}t  n={len(b):>4} | "
-              f"med {med_power:>7,.0f} kW @ {med_speed:4.1f} kn | "
-              f"{power_at_vref:>8,.0f} kW @ {CONFIG_V_REF_KN:.0f} kn (cube-law)")
+    for _, row in _binned_stats(fleet).iterrows():
+        hi = row["cargo_hi_t"]
+        hi_label = "+" if hi is None or pd.isna(hi) else f"{hi:,.0f}"
+        print(f"  cargo {row['cargo_lo_t']:>7,.0f}-{hi_label:<8}t  n={int(row['n']):>4} | "
+              f"med {row['median_power_kw']:>7,.0f} kW @ {row['median_speed_kn']:4.1f} kn | "
+              f"{row[f'power_at_{CONFIG_V_REF_KN:.0f}kn_kw']:>8,.0f} kW @ {CONFIG_V_REF_KN:.0f} kn (cube-law)")
 
     _cross_checks(speed, power, cargo)
 
@@ -301,7 +319,8 @@ def main(argv=None) -> None:
     parser.add_argument("paths", nargs="*",
                         help="MRV .xlsx/.csv files or globs (default: every data/*.xlsx)")
     parser.add_argument("--type", default="container", help="ship-type keyword (default: container)")
-    parser.add_argument("--no-plot", action="store_true", help="skip the histograms")
+    parser.add_argument("--no-plot",  action="store_true", help="skip the histograms")
+    parser.add_argument("--no-excel", action="store_true", help="skip the Excel data export")
     args = parser.parse_args(argv)
 
     patterns = args.paths or [str(DATA_DIR / "*.xlsx")]
@@ -316,9 +335,18 @@ def main(argv=None) -> None:
     fleet = load_container_fleet(paths, args.type.lower())
     summarize(fleet)
 
+    if not args.no_excel and not fleet.empty:
+        RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+        excel_path = RESULTS_DIR / "mrv_fleet.xlsx"
+        with pd.ExcelWriter(excel_path, engine="openpyxl") as writer:
+            fleet.to_excel(writer, sheet_name="fleet", index=False)
+            _binned_stats(fleet).to_excel(writer, sheet_name="binned_stats", index=False)
+        print(f"\nSaved data:  {excel_path.relative_to(REPO_ROOT)}"
+              f"  (fleet / binned_stats)")
+
     if not args.no_plot and not fleet.empty:
         for path in plot_fleet(fleet, RESULTS_DIR):
-            print(f"\nSaved plot: {path.relative_to(REPO_ROOT)}")
+            print(f"Saved plot:  {path.relative_to(REPO_ROOT)}")
 
 
 if __name__ == "__main__":
