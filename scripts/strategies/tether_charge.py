@@ -8,7 +8,7 @@ import helpers
 import sources
 from units import KM_PER_NM, KMH_PER_KNOT
 
-from ._shared import (_resolve_demand, _annual_platform_crew, _lcot, _row, _infeasible,
+from ._shared import (_resolve_demand, _fixed_costs, _lcot, _row, _infeasible,
                       legs_per_year, carried)
 
 
@@ -74,14 +74,17 @@ def tether_charge(case: schema.Case, point: dict) -> dict:
     # motor sized to the FIXED design speed (cheap, off the slow-steam sweep)
     motor_kw = helpers.prop_power_kw(pl.resistance, design_v_kn, demand.propulsion_factor) * (1 + margins.sea)
     battery_life = battery.life_yr(legs)
-    annual_fixed = (
-        _annual_platform_crew(pl, dt, economics, legs, discount_rate)
-        + dt.capex.converter_usd_per_kw * motor_kw * helpers.crf(discount_rate, dt.capex.life_yr)
-        + battery.capex.usd_per_kwh * installed_kwh * helpers.crf(discount_rate, battery_life))
+    fixed = _fixed_costs(pl, dt, economics, legs, discount_rate,
+                         powerplant=dt.capex.converter_usd_per_kw * motor_kw
+                         * helpers.crf(discount_rate, dt.capex.life_yr),
+                         store=battery.capex.usd_per_kwh * installed_kwh
+                         * helpers.crf(discount_rate, battery_life))
+    annual_fixed = sum(fixed.values())
     annual_energy = (grid_cost_leg + tender_cost_leg) * legs
     lcot = _lcot(annual_fixed, annual_energy, legs, d_km, cargo)
 
     return _row(lcot, op_v_kn, d_km, cargo, legs, annual_fixed, annual_energy,
                 battery_slots=slots, battery_kwh=installed_kwh, motor_kw=motor_kw,
                 tender_reactor_kw=reactor_kw, tender_usd_per_kwh=tender_usd_per_kwh,
-                ships_per_tender=(sail_h + dt.operations.port_hours) / (tethered_h + route.idle_h))
+                ships_per_tender=(sail_h + dt.operations.port_hours) / (tethered_h + route.idle_h),
+                **fixed)

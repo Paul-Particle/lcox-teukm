@@ -8,7 +8,7 @@ import helpers
 import sources
 from units import KMH_PER_KNOT
 
-from ._shared import (_resolve_demand, _annual_platform_crew, _lcot, _row, _infeasible,
+from ._shared import (_resolve_demand, _fixed_costs, _lcot, _row, _infeasible,
                       legs_per_year, carried)
 
 
@@ -43,12 +43,15 @@ def reactor_electric_integrated(case: schema.Case, point: dict) -> dict:
     # reactor+generator sized to the operating-speed bus, motor to the shaft power; separate lives
     motor_shaft_kw = demand.prop_kw * (1 + margins.sea)
     reactor_elec_kw = motor_shaft_kw / dt.efficiency.drive + demand.hotel_kw / dt.efficiency.hotel
-    annual_fixed = (
-        _annual_platform_crew(pl, dt, economics, legs, discount_rate)
-        + dt.capex.reactor_usd_per_kw * reactor_elec_kw * helpers.crf(discount_rate, dt.capex.reactor_life_yr)
-        + dt.capex.converter_usd_per_kw * motor_shaft_kw * helpers.crf(discount_rate, dt.capex.life_yr))
+    fixed = _fixed_costs(pl, dt, economics, legs, discount_rate,
+                         powerplant=dt.capex.reactor_usd_per_kw * reactor_elec_kw
+                         * helpers.crf(discount_rate, dt.capex.reactor_life_yr)
+                         + dt.capex.converter_usd_per_kw * motor_shaft_kw
+                         * helpers.crf(discount_rate, dt.capex.life_yr))
+    annual_fixed = sum(fixed.values())
     annual_energy = fuel_cost_leg * legs
     lcot = _lcot(annual_fixed, annual_energy, legs, d_km, cargo)
 
     return _row(lcot, op_v_kn, d_km, cargo, legs, annual_fixed, annual_energy,
-                reactor_elec_kw=reactor_elec_kw, motor_kw=motor_shaft_kw, fuel_kwh_leg=fuel_kwh_leg)
+                reactor_elec_kw=reactor_elec_kw, motor_kw=motor_shaft_kw,
+                fuel_kwh_leg=fuel_kwh_leg, **fixed)
