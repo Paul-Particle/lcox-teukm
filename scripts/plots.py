@@ -28,6 +28,15 @@ OUT_DIR = REPO_ROOT / "results"
 # region (viewers can still zoom the interactive HTML). None -> no clip.
 Y_CAP_CENTS = 50.0
 
+# Cost-stack y-axis cap (¢/TEU·km), shared by both distance figures so they read on the same
+# scale. A case whose total LCOT exceeds it (long-haul LFP) overflows the frame and is labelled.
+COST_STACK_Y_CAP = 11.0
+
+# The two distances the cost-breakdown bars are drawn at (km): a medium regional hop and a long
+# ocean crossing. Both are points on run.py's D_max sweep.
+MEDIUM_HOP_KM = 2000.0
+OCEAN_CROSSING_KM = 14000.0
+
 # Per-case display: legend label + palette color + whether to clip the long-haul blow-up.
 # Order sets the legend/trace order; clip on the battery-only cases that diverge long-haul.
 _DISPLAY = {
@@ -40,6 +49,20 @@ _DISPLAY = {
     "nuclear-cont":   ("Nuclear (containerized)", magenta_red,    False),
     "tender":         ("Nuclear tender",          sand_yellow,    False),
 }
+
+# Cost-stack components: artifact column -> (legend label, fill pattern). Every segment of a
+# case's bar carries that CASE's color (from _DISPLAY); the PATTERN distinguishes the component.
+# Listed bottom-to-top of the stack: capital (hull/powerplant/store), then fixed opex, then energy.
+# NOTE the modular reactors (nuclear-cont, tender) levelize their reactor CAPEX into the per-kWh
+# energy rate, so that capital shows up under "Energy", not "Powerplant" (see README).
+_COST_COMPONENTS = [
+    ("cost_hull",       "Hull",        ""),
+    ("cost_powerplant", "Powerplant",  "/"),
+    ("cost_store",      "Energy store", "x"),
+    ("cost_crew",       "Crew",        "."),
+    ("cost_om",         "Other O&M",   "-"),
+    ("cost_energy",     "Energy",      "|"),
+]
 
 
 # ---- Shared helpers --------------------------------------------------------
@@ -169,9 +192,94 @@ def plot_speed_vs_dmax(df: pd.DataFrame, out_dir=OUT_DIR) -> list:
         y_range=[0, 24], legend_y=0.5, stem="speed_vs_dmax")
 
 
+# ---- Cost-breakdown stacked bars ------------------------------------------
+
+def plot_cost_stack(df: pd.DataFrame, d_km: float, *, title: str, subtitle: str,
+                    stem: str, y_cap: float = COST_STACK_Y_CAP, out_dir=OUT_DIR) -> list:
+    """Absolute LCOT broken into cost components, one stacked bar per case, at a fixed `d_km`.
+    Bar height is the case's total LCOT (¢/TEU·km); every segment carries the case color and the
+    component is read off the fill pattern. Cases are drawn in `_DISPLAY` order, infeasible ones
+    dropped. A bar taller than `y_cap` overflows the frame and gets an off-scale total label."""
+    import plotly.graph_objects as go
+
+    feasible = df[(df["d_km"] == d_km) & df["feasible"]]
+    cases = [c for c in _DISPLAY if c in set(feasible["case"])]
+    labels = [_DISPLAY[c][0] for c in cases]
+    colors = [_DISPLAY[c][1] for c in cases]
+    # one row per case at this distance; LCOT contribution = annualized cost / annual cargo·km
+    rows = {c: feasible[feasible["case"] == c].iloc[0] for c in cases}
+    denom = {c: rows[c]["legs"] * rows[c]["d_km"] * rows[c]["carried"] for c in cases}
+
+    fig = go.Figure()
+    for col, comp_label, shape in _COST_COMPONENTS:
+        ys = [rows[c][col] * CENTS_PER_USD / denom[c] for c in cases]
+        fig.add_trace(go.Bar(
+            x=labels, y=ys, showlegend=False, customdata=[comp_label] * len(cases),
+            marker=dict(color=colors, line=dict(width=0.6, color="white"),
+                        pattern=dict(shape=shape, fgcolor="white", fgopacity=0.55,
+                                     size=8, solidity=0.32)),
+            hovertemplate="%{x}<br>%{customdata}: %{y:.2f} ¢/TEU·km<extra></extra>"))
+
+    # pattern key: neutral-grey dummy bars (zero height) carry only the component->pattern mapping
+    for col, comp_label, shape in _COST_COMPONENTS:
+        fig.add_trace(go.Bar(
+            x=[labels[0]], y=[0], name=comp_label, showlegend=True, hoverinfo="skip",
+            marker=dict(color=dark_gray, line=dict(width=0.6, color="white"),
+                        pattern=dict(shape=shape, fgcolor="white", fgopacity=0.7,
+                                     size=8, solidity=0.32))))
+
+    # total LCOT label above each bar; off-scale bars (clipped by y_cap) say so explicitly
+    totals = {c: sum(rows[c][col] for col, *_ in _COST_COMPONENTS) * CENTS_PER_USD / denom[c]
+              for c in cases}
+    for label, c in zip(labels, cases):
+        total = totals[c]
+        over = total > y_cap
+        fig.add_annotation(
+            x=label, y=min(total, y_cap), yanchor="bottom", yshift=4,
+            text=(f"↑ {total:.0f}" if over else f"{total:.1f}"), showarrow=False,
+            font=dict(family="Titillium Web", size=11,
+                      color=magenta_red if over else blue_black))
+
+    fig_width, fig_height = 820, 540
+    margin_l = fca_template.layout.margin.l
+    margin_r = fca_template.layout.margin.r
+    margin_t = fca_template.layout.margin.t
+    margin_b = 110
+    geom = header_geometry(fig_width, fig_height, margin_l, margin_r, margin_t)
+
+    fig.update_layout(
+        template=fca_template, barmode="stack", bargap=0.32,
+        title=dict(text=title, x=geom["title_x"]),
+        showlegend=True,
+        legend=dict(title_text="cost component", x=0.985, xanchor="right", y=0.98,
+                    yanchor="top", bgcolor="rgba(255,255,255,0.65)", borderwidth=0,
+                    font=dict(family="Titillium Web", size=12)),
+        margin=dict(b=margin_b), width=fig_width, height=fig_height)
+    fig.update_xaxes(tickangle=-30, tickfont=dict(family="Titillium Web", size=12))
+    fig.update_yaxes(title_text="LCOT  (US¢ / TEU·km)", range=[0, y_cap])
+
+    fig.add_annotation(
+        text=subtitle, xref="paper", yref="paper",
+        x=0, xanchor="left", xshift=geom["header_x_shift"],
+        y=1, yanchor="bottom", yshift=12, showarrow=False,
+        font=dict(family="Titillium Web", size=18, color=blue_black))
+
+    apply_dot(fig, geom)
+    apply_logo(fig, fig_width, fig_height, margin_l, margin_r, margin_t, margin_b)
+    return _save_html_png(fig, out_dir, stem)
+
+
 def main() -> None:
     df = pd.read_parquet(ARTIFACT)
     saved = plot_lcot_vs_dmax(df) + plot_speed_vs_dmax(df)
+    saved += plot_cost_stack(
+        df, MEDIUM_HOP_KM, stem="cost_stack_medium",
+        title="Cost breakdown — medium hop",
+        subtitle=f"US cents per TEU·km  ·  D_max = {MEDIUM_HOP_KM/1000:.0f},000 km")
+    saved += plot_cost_stack(
+        df, OCEAN_CROSSING_KM, stem="cost_stack_ocean",
+        title="Cost breakdown — ocean crossing",
+        subtitle=f"US cents per TEU·km  ·  D_max = {OCEAN_CROSSING_KM/1000:.0f},000 km")
     for path in saved:
         print("wrote", path)
 

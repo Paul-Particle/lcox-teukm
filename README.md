@@ -70,7 +70,7 @@ The model is flat modules under `scripts/`; nothing cross-imports beyond what is
 | `strategies/` | package: one module per strategy (6) + `_shared.py` (scaffolding + route math `legs_per_year`/`carried`) |
 | `optimizer.py` | `optimize` (free-param grid search) + `run` (sweep) |
 | `run.py` | entry point → load → run → artifact |
-| `plots.py` | LCOT- and speed-vs-`D_max` figures from the artifact |
+| `plots.py` | LCOT- and speed-vs-`D_max` line figures + per-case cost-breakdown bars from the artifact |
 | `style.py` | FCA house plotting style (template, palette, brand chrome) |
 | `sync_excel.py` | bidirectional sync between `config.xlsx` and `config.yaml` + `cases.csv` |
 | `mrv/` | standalone EU MRV fleet tooling (`mrv_unify`, `mrv_fleet`, `run_mrv`) — runs on its own, imports nothing from the model |
@@ -156,9 +156,19 @@ expensive capital push them to maximum speed.
 
 `run.py` writes a tidy table (`results/lcot.parquet` + `results/lcot.csv`), one row per (case,
 `D_max`, any other swept input): LCOT, optimal speed, reactor/store size, the
-energy/capital/O&M breakdown, and a feasibility flag. Columns are unioned across the heterogeneous
-strategy rows (absent fields are NaN). It is regenerated whole each run; incremental/partitioned
-writes for large sweeps are a TODO.
+energy/capital/O&M breakdown, and a feasibility flag. The annualized cost is itemized into
+`cost_hull` / `cost_powerplant` / `cost_store` / `cost_crew` / `cost_om` / `cost_energy`
+(US$/yr; the first five sum to `annual_fixed`, the last equals `annual_energy`) — these drive
+the cost-breakdown bars. The modular reactors (nuclear-cont, tender) levelize their reactor
+CAPEX into a per-kWh rate, so that capital sits in `cost_energy`, not `cost_powerplant`. Columns
+are unioned across the heterogeneous strategy rows (absent fields are NaN). It is regenerated
+whole each run; incremental/partitioned writes for large sweeps are a TODO.
+
+`plots.py` adds two cost-breakdown figures (`results/cost_stack_{medium,ocean}.{html,png}`):
+stacked bars of absolute LCOT by case at a fixed hop distance (a medium 2,000 km hop and a
+14,000 km ocean crossing), each bar colored by case and each cost component read off its fill
+pattern. The two share a y-axis so they compare directly; a case whose LCOT exceeds the cap
+(long-haul LFP) overflows the frame and is labelled with its off-scale total.
 
 ## Grounding in real data (EU MRV)
 

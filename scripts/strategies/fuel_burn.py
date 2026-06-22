@@ -8,7 +8,7 @@ import helpers
 import sources
 from units import KMH_PER_KNOT
 
-from ._shared import (_resolve_demand, _annual_platform_crew, _lcot, _row, _infeasible,
+from ._shared import (_resolve_demand, _fixed_costs, _lcot, _row, _infeasible,
                       legs_per_year, carried)
 
 
@@ -42,11 +42,12 @@ def fuel_burn(case: schema.Case, point: dict) -> dict:
     # --- capital + fixed O&M ----------------------------------------------------
     discount_rate = economics.discount_rate
     engine_kw = helpers.prop_power_kw(pl.resistance, design_v_kn, demand.propulsion_factor) * (1 + margins.sea)
-    annual_fixed = (
-        _annual_platform_crew(pl, dt, economics, legs, discount_rate)
-        + dt.capex.converter_usd_per_kw * engine_kw * helpers.crf(discount_rate, dt.capex.life_yr))
+    fixed = _fixed_costs(pl, dt, economics, legs, discount_rate,
+                         powerplant=dt.capex.converter_usd_per_kw * engine_kw
+                         * helpers.crf(discount_rate, dt.capex.life_yr))
+    annual_fixed = sum(fixed.values())
     annual_energy = fuel_cost_leg * legs
     lcot = _lcot(annual_fixed, annual_energy, legs, d_km, cargo)
 
     return _row(lcot, op_v_kn, d_km, cargo, legs, annual_fixed, annual_energy,
-                engine_kw=engine_kw, fuel_kwh_leg=fuel_kwh_leg)
+                engine_kw=engine_kw, fuel_kwh_leg=fuel_kwh_leg, **fixed)
