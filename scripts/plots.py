@@ -67,6 +67,13 @@ _COST_COMPONENTS = [
 
 # ---- Shared helpers --------------------------------------------------------
 
+def _lighten(hex_color: str, amount: float) -> str:
+    """Blend a #rrggbb color toward white by `amount` in [0, 1] (0 = unchanged, 1 = white)."""
+    r, g, b = (int(hex_color.lstrip("#")[i:i + 2], 16) for i in (0, 2, 4))
+    r, g, b = (round(c + (255 - c) * amount) for c in (r, g, b))
+    return f"rgb({r}, {g}, {b})"
+
+
 def _save_html_png(fig, out_dir, stem: str) -> list:
     """Write fig as font-injected HTML and static PNG. Returns saved paths."""
     os.makedirs(out_dir, exist_ok=True)
@@ -209,6 +216,8 @@ def plot_cost_stack(df: pd.DataFrame, d_km: float, *, title: str, subtitle: str,
     # one row per case at this distance; LCOT contribution = annualized cost / annual cargo·km
     rows = {c: feasible[feasible["case"] == c].iloc[0] for c in cases}
     denom = {c: rows[c]["legs"] * rows[c]["d_km"] * rows[c]["carried"] for c in cases}
+    # pattern lines are a lighter tint of each case color, drawn over the full-color background
+    light = [_lighten(color, 0.6) for color in colors]
 
     fig = go.Figure()
     for col, comp_label, shape in _COST_COMPONENTS:
@@ -216,8 +225,8 @@ def plot_cost_stack(df: pd.DataFrame, d_km: float, *, title: str, subtitle: str,
         fig.add_trace(go.Bar(
             x=labels, y=ys, showlegend=False, customdata=[comp_label] * len(cases),
             marker=dict(color=colors, line=dict(width=0.6, color="white"),
-                        pattern=dict(shape=shape, fgcolor="white", fgopacity=0.55,
-                                     size=8, solidity=0.32)),
+                        pattern=dict(shape=shape, bgcolor=colors, fgcolor=light,
+                                     fgopacity=1.0, size=9, solidity=0.5)),
             hovertemplate="%{x}<br>%{customdata}: %{y:.2f} ¢/TEU·km<extra></extra>"))
 
     # pattern key: neutral-grey dummy bars (zero height) carry only the component->pattern mapping
@@ -225,8 +234,8 @@ def plot_cost_stack(df: pd.DataFrame, d_km: float, *, title: str, subtitle: str,
         fig.add_trace(go.Bar(
             x=[labels[0]], y=[0], name=comp_label, showlegend=True, hoverinfo="skip",
             marker=dict(color=dark_gray, line=dict(width=0.6, color="white"),
-                        pattern=dict(shape=shape, fgcolor="white", fgopacity=0.7,
-                                     size=8, solidity=0.32))))
+                        pattern=dict(shape=shape, bgcolor=dark_gray, fgcolor=_lighten(dark_gray, 0.6),
+                                     fgopacity=1.0, size=9, solidity=0.5))))
 
     # total LCOT label above each bar; off-scale bars (clipped by y_cap) say so explicitly
     totals = {c: sum(rows[c][col] for col, *_ in _COST_COMPONENTS) * CENTS_PER_USD / denom[c]
