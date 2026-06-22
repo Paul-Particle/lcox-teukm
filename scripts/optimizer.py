@@ -2,9 +2,9 @@
 optimizer.py — drives a Case's axes into rows.
 
 Two plain-dict-in/out functions over the strategy `(case, point) -> row`:
-  - `optimize(case, swept_point)` — at one swept point, searches the Case's FREE axes
+  - `optimize(case, swept_point)` — at one swept point, searches the Case's free axes
     (`case.optimize`, e.g. `op_v_kn`) on a grid and returns the min-`lcot` row.
-  - `run(case)` — iterates the SWEPT axes (`case.sweep`, e.g. `d_km`) and returns one
+  - `run(case)` — iterates the swept axes (`case.sweep`, e.g. `d_km`) and returns one
     optimized row per swept point (the LCOT-vs-X trace).
 
 A `point` is a `Point` (a dict of this evaluation's axis coordinates). A strategy reads each
