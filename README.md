@@ -72,6 +72,7 @@ The model is flat modules under `scripts/`; nothing cross-imports beyond what is
 | `run.py` | entry point → load → run → artifact |
 | `plots.py` | LCOT- and speed-vs-`D_max` figures from the artifact |
 | `style.py` | FCA house plotting style (template, palette, brand chrome) |
+| `sync_excel.py` | bidirectional sync between `config.xlsx` and `config.yaml` + `cases.csv` |
 | `mrv/` | standalone EU MRV fleet tooling (`mrv_unify`, `mrv_fleet`, `run_mrv`) — runs on its own, imports nothing from the model |
 
 The two inputs into the schema — **`config.yaml`** (component library) and **`cases.csv`** (the
@@ -134,6 +135,10 @@ Two inputs into the frozen schema:
   rows. Case-level scalars repeat on every row; `source` and the optimize/sweep axes are
   enumerated one per row (an extra source/axis is a continuation row). A blank `source` =
   fueled-for-life. Machine-generated later by a Sobol sweep; seeds hand-written for now.
+
+Both inputs are also available as **`config.xlsx`** — a five-sheet workbook (shared /
+platforms / drivetrains / sources / cases) that stays in sync with the text files via
+`sync_excel.py`. Run `uv run scripts/sync_excel.py --help` to see the sync options.
 
 Units throughout: energy kWh, power kW, time h, distance km, speed kn, mass kg, money US$.
 
