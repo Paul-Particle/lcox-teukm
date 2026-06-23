@@ -52,19 +52,23 @@ _DISPLAY = {
 
 # Cost-stack components: artifact column -> (legend label, shade). Every segment of a case's bar
 # is a SOLID SHADE of that CASE's color (from _DISPLAY) — hue encodes the case, lightness the
-# component, getting lighter up the stack (`shade` = blend toward white, 0 = full color). Solid
-# fills only: plotly's hatch/`marker.pattern` engine renders inconsistently across plotly/kaleido
-# versions (a hue-correlated light/dark inversion on some setups), so it is avoided here.
-# Listed bottom-to-top of the stack: capital (hull/powerplant/store), then fixed opex, then energy.
+# component (`shade` = blend toward white, 0 = full color). Solid fills only: plotly's hatch
+# /`marker.pattern` engine renders inconsistently across plotly/kaleido versions (a hue-correlated
+# light/dark inversion on some setups), so it is avoided here.
+# The six even shade levels (0.00 .. 0.75) are assigned INTERLEAVED up the stack — each step jumps
+# across the midpoint — so adjacent segments contrast strongly and their boundary is easy to read
+# (a plain gradient would put the most similar shades next to each other). Hull stays the full
+# (darkest) base; Energy the lightest. Stack order bottom-to-top: capital (hull/powerplant/store),
+# fixed opex, then energy.
 # NOTE the modular reactors (nuclear-cont, tender) levelize their reactor CAPEX into the per-kWh
 # energy rate, so that capital shows up under "Energy", not "Powerplant" (see README).
 _COST_COMPONENTS = [
     ("cost_hull",       "Hull",         0.00),
-    ("cost_powerplant", "Powerplant",   0.16),
-    ("cost_store",      "Energy store", 0.32),
-    ("cost_crew",       "Crew",         0.48),
-    ("cost_om",         "Other O&M",    0.64),
-    ("cost_energy",     "Energy",       0.78),
+    ("cost_powerplant", "Powerplant",   0.45),
+    ("cost_store",      "Energy store", 0.15),
+    ("cost_crew",       "Crew",         0.60),
+    ("cost_om",         "Other O&M",    0.30),
+    ("cost_energy",     "Energy",       0.75),
 ]
 
 
