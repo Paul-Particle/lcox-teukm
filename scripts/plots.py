@@ -8,7 +8,6 @@ font embedding) comes from style.py; the two D_max line plots share `_dmax_line_
 Run after run.py: `python plots.py` -> results/lcot_vs_dmax.{html,png}, speed_vs_dmax.{html,png}.
 """
 
-import os
 from pathlib import Path
 
 import pandas as pd
@@ -17,7 +16,7 @@ from units import CENTS_PER_USD
 from style import (
     fca_template, fca_blue, blue_black, dark_gray, highlight_blue,
     sand_yellow, green, turquois, magenta_red,
-    header_geometry, apply_dot, apply_logo, inject_titillium_font,
+    BRAND_FONT, lighten, contrast_shades, apply_header, save_figure,
 )
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -55,7 +54,7 @@ _DISPLAY = {
 # SHADE of that CASE's color (from _DISPLAY): hue encodes the case, lightness the component. Solid
 # fills only — plotly's hatch/`marker.pattern` engine renders inconsistently across plotly/kaleido
 # versions (a hue-correlated light/dark inversion on some setups), so it is avoided here.
-# Shades are assigned by `_contrast_shades` (interleaved, darkest at both ends).
+# Shades are assigned by `style.contrast_shades` (interleaved, darkest at both ends).
 # NOTE the modular reactors (nuclear-cont, tender) levelize their reactor CAPEX into the per-kWh
 # energy rate, so that capital shows up under "Energy", not "Powerplant" (see README).
 _COST_COMPONENTS = [
@@ -66,110 +65,9 @@ _COST_COMPONENTS = [
     ("cost_om",         "Other O&M"),
     ("cost_energy",     "Energy"),
 ]
-_SHADE_MAX = 0.75   # lightest shade (blend toward white); the darkest shade is 0.0 (full color)
 
 
 # ---- Shared helpers --------------------------------------------------------
-
-def _lighten(hex_color: str, amount: float) -> str:
-    """Blend a #rrggbb color toward white by `amount` in [0, 1] (0 = unchanged, 1 = white)."""
-    r, g, b = (int(hex_color.lstrip("#")[i:i + 2], 16) for i in (0, 2, 4))
-    r, g, b = (round(c + (255 - c) * amount) for c in (r, g, b))
-    return f"rgb({r}, {g}, {b})"
-
-
-def _contrast_shades(n: int, max_lighten: float = _SHADE_MAX) -> list[float]:
-    """`n` lighten amounts (0 = full color … `max_lighten` = nearly white) ordered bottom-to-top
-    for a stacked bar so adjacent segments contrast strongly. Even-length bars get the two darkest
-    shades at both ends: take the levels darkest→lightest, move the darkest to the end, then zip
-    the two halves — the 2nd-darkest leads, the darkest trails, every step jumps across the
-    mid-range. For n=6 → [0.15, 0.60, 0.30, 0.75, 0.45, 0.00].
-
-    An odd bar can't be dark at both ends, so it borrows one extra (unused) shade to build the even
-    ordering, then drops the leading 2nd-darkest. The dark end (the darkest) stays at the top; the
-    light end falls to the bottom, where it sits against the dark zero-line axis and still
-    contrasts. For n=5 → [0.60, 0.30, 0.75, 0.45, 0.00]."""
-    m = n if n % 2 == 0 else n + 1                           # work even; odd n borrows one shade
-    levels = [max_lighten * i / (m - 1) for i in range(m)]   # index 0 darkest … m-1 lightest
-    rotated = list(range(1, m)) + [0]                        # darkest (index 0) moved to the end
-    cut = m // 2
-    darker, lighter = rotated[:cut], rotated[cut:]
-    order: list[int] = []
-    for dark_idx, light_idx in zip(darker, lighter):
-        order += [dark_idx, light_idx]
-    shades = [levels[i] for i in order]
-    return shades[1:] if n % 2 else shades                   # odd: drop the leading 2nd-darkest
-
-
-def _save_html_png(fig, out_dir, stem: str) -> list:
-    """Write fig as font-injected HTML and static PNG. Returns saved paths."""
-    os.makedirs(out_dir, exist_ok=True)
-    saved = []
-    html_path = os.path.join(out_dir, f"{stem}.html")
-    html = inject_titillium_font(fig.to_html(include_plotlyjs=True))
-    Path(html_path).write_text(html, encoding="utf-8")
-    saved.append(html_path)
-    png_path = os.path.join(out_dir, f"{stem}.png")
-    try:
-        fig.write_image(png_path, scale=2)
-        saved.append(png_path)
-    except Exception as e:
-        print(f"PNG export skipped ({stem}):", e)
-    return saved
-
-
-def _dmax_line_plot(out_dir, *, title: str, subtitle: str, series: list, hover: str,
-                    y_range: list, legend_y: float, stem: str, yaxis_title: str = None) -> list:
-    """One line plot vs D_max (log x). `series` is a list of (label, color, xs, ys, customdata).
-    Shared by the LCOT and optimal-speed plots — they differ only in data, title, y-axis."""
-    import plotly.graph_objects as go
-
-    fig = go.Figure()
-    for label, color, xs, ys, customdata in series:
-        fig.add_trace(go.Scatter(x=xs, y=ys, mode="lines", name=label,
-                                 customdata=customdata, connectgaps=False,
-                                 line=dict(color=color, width=2.2),
-                                 hovertemplate=hover))
-
-    fig_width, fig_height = 820, 520
-    margin_l = fca_template.layout.margin.l
-    margin_r = fca_template.layout.margin.r
-    margin_t = fca_template.layout.margin.t
-    margin_b = 90
-    geom = header_geometry(fig_width, fig_height, margin_l, margin_r, margin_t)
-
-    fig.update_layout(
-        template=fca_template,
-        title=dict(text=title, x=geom["title_x"]),
-        xaxis_title="D_max  —  longest port-to-port hop (km, log scale)",
-        hovermode="closest",  # only the hovered line (x-unified is too crowded at 8 traces)
-        showlegend=True,
-        legend=dict(x=0.985, xanchor="right", y=legend_y,
-                    yanchor="top" if legend_y >= 0.9 else "middle",
-                    bgcolor="rgba(255,255,255,0.65)", borderwidth=0,
-                    font=dict(family="Titillium Web", size=12)),
-        margin=dict(b=margin_b),
-        width=fig_width, height=fig_height,
-    )
-    xticks = [500, 1000, 2000, 5000, 10000, 18000]
-    fig.update_xaxes(type="log", tickmode="array", tickvals=xticks,
-                     ticktext=[f"{v}" for v in xticks])
-    yaxis = dict(range=y_range)
-    if yaxis_title:
-        yaxis["title_text"] = yaxis_title
-    fig.update_yaxes(**yaxis)
-
-    fig.add_annotation(
-        text=subtitle, xref="paper", yref="paper",
-        x=0, xanchor="left", xshift=geom["header_x_shift"],
-        y=1, yanchor="bottom", yshift=12, showarrow=False,
-        font=dict(family="Titillium Web", size=18, color=blue_black),
-    )
-
-    apply_dot(fig, geom)
-    apply_logo(fig, fig_width, fig_height, margin_l, margin_r, margin_t, margin_b)
-    return _save_html_png(fig, out_dir, stem)
-
 
 def _series(df: pd.DataFrame, value_fn) -> list:
     """Build the (label, color, xs, ys, customdata) series list from the artifact, in
@@ -190,6 +88,40 @@ def _series(df: pd.DataFrame, value_fn) -> list:
 
 
 # ---- D_max line plots ------------------------------------------------------
+
+def _dmax_line_plot(out_dir, *, title: str, subtitle: str, series: list, hover: str,
+                    y_range: list, legend_y: float, stem: str, yaxis_title: str = None) -> list:
+    """One line plot vs D_max (log x). `series` is a list of (label, color, xs, ys, customdata).
+    Shared by the LCOT and optimal-speed plots — they differ only in data, title, y-axis."""
+    import plotly.graph_objects as go
+
+    fig = go.Figure()
+    for label, color, xs, ys, customdata in series:
+        fig.add_trace(go.Scatter(x=xs, y=ys, mode="lines", name=label,
+                                 customdata=customdata, connectgaps=False,
+                                 line=dict(color=color, width=2.2),
+                                 hovertemplate=hover))
+
+    fig.update_layout(
+        template=fca_template,
+        xaxis_title="D_max  —  longest port-to-port hop (km, log scale)",
+        hovermode="closest",  # only the hovered line (x-unified is too crowded at 8 traces)
+        showlegend=True,
+        legend=dict(x=0.985, xanchor="right", y=legend_y,
+                    yanchor="top" if legend_y >= 0.9 else "middle"),
+    )
+    xticks = [500, 1000, 2000, 5000, 10000, 18000]
+    fig.update_xaxes(type="log", tickmode="array", tickvals=xticks,
+                     ticktext=[f"{v}" for v in xticks])
+    yaxis = dict(range=y_range)
+    if yaxis_title:
+        yaxis["title_text"] = yaxis_title
+    fig.update_yaxes(**yaxis)
+
+    apply_header(fig, title=title, subtitle=subtitle,
+                 fig_width=820, fig_height=520, margin_b=90)
+    return save_figure(fig, out_dir, stem)
+
 
 def plot_lcot_vs_dmax(df: pd.DataFrame, out_dir=OUT_DIR) -> list:
     """LCOT vs D_max for all cases; hover shows the optimal speed at each point. Battery curves
@@ -243,21 +175,21 @@ def plot_cost_stack(df: pd.DataFrame, d_km: float, *, title: str, subtitle: str,
     # one row per case at this distance; LCOT contribution = annualized cost / annual cargo·km
     rows = {c: feasible[feasible["case"] == c].iloc[0] for c in cases}
     denom = {c: rows[c]["legs"] * rows[c]["d_km"] * rows[c]["carried"] for c in cases}
-    shades = _contrast_shades(len(_COST_COMPONENTS))
+    shades = contrast_shades(len(_COST_COMPONENTS))
 
     fig = go.Figure()
     for (col, comp_label), shade in zip(_COST_COMPONENTS, shades):
         ys = [rows[c][col] * CENTS_PER_USD / denom[c] for c in cases]
         fig.add_trace(go.Bar(
             x=labels, y=ys, showlegend=False, customdata=[comp_label] * len(cases),
-            marker=dict(color=[_lighten(color, shade) for color in colors]),
+            marker=dict(color=[lighten(color, shade) for color in colors]),
             hovertemplate="%{x}<br>%{customdata}: %{y:.2f} ¢/TEU·km<extra></extra>"))
 
     # shade key: neutral-grey dummy bars (zero height) carry only the component->shade mapping
     for (col, comp_label), shade in zip(_COST_COMPONENTS, shades):
         fig.add_trace(go.Bar(
             x=[labels[0]], y=[0], name=comp_label, showlegend=True, hoverinfo="skip",
-            marker=dict(color=_lighten(dark_gray, shade))))
+            marker=dict(color=lighten(dark_gray, shade))))
 
     # total LCOT label above each bar; off-scale bars (clipped by y_cap) say so explicitly
     totals = {c: sum(rows[c][col] for col, _ in _COST_COMPONENTS) * CENTS_PER_USD / denom[c]
@@ -268,36 +200,18 @@ def plot_cost_stack(df: pd.DataFrame, d_km: float, *, title: str, subtitle: str,
         fig.add_annotation(
             x=label, y=min(total, y_cap), yanchor="bottom", yshift=4,
             text=(f"↑ {total:.0f}" if over else f"{total:.1f}"), showarrow=False,
-            font=dict(family="Titillium Web", size=11,
+            font=dict(family=BRAND_FONT, size=11,
                       color=magenta_red if over else blue_black))
 
-    fig_width, fig_height = 820, 540
-    margin_l = fca_template.layout.margin.l
-    margin_r = fca_template.layout.margin.r
-    margin_t = fca_template.layout.margin.t
-    margin_b = 110
-    geom = header_geometry(fig_width, fig_height, margin_l, margin_r, margin_t)
-
     fig.update_layout(
-        template=fca_template, barmode="stack", bargap=0.32,
-        title=dict(text=title, x=geom["title_x"]),
-        showlegend=True,
-        legend=dict(title_text="cost component", x=0.985, xanchor="right", y=0.98,
-                    yanchor="top", bgcolor="rgba(255,255,255,0.65)", borderwidth=0,
-                    font=dict(family="Titillium Web", size=12)),
-        margin=dict(b=margin_b), width=fig_width, height=fig_height)
-    fig.update_xaxes(tickangle=-30, tickfont=dict(family="Titillium Web", size=12))
+        template=fca_template, barmode="stack", bargap=0.32, showlegend=True,
+        legend=dict(title_text="cost component", x=0.985, xanchor="right", y=0.98, yanchor="top"))
+    fig.update_xaxes(tickangle=-30, tickfont=dict(family=BRAND_FONT, size=12))
     fig.update_yaxes(title_text="LCOT  (US¢ / TEU·km)", range=[0, y_cap])
 
-    fig.add_annotation(
-        text=subtitle, xref="paper", yref="paper",
-        x=0, xanchor="left", xshift=geom["header_x_shift"],
-        y=1, yanchor="bottom", yshift=12, showarrow=False,
-        font=dict(family="Titillium Web", size=18, color=blue_black))
-
-    apply_dot(fig, geom)
-    apply_logo(fig, fig_width, fig_height, margin_l, margin_r, margin_t, margin_b)
-    return _save_html_png(fig, out_dir, stem)
+    apply_header(fig, title=title, subtitle=subtitle,
+                 fig_width=820, fig_height=540, margin_b=110)
+    return save_figure(fig, out_dir, stem)
 
 
 def main() -> None:

@@ -48,6 +48,44 @@ fca_colorway = [
     very_dark_gray, turquois, blue_black, light_blue_gray,
 ]
 
+# Brand font family (the embedded weights are "Titillium Web" / "...SemiBold"). Use this for any
+# per-element font (annotations, legends, tick labels) that doesn't inherit the template default.
+BRAND_FONT = "Titillium Web"
+
+
+# ---- Color helpers ---------------------------------------------------------
+
+def lighten(hex_color: str, amount: float) -> str:
+    """Blend a #rrggbb color toward white by `amount` in [0, 1] (0 = unchanged, 1 = white).
+    Returns an `rgb(r, g, b)` string. Handy for tints/shades of the palette above."""
+    r, g, b = (int(hex_color.lstrip("#")[i:i + 2], 16) for i in (0, 2, 4))
+    r, g, b = (round(c + (255 - c) * amount) for c in (r, g, b))
+    return f"rgb({r}, {g}, {b})"
+
+
+def contrast_shades(n: int, max_lighten: float = 0.75) -> list[float]:
+    """`n` `lighten` amounts (0 = full color … `max_lighten` = nearly white) ordered bottom-to-top
+    for a stacked bar so adjacent segments contrast strongly. Even-length bars get the two darkest
+    shades at both ends: take the levels darkest→lightest, move the darkest to the end, then zip
+    the two halves — the 2nd-darkest leads, the darkest trails, every step jumps across the
+    mid-range. For n=6 → [0.15, 0.60, 0.30, 0.75, 0.45, 0.00].
+
+    An odd bar can't be dark at both ends, so it borrows one extra (unused) shade to build the even
+    ordering, then drops the leading 2nd-darkest. The dark end (the darkest) stays at the top; the
+    light end falls to the bottom, where it sits against the dark zero-line axis and still
+    contrasts. For n=5 → [0.60, 0.30, 0.75, 0.45, 0.00]."""
+    m = n if n % 2 == 0 else n + 1                           # work even; odd n borrows one shade
+    levels = [max_lighten * i / (m - 1) for i in range(m)]   # index 0 darkest … m-1 lightest
+    rotated = list(range(1, m)) + [0]                        # darkest (index 0) moved to the end
+    cut = m // 2
+    darker, lighter = rotated[:cut], rotated[cut:]
+    order: list[int] = []
+    for dark_idx, light_idx in zip(darker, lighter):
+        order += [dark_idx, light_idx]
+    shades = [levels[i] for i in order]
+    return shades[1:] if n % 2 else shades                   # odd: drop the leading 2nd-darkest
+
+
 # ---- Display toggles -------------------------------------------------------
 # Set either to False to hide that element globally. When SHOW_DOT is False
 # the title shifts flush to the left header edge (no indent for the dot gap).
@@ -90,7 +128,9 @@ fca_template = go.layout.Template(
         autosize=False,
         width=960,
         height=540,
-        legend=dict(x=1, y=1, xanchor="right", yanchor="top"),
+        legend=dict(x=1, y=1, xanchor="right", yanchor="top",
+                    bgcolor="rgba(255,255,255,0.65)", borderwidth=0,
+                    font=dict(family="Titillium Web", size=12)),
     )
 )
 
@@ -457,6 +497,24 @@ def inject_titillium_font(html_str: str) -> str:
     return html_str.replace("<head>", f"<head>{css}", 1)
 
 
+def save_figure(fig, out_dir, stem: str, *, scale: int = 2) -> list[str]:
+    """Write `fig` the house way: a self-contained, font-injected HTML plus a retina (scale=2)
+    static PNG. PNG export is skipped with a note if kaleido is unavailable. Returns saved paths."""
+    out = Path(out_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    saved = []
+    html_path = out / f"{stem}.html"
+    html_path.write_text(inject_titillium_font(fig.to_html(include_plotlyjs=True)), encoding="utf-8")
+    saved.append(str(html_path))
+    png_path = out / f"{stem}.png"
+    try:
+        fig.write_image(str(png_path), scale=scale)
+        saved.append(str(png_path))
+    except Exception as e:
+        print(f"PNG export skipped ({stem}):", e)
+    return saved
+
+
 # ---- Annotation-label recipe (replaces the built-in Plotly legend) ---------
 #
 # Each label is a solid rectangle of the trace color with white text — more
@@ -563,3 +621,27 @@ def apply_logo(fig, fig_width: int, fig_height: int,
         sizex=logo_h_px * logo["aspect"] / plot_w_px,
         sizey=logo_h_px / plot_h_px, sizing="contain", layer="above",
     )
+
+
+def apply_header(fig, *, title: str, subtitle: str,
+                 fig_width: int, fig_height: int, margin_b: int) -> dict:
+    """Apply the full FCA header chrome to `fig`: dot-aligned title, the subtitle line beneath it,
+    the leading brand dot, and the bottom-right monogram. Also pins the figure size and bottom
+    margin (the dot/logo geometry depends on them); the left/right/top margins come from the
+    template. Set the template and everything else (axes, legend, traces) on `fig` first, then call
+    this. Returns the header `geom` in case the caller needs it."""
+    margin_l = fca_template.layout.margin.l
+    margin_r = fca_template.layout.margin.r
+    margin_t = fca_template.layout.margin.t
+    geom = header_geometry(fig_width, fig_height, margin_l, margin_r, margin_t)
+    fig.update_layout(title=dict(text=title, x=geom["title_x"]),
+                      width=fig_width, height=fig_height, margin=dict(b=margin_b))
+    fig.add_annotation(
+        text=subtitle, xref="paper", yref="paper",
+        x=0, xanchor="left", xshift=geom["header_x_shift"],
+        y=1, yanchor="bottom", yshift=12, showarrow=False,
+        font=dict(family=BRAND_FONT, size=18, color=blue_black),
+    )
+    apply_dot(fig, geom)
+    apply_logo(fig, fig_width, fig_height, margin_l, margin_r, margin_t, margin_b)
+    return geom
