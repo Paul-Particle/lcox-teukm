@@ -1,7 +1,5 @@
 # TODO / known limitations
 
-Open items only — completed work is in the git history.
-
 **Current focus — finish the rebuild on `main`.** The model is being rebuilt onto a clean
 3-axis schema (`Platform × Drivetrain × EnergySource`, composed into `Case`s, costed by
 per-case `strategy` functions). The schema, loader, shared physics, all six strategies, the
@@ -20,19 +18,14 @@ fleet data) are set aside, to be redone from the refactored base.
 
 ## Open design decisions
 
-- **Strategy ↔ Optimizer boundary** — resolved: the strategy owns the whole per-point cost
-  (segments the route, sizes stores, computes `carried`/`legs`, assembles LCOT) and returns a row
-  dict; `optimize` only *searches* free inputs and compares `lcot`. Revisit if a case needs the
-  optimizer to see partial structure.
+- **Strategy ↔ Optimizer boundary** — Revisit if a case needs the optimizer to see partial structure.
 - **Grid search** — `optimizer.py` searches free axes by exhaustive cartesian grid (each Axis ->
   `n` linearly-spaced points). Fine for the current low-dimensional axes (just `op_v_kn`), but the
   optimal speeds land on grid points (integer knots at the seed `n`); refine the grid or swap in a
   real 1-D minimizer if the speed resolution matters.
 - **Containerized-reactor pool utilization** — `ContainerizedReactor.size` levelizes over a
-  route-independent fleet utilization (`pool.availability`), per the owned==leased collapse. So
-  `pool.idle_h` is currently **unused**; wiring it would mean a route-coupled pool model (passing
-  the duty cycle into `size`), which the interface deliberately doesn't do yet. Decide whether the
-  fleet-constant is good enough or the route coupling is worth the extra signature.
+  route-independent fleet utilization (`pool.availability`). So `pool.idle_h` is currently **unused**;
+  it urgently needs an estimated turnaround time just like the tender.
 - **Design speed as a live variable** — `design_v_kn` now flows through the `point` resolver, so
   it can be put on a sweep/optimize axis like `d_km`/`op_v_kn`. But optimizing it only bites once
   the model has a counterforce — a peak-power / brief-sprint constraint (weather evasion, schedule
