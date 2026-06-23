@@ -91,7 +91,7 @@ class ContainerizedReactor(ReactorSource):
         the reactor's fleet-pool utilization (`pool.availability`), so the ship is not billed for
         the reactor's pool idle. Slots scale with power (`teu_per_mwe`), rounded up to a half-TEU.
 
-        NOTE: a route-independent fleet utilization, per the owned==leased collapse — `pool.idle_h`
+        NOTE: a route-independent fleet utilization — `pool.idle_h`
         is not yet wired (it would feed a route-coupled pool model). See TODO."""
         reactor_kw = bus_kw
         generating_h_yr = HOURS_PER_YEAR * self.pool.availability

@@ -166,8 +166,8 @@ whole each run; incremental/partitioned writes for large sweeps are a TODO.
 
 `plots.py` adds two cost-breakdown figures (`results/cost_stack_{medium,ocean}.{html,png}`):
 stacked bars of absolute LCOT by case at a fixed hop distance (a medium 2,000 km hop and a
-14,000 km ocean crossing), each bar colored by case and each cost component read off its fill
-pattern. The two share a y-axis so they compare directly; a case whose LCOT exceeds the cap
+14,000 km ocean crossing), each bar colored by case (hue) and each cost component read off its
+shade (lighter up the stack). The two share a y-axis so they compare directly; a case whose LCOT exceeds the cap
 (long-haul LFP) overflows the frame and is labelled with its off-scale total.
 
 ## Grounding in real data (EU MRV)
