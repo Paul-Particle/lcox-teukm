@@ -90,7 +90,7 @@ def _series(df: pd.DataFrame, value_fn) -> list:
 # ---- D_max line plots ------------------------------------------------------
 
 def _dmax_line_plot(out_dir, *, title: str, subtitle: str, series: list, hover: str,
-                    y_range: list, legend_y: float, stem: str, yaxis_title: str = None) -> list:
+                    y_range: list, legend_y: float, stem: str) -> list:
     """One line plot vs D_max (log x). `series` is a list of (label, color, xs, ys, customdata).
     Shared by the LCOT and optimal-speed plots — they differ only in data, title, y-axis."""
     import plotly.graph_objects as go
@@ -113,10 +113,8 @@ def _dmax_line_plot(out_dir, *, title: str, subtitle: str, series: list, hover: 
     xticks = [500, 1000, 2000, 5000, 10000, 18000]
     fig.update_xaxes(type="log", tickmode="array", tickvals=xticks,
                      ticktext=[f"{v}" for v in xticks])
-    yaxis = dict(range=y_range)
-    if yaxis_title:
-        yaxis["title_text"] = yaxis_title
-    fig.update_yaxes(**yaxis)
+    # No y-axis title: the subtitle states the quantity and units (matches the other figures).
+    fig.update_yaxes(range=y_range)
 
     apply_header(fig, title=title, subtitle=subtitle,
                  fig_width=820, fig_height=520, margin_b=90)
@@ -154,7 +152,7 @@ def plot_speed_vs_dmax(df: pd.DataFrame, out_dir=OUT_DIR) -> list:
     hover = ("D_max %{x:.0f} km<br>v_opt %{y:.1f} kn<extra>%{fullData.name}</extra>")
     return _dmax_line_plot(
         out_dir, title="Cost-optimal cruise speed vs hop distance",
-        subtitle="knots", series=series, hover=hover, yaxis_title="optimal speed (kn)",
+        subtitle="knots", series=series, hover=hover,
         y_range=[0, 24], legend_y=0.5, stem="speed_vs_dmax")
 
 
@@ -207,7 +205,7 @@ def plot_cost_stack(df: pd.DataFrame, d_km: float, *, title: str, subtitle: str,
         template=fca_template, barmode="stack", bargap=0.32, showlegend=True,
         legend=dict(title_text="cost component", x=0.985, xanchor="right", y=0.98, yanchor="top"))
     fig.update_xaxes(tickangle=-30, tickfont=dict(family=BRAND_FONT, size=12))
-    fig.update_yaxes(title_text="LCOT  (US¢ / TEU·km)", range=[0, y_cap])
+    fig.update_yaxes(range=[0, y_cap])  # quantity/units are in the subtitle
 
     apply_header(fig, title=title, subtitle=subtitle,
                  fig_width=820, fig_height=540, margin_b=110)
