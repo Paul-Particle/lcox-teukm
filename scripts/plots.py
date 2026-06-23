@@ -50,26 +50,23 @@ _DISPLAY = {
     "tender":         ("Nuclear tender",          sand_yellow,    False),
 }
 
-# Cost-stack components: artifact column -> (legend label, shade). Every segment of a case's bar
-# is a SOLID SHADE of that CASE's color (from _DISPLAY) — hue encodes the case, lightness the
-# component (`shade` = blend toward white, 0 = full color). Solid fills only: plotly's hatch
-# /`marker.pattern` engine renders inconsistently across plotly/kaleido versions (a hue-correlated
-# light/dark inversion on some setups), so it is avoided here.
-# The six even shade levels (0.00 .. 0.75) are assigned INTERLEAVED up the stack — each step jumps
-# across the midpoint — so adjacent segments contrast strongly and their boundary is easy to read
-# (a plain gradient would put the most similar shades next to each other). Hull stays the full
-# (darkest) base; Energy the lightest. Stack order bottom-to-top: capital (hull/powerplant/store),
-# fixed opex, then energy.
+# Cost-stack components: (artifact column, legend label), bottom-to-top of the stack — capital
+# (hull/powerplant/store), then fixed opex, then energy. Every segment of a case's bar is a SOLID
+# SHADE of that CASE's color (from _DISPLAY): hue encodes the case, lightness the component. Solid
+# fills only — plotly's hatch/`marker.pattern` engine renders inconsistently across plotly/kaleido
+# versions (a hue-correlated light/dark inversion on some setups), so it is avoided here.
+# Shades are assigned by `_contrast_shades` (interleaved, darkest at both ends).
 # NOTE the modular reactors (nuclear-cont, tender) levelize their reactor CAPEX into the per-kWh
 # energy rate, so that capital shows up under "Energy", not "Powerplant" (see README).
 _COST_COMPONENTS = [
-    ("cost_hull",       "Hull",         0.00),
-    ("cost_powerplant", "Powerplant",   0.45),
-    ("cost_store",      "Energy store", 0.15),
-    ("cost_crew",       "Crew",         0.60),
-    ("cost_om",         "Other O&M",    0.30),
-    ("cost_energy",     "Energy",       0.75),
+    ("cost_hull",       "Hull"),
+    ("cost_powerplant", "Powerplant"),
+    ("cost_store",      "Energy store"),
+    ("cost_crew",       "Crew"),
+    ("cost_om",         "Other O&M"),
+    ("cost_energy",     "Energy"),
 ]
+_SHADE_MAX = 0.75   # lightest shade (blend toward white); the darkest shade is 0.0 (full color)
 
 
 # ---- Shared helpers --------------------------------------------------------
@@ -79,6 +76,25 @@ def _lighten(hex_color: str, amount: float) -> str:
     r, g, b = (int(hex_color.lstrip("#")[i:i + 2], 16) for i in (0, 2, 4))
     r, g, b = (round(c + (255 - c) * amount) for c in (r, g, b))
     return f"rgb({r}, {g}, {b})"
+
+
+def _contrast_shades(n: int, max_lighten: float = _SHADE_MAX) -> list[float]:
+    """`n` lighten amounts (0 = full color … `max_lighten` = nearly white) ordered for a stacked
+    bar so that adjacent segments contrast strongly AND the two darkest shades sit at the two
+    ends. Take the levels darkest→lightest, move the darkest to the end, then zip the two halves:
+    the 2nd-darkest leads, the darkest trails, and every step jumps across the mid-range. For
+    n=6 → [0.15, 0.60, 0.30, 0.75, 0.45, 0.00]. (Exact dark-both-ends for even n, the case here;
+    for odd n the darkest lands one place in from an end.)"""
+    levels = [max_lighten * i / (n - 1) for i in range(n)]   # index 0 darkest … n-1 lightest
+    rotated = list(range(1, n)) + [0]                        # darkest (index 0) moved to the end
+    cut = (n + 1) // 2
+    darker, lighter = rotated[:cut], rotated[cut:]
+    order: list[int] = []
+    for k in range(cut):
+        order.append(darker[k])
+        if k < len(lighter):
+            order.append(lighter[k])
+    return [levels[i] for i in order]
 
 
 def _save_html_png(fig, out_dir, stem: str) -> list:
@@ -223,8 +239,10 @@ def plot_cost_stack(df: pd.DataFrame, d_km: float, *, title: str, subtitle: str,
     # one row per case at this distance; LCOT contribution = annualized cost / annual cargo·km
     rows = {c: feasible[feasible["case"] == c].iloc[0] for c in cases}
     denom = {c: rows[c]["legs"] * rows[c]["d_km"] * rows[c]["carried"] for c in cases}
+    shades = _contrast_shades(len(_COST_COMPONENTS))
+
     fig = go.Figure()
-    for col, comp_label, shade in _COST_COMPONENTS:
+    for (col, comp_label), shade in zip(_COST_COMPONENTS, shades):
         ys = [rows[c][col] * CENTS_PER_USD / denom[c] for c in cases]
         fig.add_trace(go.Bar(
             x=labels, y=ys, showlegend=False, customdata=[comp_label] * len(cases),
@@ -232,13 +250,13 @@ def plot_cost_stack(df: pd.DataFrame, d_km: float, *, title: str, subtitle: str,
             hovertemplate="%{x}<br>%{customdata}: %{y:.2f} ¢/TEU·km<extra></extra>"))
 
     # shade key: neutral-grey dummy bars (zero height) carry only the component->shade mapping
-    for col, comp_label, shade in _COST_COMPONENTS:
+    for (col, comp_label), shade in zip(_COST_COMPONENTS, shades):
         fig.add_trace(go.Bar(
             x=[labels[0]], y=[0], name=comp_label, showlegend=True, hoverinfo="skip",
             marker=dict(color=_lighten(dark_gray, shade))))
 
     # total LCOT label above each bar; off-scale bars (clipped by y_cap) say so explicitly
-    totals = {c: sum(rows[c][col] for col, *_ in _COST_COMPONENTS) * CENTS_PER_USD / denom[c]
+    totals = {c: sum(rows[c][col] for col, _ in _COST_COMPONENTS) * CENTS_PER_USD / denom[c]
               for c in cases}
     for label, c in zip(labels, cases):
         total = totals[c]
