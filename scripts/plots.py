@@ -50,30 +50,31 @@ _DISPLAY = {
     "tender":         ("Nuclear tender",          sand_yellow,    False),
 }
 
-# Cost-stack components: artifact column -> (legend label, fill pattern). Every segment of a
-# case's bar carries that CASE's color (from _DISPLAY); the PATTERN (white, half-opacity, drawn
-# over the full color) distinguishes the component. Listed bottom-to-top of the stack: capital
-# (hull/powerplant/store), then fixed opex, then energy.
+# Cost-stack components: artifact column -> (legend label, shade). Every segment of a case's bar
+# is a SOLID SHADE of that CASE's color (from _DISPLAY) — hue encodes the case, lightness the
+# component, getting lighter up the stack (`shade` = blend toward white, 0 = full color). Solid
+# fills only: plotly's hatch/`marker.pattern` engine renders inconsistently across plotly/kaleido
+# versions (a hue-correlated light/dark inversion on some setups), so it is avoided here.
+# Listed bottom-to-top of the stack: capital (hull/powerplant/store), then fixed opex, then energy.
 # NOTE the modular reactors (nuclear-cont, tender) levelize their reactor CAPEX into the per-kWh
 # energy rate, so that capital shows up under "Energy", not "Powerplant" (see README).
 _COST_COMPONENTS = [
-    ("cost_hull",       "Hull",         ""),
-    ("cost_powerplant", "Powerplant",   "/"),
-    ("cost_store",      "Energy store", "x"),
-    ("cost_crew",       "Crew",         "."),
-    ("cost_om",         "Other O&M",    "-"),
-    ("cost_energy",     "Energy",       "|"),
+    ("cost_hull",       "Hull",         0.00),
+    ("cost_powerplant", "Powerplant",   0.16),
+    ("cost_store",      "Energy store", 0.32),
+    ("cost_crew",       "Crew",         0.48),
+    ("cost_om",         "Other O&M",    0.64),
+    ("cost_energy",     "Energy",       0.78),
 ]
-# Solid-white hatch over the solid bar color. `fillmode="overlay"` => the base comes from the bar
-# `marker.color` (the standard, reliably-rendered array path) and the white pattern sits on top.
-# White is a single scalar at full opacity — NOT a per-bar color array and NOT semi-transparent —
-# because plotly.js renders array pattern-colors and pattern opacity inconsistently across bars
-# (some fell back to a dark foreground). A scalar opaque white is lighter than every case color
-# and renders identically in the browser and in static PNG export.
-_HATCH = dict(fillmode="overlay", fgcolor="white", fgopacity=1.0, size=10, solidity=0.4)
 
 
 # ---- Shared helpers --------------------------------------------------------
+
+def _lighten(hex_color: str, amount: float) -> str:
+    """Blend a #rrggbb color toward white by `amount` in [0, 1] (0 = unchanged, 1 = white)."""
+    r, g, b = (int(hex_color.lstrip("#")[i:i + 2], 16) for i in (0, 2, 4))
+    r, g, b = (round(c + (255 - c) * amount) for c in (r, g, b))
+    return f"rgb({r}, {g}, {b})"
 
 
 def _save_html_png(fig, out_dir, stem: str) -> list:
@@ -219,18 +220,18 @@ def plot_cost_stack(df: pd.DataFrame, d_km: float, *, title: str, subtitle: str,
     rows = {c: feasible[feasible["case"] == c].iloc[0] for c in cases}
     denom = {c: rows[c]["legs"] * rows[c]["d_km"] * rows[c]["carried"] for c in cases}
     fig = go.Figure()
-    for col, comp_label, shape in _COST_COMPONENTS:
+    for col, comp_label, shade in _COST_COMPONENTS:
         ys = [rows[c][col] * CENTS_PER_USD / denom[c] for c in cases]
         fig.add_trace(go.Bar(
             x=labels, y=ys, showlegend=False, customdata=[comp_label] * len(cases),
-            marker=dict(color=colors, pattern=dict(shape=shape, **_HATCH)),
+            marker=dict(color=[_lighten(color, shade) for color in colors]),
             hovertemplate="%{x}<br>%{customdata}: %{y:.2f} ¢/TEU·km<extra></extra>"))
 
-    # pattern key: neutral-grey dummy bars (zero height) carry only the component->pattern mapping
-    for col, comp_label, shape in _COST_COMPONENTS:
+    # shade key: neutral-grey dummy bars (zero height) carry only the component->shade mapping
+    for col, comp_label, shade in _COST_COMPONENTS:
         fig.add_trace(go.Bar(
             x=[labels[0]], y=[0], name=comp_label, showlegend=True, hoverinfo="skip",
-            marker=dict(color=dark_gray, pattern=dict(shape=shape, **_HATCH))))
+            marker=dict(color=_lighten(dark_gray, shade))))
 
     # total LCOT label above each bar; off-scale bars (clipped by y_cap) say so explicitly
     totals = {c: sum(rows[c][col] for col, *_ in _COST_COMPONENTS) * CENTS_PER_USD / denom[c]
