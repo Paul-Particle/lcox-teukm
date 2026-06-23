@@ -79,22 +79,26 @@ def _lighten(hex_color: str, amount: float) -> str:
 
 
 def _contrast_shades(n: int, max_lighten: float = _SHADE_MAX) -> list[float]:
-    """`n` lighten amounts (0 = full color … `max_lighten` = nearly white) ordered for a stacked
-    bar so that adjacent segments contrast strongly AND the two darkest shades sit at the two
-    ends. Take the levels darkest→lightest, move the darkest to the end, then zip the two halves:
-    the 2nd-darkest leads, the darkest trails, and every step jumps across the mid-range. For
-    n=6 → [0.15, 0.60, 0.30, 0.75, 0.45, 0.00]. (Exact dark-both-ends for even n, the case here;
-    for odd n the darkest lands one place in from an end.)"""
-    levels = [max_lighten * i / (n - 1) for i in range(n)]   # index 0 darkest … n-1 lightest
-    rotated = list(range(1, n)) + [0]                        # darkest (index 0) moved to the end
-    cut = (n + 1) // 2
+    """`n` lighten amounts (0 = full color … `max_lighten` = nearly white) ordered bottom-to-top
+    for a stacked bar so adjacent segments contrast strongly. Even-length bars get the two darkest
+    shades at both ends: take the levels darkest→lightest, move the darkest to the end, then zip
+    the two halves — the 2nd-darkest leads, the darkest trails, every step jumps across the
+    mid-range. For n=6 → [0.15, 0.60, 0.30, 0.75, 0.45, 0.00].
+
+    An odd bar can't be dark at both ends, so it borrows one extra (unused) shade to build the even
+    ordering, then drops the leading 2nd-darkest. The dark end (the darkest) stays at the top; the
+    light end falls to the bottom, where it sits against the dark zero-line axis and still
+    contrasts. For n=5 → [0.60, 0.30, 0.75, 0.45, 0.00]."""
+    m = n if n % 2 == 0 else n + 1                           # work even; odd n borrows one shade
+    levels = [max_lighten * i / (m - 1) for i in range(m)]   # index 0 darkest … m-1 lightest
+    rotated = list(range(1, m)) + [0]                        # darkest (index 0) moved to the end
+    cut = m // 2
     darker, lighter = rotated[:cut], rotated[cut:]
     order: list[int] = []
-    for k in range(cut):
-        order.append(darker[k])
-        if k < len(lighter):
-            order.append(lighter[k])
-    return [levels[i] for i in order]
+    for dark_idx, light_idx in zip(darker, lighter):
+        order += [dark_idx, light_idx]
+    shades = [levels[i] for i in order]
+    return shades[1:] if n % 2 else shades                   # odd: drop the leading 2nd-darkest
 
 
 def _save_html_png(fig, out_dir, stem: str) -> list:
