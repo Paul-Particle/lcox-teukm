@@ -44,9 +44,11 @@ def port_swap_battery(case: schema.Case, point: dict) -> dict:
     if cargo <= 0:
         return _infeasible(op_v_kn, d_km)
 
-    # --- energy: the swap refills one full deliverable each leg at the grid price -
+    # --- energy: the swap refills what the leg consumed in expectation ------------
+    # the reserve is sizing-only (capex + mass), matching the fuel cases' nominal burn;
+    # a weather-calibrated expected consumption uplift would multiply leg_kwh here
     roundtrip_efficiency = battery.efficiency.charge * battery.efficiency.discharge
-    recharge_kwh = deliverable_kwh / roundtrip_efficiency
+    recharge_kwh = leg_kwh / roundtrip_efficiency
     grid_cost_leg = recharge_kwh * battery.charge_usd_per_kwh
 
     # --- capital + fixed O&M ----------------------------------------------------

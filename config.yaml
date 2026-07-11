@@ -178,5 +178,8 @@ sources:
 # read neither design_v_kn nor a storm buffer — those cells are blank). crew_count and
 # om_other_usd_yr live on each Drivetrain's operations above, not per-case (the tender's
 # om_other lives on its source). PLACEHOLDER values still unpinned, flagged in cases.csv as
-# blank-or-guessed: design_v_kn 18.0 ; storm_duration_h 12.0 ; standoff_nm 200.0 ; idle_h 12.0 ;
-# op_v_kn axis 5..22 n=18 ; d_km sweep 500..18000 n=36.
+# blank-or-guessed: design_v_kn 18.0 ; storm_duration_h 12.0 ; storm_frac 0.02 ;
+# standoff_nm 200.0 ; idle_h 12.0 ; op_v_kn axis 5..22 n=18 ; d_km sweep 500..18000 n=36.
+# storm_duration_h sizes the tender pack to the single worst detached ride-out; storm_frac is
+# the EXPECTED fraction of tethered time spent riding out storms — both await calibration from
+# a weather-data-driven voyage simulation (see TODO).

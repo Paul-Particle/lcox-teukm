@@ -121,7 +121,8 @@ class TenderReactor(ReactorSource):
         reactor is sized to push `bus_kw` across the cable (through `cable_efficiency`) plus its
         own parasitic draw. Its annualized cost (hull + reactor CAPEX, fixed O&M, thermal fuel)
         is spread over the energy it actually delivers — set by the tethered/(tethered+idle) duty
-        cycle and `availability`."""
+        cycle and `availability`. `idle_h` is every expected non-delivering hour per escort
+        cycle: the between-ship wait plus the escorted ship's expected storm ride-outs."""
         reactor_kw = bus_kw / self.tether.cable_efficiency + self.parasitic_kw
         duty = tethered_h / (tethered_h + idle_h)
         delivered_h_yr = HOURS_PER_YEAR * self.availability * duty
