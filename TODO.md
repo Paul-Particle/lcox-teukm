@@ -67,8 +67,9 @@ grid big enough to feel; nothing in stage 1 is thrown away by waiting.
 
 The newer cases (tender, containerized reactor, e-methanol) have little commercial precedent —
 engineering estimates. Highest-leverage and most uncertain: the tender block (reactor/hull/O&M
-cost, `parasitic_kw`, `tether.cable_*`), `route.standoff_nm`, `route.storm_duration_h`, and the
-containerized-reactor block (`capex.usd_per_kw`, `overhead.teu_per_mwe`, `pool.*`). Treat the new
+cost, `parasitic_kw`, `tether.cable_*`), `route.standoff_nm`, `route.storm_duration_h` and
+`route.storm_frac`, and the containerized-reactor block (`capex.usd_per_kw`,
+`overhead.teu_per_mwe`, `pool.*`). Treat the new
 cases' absolute LCOTs as order-of-magnitude until grounded in real data.
 
 ## Reactor sizing & speed
@@ -82,9 +83,13 @@ cases' absolute LCOTs as order-of-magnitude until grounded in real data.
 
 ## Case-specific follow-ups
 
-- **Mobile tender:** optionally ride out storms at reduced/zero speed to shrink the pack; jointly
-  optimize tethered cruise speed vs battery size vs ships-per-tender (currently a fixed cable cap
-  + ~1:1 escort ratio; `ships_per_tender` is a diagnostic only).
+- **Mobile tender:** the expected storm ride-out (`storm_frac`) is billed at the full cruise bus
+  power while hove-to; riding out at reduced/zero power would shrink both the expected drain and
+  the `storm_duration_h`-sized pack. Jointly optimize tethered cruise speed vs battery size vs
+  ships-per-tender (currently a fixed cable cap + ~1:1 escort ratio; `ships_per_tender` is a
+  diagnostic only). Pack cycle counting: `BatterySource.life_yr` counts one full cycle per leg,
+  but the tender pack actually runs two coastal sub-leg cycles (plus expected storm drains) per
+  leg — count full-cycle equivalents from energy throughput instead.
 - **Containerized/pooled reactor:** no separate reactor-O&M line (it sits in the ship's non-crew
   residual, kept ship-side); nuclear-specialist crew isn't split out (`crew_count` is the whole
   complement).
@@ -103,6 +108,17 @@ cases' absolute LCOTs as order-of-magnitude until grounded in real data.
   staying near optimum). A fuller model would resolve weather and sea state as a function of
   position and time along the route, so required power and the near-optimum efficiency gain emerge
   from the conditions actually encountered rather than from fixed multipliers.
+- **Voyage Monte Carlo to calibrate the expected-value weather parameters:** the analytic model
+  bills expected per-leg time and energy, with sizing margins kept out of throughput
+  (`margins.energy_reserve` and the `storm_duration_h` pack are capex/mass only; billed energy is
+  nominal consumption plus, for the tender, the `storm_frac` expected storm ride-out). Those
+  expected values are placeholders. Calibrate them by simulating hundreds of journeys per route
+  against historical weather (hindcast time series) with hour-by-hour pack SoC: outputs are
+  per-route `storm_frac`, an expected weather energy uplift on consumed energy (all cases —
+  fuel burn included — currently bill calm-water consumption), the weather share of
+  `availability`, and the percentile storm `storm_duration_h` should represent (the same runs
+  also validate that the sized pack's SoC never goes negative, e.g. a storm landing mid
+  coastal sub-leg).
 - **Slow-steaming asymmetry:** drive/hotel efficiencies are constant in speed, so both ships get
   the ideal cube-law energy-vs-speed and fossil slow-steaming is over-credited. Real engines droop
   at part-load while motors stay flat — model the fossil drive efficiency as load/speed-dependent
