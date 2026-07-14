@@ -175,8 +175,12 @@ sources:
 #   tender          container + electric           + [lfp, tender-reactor]     tether_charge
 #
 # Each row's `route` carries only the fields its strategy reads (reactor_direct / _integrated
-# read neither design_v_kn nor a storm buffer — those cells are blank). crew_count and
+# read neither design_v_kn nor a detach buffer — those cells are blank). crew_count and
 # om_other_usd_yr live on each Drivetrain's operations above, not per-case (the tender's
 # om_other lives on its source). PLACEHOLDER values still unpinned, flagged in cases.csv as
-# blank-or-guessed: design_v_kn 18.0 ; storm_duration_h 12.0 ; standoff_nm 200.0 ; idle_h 12.0 ;
-# op_v_kn axis 5..22 n=18 ; d_km sweep 500..18000 n=36.
+# blank-or-guessed: design_v_kn 18.0 ; detach_duration_h 12.0 ; detach_frac 0.02 ;
+# standoff_nm 200.0 ; idle_h 12.0 ; op_v_kn axis 5..22 n=18 ; d_km sweep 500..18000 n=36.
+# detach_duration_h sizes the tender pack to the longest continuous cable-dropped stretch sailed
+# unassisted; detach_frac is the EXPECTED fraction of tethered time with the floating tether
+# dropped for weather — both await calibration from a weather-data-driven voyage simulation
+# (see TODO). Weather that stops the ship outright lives in operations.availability.
