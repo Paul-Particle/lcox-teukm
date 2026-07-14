@@ -36,6 +36,42 @@ fleet data) are set aside, to be redone from the refactored base.
 - **Source roles in multi-source cases** — a plain list for now; natural roles (buffer / charger)
   may emerge as more cases are written.
 
+## Sobol sensitivity — readiness (before machine-generating `cases.csv`)
+
+The eval engine (`run → optimize → strategy`, the `Point` resolver, the axis-consumed guard) is
+ready to evaluate a machine-generated batch; the input and analysis ends are not. Gaps, in
+dependency order:
+
+- **Override reach is the blocker.** Only `d_km`, `op_v_kn`, `design_v_kn`, `detach_frac` are read
+  through `point.get`; everything else is read straight off the frozen dataclasses. So
+  **route/condition params are Sobol-ready today** — `standoff_nm`, `idle_h`, `detach_duration_h`,
+  `load_factor`, `load_factor_imbalance` are per-row CSV scalars that land in each case's `Route`
+  and are read directly, no axis needed — but the **component-library params are not reachable
+  per-sample**: the battery/reactor/tether cost + efficiency blocks live in `config.yaml`,
+  referenced by name, so a case row selects *which* component, not its internals. The
+  highest-leverage uncertain params (see "Speculative parameters" below) are almost all library
+  params. Fix at altitude: generalize the `point.get` idea from route scalars to any config leaf —
+  a per-sample dotted-path override (`battery.capex.usd_per_kwh=95`) applied via
+  `dataclasses.replace` before the strategy runs — rather than adding a CSV column per parameter.
+  (This is the real state of the Stage-1 "any parameter is sweepable" note below: the *mechanism*
+  generalizes, but only the route reads are wired today.)
+- **No sampler / no ranges spec.** No `scipy`/`SALib` dependency and nothing in `scripts/` samples;
+  the parameter-space priors (distribution + bounds per uncertain param) exist only as prose here.
+  `Axis.lo/hi/n` is a grid descriptor, not a sampling prior — a Saltelli design needs its own spec.
+- **No analysis layer.** Running samples yields a table of LCOTs; computing first-order/total Sobol
+  indices from it is unwritten (SALib's Saltelli sampler + analyzer is the usual pairing, and it
+  fixes the sample count/layout).
+- **Viz doesn't serve it.** `plots.py` traces LCOT-vs-`d_km` lines; sensitivity wants
+  tornado / index-bar / scatter. Lowest priority (presentation).
+- **Performance / output become the binding case for the deferred items below:** Stage-2
+  vectorization (a Saltelli design over ~10 params is `N·(2d+2)` ≈ thousands of samples, each still
+  running the inner optimize grid) and incremental artifact writes (`run.py` rebuilds
+  `results/lcot.*` whole). Neither blocks a first run.
+
+Suggested order: (1) generalize the override channel to any config leaf; (2) parameter-space spec +
+Saltelli/Sobol generator; (3) Sobol-index analysis, then viz; (4) Stage-2 vectorization when run
+time hurts.
+
 ## Vectorization (deferred until the grid is large)
 
 **Stage 1 (done).** Any config parameter is sweepable/optimizable, not just `d_km`/`op_v_kn`.
