@@ -55,8 +55,9 @@ Alternatives considered:
   `apply_overrides(case, {path: value}) -> Case` that rebuilds only the frozen spine along
   each path. **Chosen.** Prototype validated: 28 µs for 6 paths; untouched subtrees stay
   shared by reference; a misspelled path raises `AttributeError` naming the exact bad field
-  (validation against the schema itself, stronger than a dict-key check); no change to
-  loader, schema, strategies, or optimizer.
+  (validation against the schema itself, stronger than a dict-key check); the mechanism
+  needs no loader or schema change (what Decision 1a changes in the optimizer and
+  strategies is separate — and simplifying).
 - **(d) Mutable copies (`deepcopy` + `object.__setattr__`)** — rejected: breaks the frozen
   invariant and risks leaking mutations through the loader's shared-by-reference
   economics/margins/library objects.
@@ -100,26 +101,51 @@ def _set(node, keys: list[str], value):
 
 ### Decision 1a — one mechanism or two?
 
-Overrides could in principle retire the `Point` channel entirely (the optimizer would apply
-`params.route.op_v_kn` per grid point; strategies would read `route.op_v_kn` directly).
-Tempting — one mechanism — but rejected:
+- **(i) Two channels** — keep `Point` for the optimizer's axes, add overrides for samples
+  only. Preserves the read-tracking axis-consumed guard and the hot loop's dict-passing
+  cheapness, but leaves two namespaces for "vary this parameter" (bare point names vs
+  dotted paths), limits axes to the four point-wired route params — sweeping a library
+  leaf (LCOT vs battery $/kWh) would need a Sobol study instead of a `cases.csv` row —
+  and keeps the `point.get` plumbing in every strategy.
+- **(ii) One channel: axes are overrides** — **chosen**. `Axis.param` takes the same
+  case-rooted dotted path as a study param (a bare name aliases to `params.route.<name>`,
+  so `cases.csv` and the artifact columns stay as they are); the optimizer builds each grid
+  point's Case with `apply_overrides` and calls it — the `Point` class and the strategies'
+  `point` parameter retire, every `point.get(name, route.X)` line becomes a plain read of
+  the (now possibly overridden) config. Any config leaf becomes sweepable/optimizable from
+  `cases.csv` by exactly the mechanism that makes it samplable.
 
-- The **axis-consumed guard would be lost**. Overrides validate "path exists in the
-  schema", not "this strategy actually reads it" — `reactor_direct` ignores
-  `design_v_kn`, and today the read-tracking guard catches an axis that would silently vary
-  nothing. Path validation cannot.
-- The layering is principled, not accidental: `Point` carries *search/decision coordinates*
-  explored within one case evaluation (hot loop, few params); overrides produce a *new
-  scenario Case* once per sample. A sample's route override composes cleanly with the point
-  channel — `point.get("d_km", route.d_km)` falls back to the overridden route default when
-  no axis sets it.
+The honest costs of (ii), and why they don't bite:
 
-Known residual limit (either design has it): a *valid but unread* override — say
-`params.route.detach_frac` on the fossil case — is silently flat and comes back as an
-exactly-zero index. That zero is in fact the correct answer (fossil LCOT is independent of
-detach weather); it only misleads if the study *intended* the param to matter. Study specs
-are short and reviewed; if this ever bites, a cheap probe pass (perturb each param once,
-warn if the output is bit-identical) can be added to the driver.
+- **The read-tracking guard dies with `Point`.** Replaced by a stronger *effect* check: the
+  optimizer evaluates the whole grid anyway, so it can require that rows actually differ
+  along each axis (comparing strategy-produced columns, before the runner merges the
+  coordinates in) and raise on a flat axis. Stronger, because reading isn't affecting — a
+  strategy can read a param that this case's config makes inert, which the read-guard
+  passes and the effect-check catches (e.g. an optimize axis on `design_v_kn` for
+  `reactor_direct` produces a plausible-looking "optimum" at the grid floor today only
+  because nothing varies). One false-positive mode — a genuinely consumed param that is
+  provably flat across the entire grid — so the error names both readings; axes with
+  `n = 1` or `lo == hi` skip the check.
+- **Hot-loop overhead.** ~5 µs of spine-rebuilding per path per grid point against
+  4–5 µs per strategy eval: the full `run.py` goes ~0.5 s → ~1.5 s. Irrelevant at this
+  scale, and it vanishes under Stage-2 (arrays enter as leaf values once per case, not per
+  point).
+- **A new axis param needs a schema field.** `point.get` allowed ad-hoc names; now every
+  per-case variable must live on `Route` (or another block). That is discipline rather
+  than loss — variable params become schema-documented — and all four currently-wired
+  params are already `Route` fields, which is what makes the migration mechanical.
+- **Churn:** six strategies each lose their `point` plumbing (signature becomes
+  `strategy(case) -> row`); the optimizer swaps `Point` for `apply_overrides` + the effect
+  check. Acceptance: `results/lcot.csv` byte-identical before/after.
+
+Known residual limit on the *sampling* side (the effect check covers axes, not studies): a
+valid-but-inert study param — say `params.route.detach_frac` on the fossil case — is
+silently flat and comes back as an exactly-zero index. That zero is the correct answer
+(fossil LCOT is independent of detach weather); it only misleads if the study *intended*
+the param to matter. Study specs are short and reviewed; if this ever bites, a cheap probe
+pass (perturb each param once, warn if the output is bit-identical) can be added to the
+driver.
 
 ## Decision 2 — where samples live
 
@@ -241,15 +267,19 @@ honest ladder, cheapest lever first:
 - **(d) numba / jax** — rejected: heavy deps, and jitting dataclass-orchestration code
   means rewriting it into arrays anyway, i.e. (c) with extra steps.
 
-Nothing in this plan is thrown away by (c) later: `apply_overrides` is dimension-agnostic —
-a numpy array set into a field broadcasts through the pure-arithmetic kernel exactly like
-the Point-carried arrays, so Stage-2 could vectorize across samples as well as grid points.
+Nothing in this plan is thrown away by (c) later — Decision 1a makes it simpler: with axes
+unified onto overrides there is exactly one door for values into the model, the config
+leaves. `apply_overrides` is dimension-agnostic (a numpy array set into a field broadcasts
+through the pure-arithmetic kernel), so Stage-2 becomes "numpy-safe kernels + feasibility
+masks" and both the grid dims and the sample dim enter the same way.
 
 ## Implementation order
 
-1. **`scripts/override.py`** (+ correct the stale machine-generated-cases comment in
-   `config.yaml`). Pure addition; `run.py` output stays byte-identical — verified by
-   diffing `results/lcot.csv` before/after.
+1. **`scripts/override.py` + axis unification** — the optimizer applies axes via
+   `apply_overrides` (bare axis names alias to `params.route.<name>`), strategies drop the
+   `point` parameter, the effect-based flat-axis check replaces read-tracking; correct the
+   stale machine-generated-cases comment in `config.yaml`. Acceptance: `results/lcot.csv`
+   byte-identical before/after.
 2. **`uncertainty.yaml`** seed study + `salib` dependency.
 3. **`scripts/sobol.py`** driver + artifacts.
 4. **TODO.md** — collapse the readiness section to what remains (viz; Stage-2 pointer here).
