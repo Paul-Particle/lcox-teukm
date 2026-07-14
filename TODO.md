@@ -38,6 +38,9 @@ fleet data) are set aside, to be redone from the refactored base.
 
 ## Sobol sensitivity — readiness (before machine-generating `cases.csv`)
 
+*Implementation plan (alternatives weighed at each decision point, measured baselines):
+`docs/sobol_sensitivity_plan.md`.*
+
 The eval engine (`run → optimize → strategy`, the `Point` resolver, the axis-consumed guard) is
 ready to evaluate a machine-generated batch; the input and analysis ends are not. Gaps, in
 dependency order:
