@@ -79,13 +79,12 @@ def _infeasible(op_v_kn: float, d_km: float) -> dict:
 
 # ============================ route arithmetic (strategy-only) ====
 
-def legs_per_year(v_kn: float, d_km: float, port_hours: float, availability: float,
-                  storm_h: float = 0.0) -> float:
+def legs_per_year(v_kn: float, d_km: float, port_hours: float, availability: float) -> float:
     """D_max legs per year: one hop of `d_km` plus one port call (a round trip is two legs),
-    scaled by `availability`. `storm_h` adds expected non-advancing hours per leg (riding out
-    storms underway); generic weather downtime stays inside `availability`."""
+    scaled by `availability`. Weather that stops a ship outright (hove-to survival conditions)
+    hits every hull and powertrain alike and lives inside `availability`."""
     sail_h = d_km / (v_kn * KMH_PER_KNOT)
-    return HOURS_PER_YEAR * availability / (sail_h + storm_h + port_hours)
+    return HOURS_PER_YEAR * availability / (sail_h + port_hours)
 
 
 def carried(pl: schema.Platform, overhead_slots: float, storage_units: float, energy_mass_t: float,

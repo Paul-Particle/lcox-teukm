@@ -67,8 +67,8 @@ grid big enough to feel; nothing in stage 1 is thrown away by waiting.
 
 The newer cases (tender, containerized reactor, e-methanol) have little commercial precedent —
 engineering estimates. Highest-leverage and most uncertain: the tender block (reactor/hull/O&M
-cost, `parasitic_kw`, `tether.cable_*`), `route.standoff_nm`, `route.storm_duration_h` and
-`route.storm_frac`, and the containerized-reactor block (`capex.usd_per_kw`,
+cost, `parasitic_kw`, `tether.cable_*`), `route.standoff_nm`, `route.detach_duration_h` and
+`route.detach_frac`, and the containerized-reactor block (`capex.usd_per_kw`,
 `overhead.teu_per_mwe`, `pool.*`). Treat the new
 cases' absolute LCOTs as order-of-magnitude until grounded in real data.
 
@@ -83,13 +83,14 @@ cases' absolute LCOTs as order-of-magnitude until grounded in real data.
 
 ## Case-specific follow-ups
 
-- **Mobile tender:** the expected storm ride-out (`storm_frac`) is billed at the full cruise bus
-  power while hove-to; riding out at reduced/zero power would shrink both the expected drain and
-  the `storm_duration_h`-sized pack. Jointly optimize tethered cruise speed vs battery size vs
-  ships-per-tender (currently a fixed cable cap + ~1:1 escort ratio; `ships_per_tender` is a
-  diagnostic only). Pack cycle counting: `BatterySource.life_yr` counts one full cycle per leg,
-  but the tender pack actually runs two coastal sub-leg cycles (plus expected storm drains) per
-  leg — count full-cycle equivalents from energy throughput instead.
+- **Mobile tender:** detached sailing is billed at the full cruise bus power; slowing down while
+  detached would shrink both the expected drain and the `detach_duration_h`-sized pack, at the
+  cost of voyage time (a genuine trade — the tender won't slow its schedule to wait). Jointly
+  optimize tethered cruise speed vs battery size vs ships-per-tender (currently a fixed cable cap
+  + ~1:1 escort ratio; `ships_per_tender` is a diagnostic only). Pack cycle counting:
+  `BatterySource.life_yr` counts one full cycle per leg, but the tender pack actually runs two
+  coastal sub-leg cycles (plus expected detach drains) per leg — count full-cycle equivalents
+  from energy throughput instead.
 - **Containerized/pooled reactor:** no separate reactor-O&M line (it sits in the ship's non-crew
   residual, kept ship-side); nuclear-specialist crew isn't split out (`crew_count` is the whole
   complement).
@@ -110,15 +111,17 @@ cases' absolute LCOTs as order-of-magnitude until grounded in real data.
   from the conditions actually encountered rather than from fixed multipliers.
 - **Voyage Monte Carlo to calibrate the expected-value weather parameters:** the analytic model
   bills expected per-leg time and energy, with sizing margins kept out of throughput
-  (`margins.energy_reserve` and the `storm_duration_h` pack are capex/mass only; billed energy is
-  nominal consumption plus, for the tender, the `storm_frac` expected storm ride-out). Those
-  expected values are placeholders. Calibrate them by simulating hundreds of journeys per route
-  against historical weather (hindcast time series) with hour-by-hour pack SoC: outputs are
-  per-route `storm_frac`, an expected weather energy uplift on consumed energy (all cases —
-  fuel burn included — currently bill calm-water consumption), the weather share of
-  `availability`, and the percentile storm `storm_duration_h` should represent (the same runs
-  also validate that the sized pack's SoC never goes negative, e.g. a storm landing mid
-  coastal sub-leg).
+  (`margins.energy_reserve` and the `detach_duration_h` pack are capex/mass only; billed energy
+  is nominal consumption plus, for the tender, the drain of the `detach_frac` expected
+  cable-dropped hours). Those expected values are placeholders. Calibrate them by simulating
+  hundreds of journeys per route against historical weather (hindcast time series) with
+  hour-by-hour pack SoC: outputs are per-route `detach_frac` (sea state above the floating
+  tether's limit), an expected weather energy uplift on consumed energy (all cases — fuel burn
+  included — currently bill calm-water consumption), the hove-to/survival-weather share of
+  `availability`, and the longest detached stretch `detach_duration_h` should represent. The
+  same runs validate the SoC tails the analytic model waves through: arriving at the tender
+  near-empty into weather that delays connecting, detach hitting before the pack has been
+  refilled, and end-of-crossing SoC when detach clusters late.
 - **Slow-steaming asymmetry:** drive/hotel efficiencies are constant in speed, so both ships get
   the ideal cube-law energy-vs-speed and fossil slow-steaming is over-credited. Real engines droop
   at part-load while motors stay flat — model the fossil drive efficiency as load/speed-dependent

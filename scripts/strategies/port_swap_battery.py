@@ -30,7 +30,7 @@ def port_swap_battery(case: schema.Case, point: dict) -> dict:
     bus_kw = demand.bus_kw
 
     # --- size the pack to the whole leg + energy reserve -------------------------
-    # the reserve (margins.energy_reserve) covers weather/contingency; no storm buffer here
+    # the reserve (margins.energy_reserve) covers weather/contingency; no detach buffer here
     # (the pack already carries the full leg) — that's only the tether case's concern
     leg_kwh = bus_kw * sail_h
     deliverable_kwh = leg_kwh * (1 + margins.energy_reserve)

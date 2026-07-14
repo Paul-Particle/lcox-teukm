@@ -98,8 +98,8 @@ class Route:
     d_km: float = 10000.0                    # nominal D_max hop; the swept axis overrides it in most cases
     op_v_kn: float = 14.0                    # nominal operating speed; the optimized axis overrides it in most cases
     design_v_kn: float | None = None        # nominal design speed the cheap converter is sized to; like d_km/op_v_kn an axis can override it, though it's usually fixed (the integrated-reactor cases size to op speed and ignore it)
-    storm_duration_h: float | None = None   # single worst storm the tender case's pack must ride out detached from the tether (SIZING event, not an expected flow)
-    storm_frac: float | None = None         # expected fraction of tethered time spent detached riding out storms (tender); an EXPECTED VALUE, to be calibrated from weather data / voyage simulation per route
+    detach_duration_h: float | None = None  # longest continuous cable-dropped stretch the tender case's pack must sail through unassisted (SIZING event, not an expected flow)
+    detach_frac: float | None = None        # expected fraction of tethered time with the floating tether dropped for weather (tender); an EXPECTED VALUE, to be calibrated from weather data / voyage simulation per route
     standoff_nm: float | None = None        # coastal sub-leg each side of the tether (tender)
     idle_h: float | None = None             # tender reposition-or-wait between escorts
 
