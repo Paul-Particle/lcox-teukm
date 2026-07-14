@@ -81,7 +81,8 @@ def _infeasible(op_v_kn: float, d_km: float) -> dict:
 
 def legs_per_year(v_kn: float, d_km: float, port_hours: float, availability: float) -> float:
     """D_max legs per year: one hop of `d_km` plus one port call (a round trip is two legs),
-    scaled by `availability`."""
+    scaled by `availability`. Weather that stops a ship outright (hove-to survival conditions)
+    hits every hull and powertrain alike and lives inside `availability`."""
     sail_h = d_km / (v_kn * KMH_PER_KNOT)
     return HOURS_PER_YEAR * availability / (sail_h + port_hours)
 
