@@ -63,7 +63,7 @@ def _source(name: str, d: dict) -> sources.EnergySource:
 # extra source/axis is just a continuation row. We group by name, read scalars off the first
 # row, and collect every non-blank source/axis across the group. Blank cells arrive as NaN.
 _ROUTE_FIELDS = ("load_factor", "load_factor_imbalance", "design_v_kn",
-                 "storm_duration_h", "storm_frac", "standoff_nm", "idle_h")
+                 "detach_duration_h", "detach_frac", "standoff_nm", "idle_h")
 
 
 def _route(head) -> schema.Route:
