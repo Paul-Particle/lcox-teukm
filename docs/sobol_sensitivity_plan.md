@@ -18,7 +18,7 @@ structural coordinates), maps to one output row of **measures** (`lcot` + itemiz
 Around it:
 
 ```
-values + ranges  ->  design  ->  execution  ->  store  ->  views
+values + ranges  ->  design  ->  evaluate  ->  store  ->  views
   (config)        (roles ->      (kernel on    (xarray  (queries: reductions,
                    labeled axes)  blocks)       + parquet) traces, indices, scenarios)
 ```
@@ -172,7 +172,7 @@ axis called `op_v_kn`" first-class, not the genericity itself.
 | parse `studies.yaml`, resolve roles against ranges | `studies.py` (new) | no |
 | **design** — roles → named axes, Saltelli matrix + factorial grids, place into config, build Cases | `design.py` (new, ~100 lines) | no |
 | **kernel** — the strategies (the producer) | `strategies/` (exists) | **yes — the only place** |
-| **execution** — loop compositions, call kernel, assemble the block; dispatch the lever collapse on `optimization:` method | `execute.py` (new / fold into `run.py`) | no |
+| **evaluate** — loop compositions, call kernel, assemble the block; dispatch the lever collapse on `optimization:` method | `evaluate.py` (new / fold into `run.py`) | no |
 | derived / cross-strategy measures (`lcot_fuel − lcot_nuclear`) | `measures.py` (new, small) | **question-specific, isolated here** |
 | **analysis** — objective argmin (carry-by-index) for exhaustive, Sobol per slice, feasibility summary → persisted artifacts | `analyze.py` (new) | no |
 | **store** — write/read netCDF + parquet + study.yaml | `store.py` (new / fold) | no |
@@ -184,6 +184,24 @@ study) and **views** (block + artifacts → plots on demand; disposable). They a
 kind of operation — reductions/selects over the block — but the persistence boundary is
 real, so `analyze.py` and `plots.py` stay separate and Sobol logic never leaks into the
 plotting layer.
+
+**Why these names and not optimizer-phase names.** Unrolled, any optimizer is
+`propose(state) → evaluate(points) → update(values)` in a loop, and exhaustive search is
+that loop run *once*: `design` proposes the whole grid, `evaluate` runs the kernel over it,
+`analyze` argmins and "converges" trivially. It reads as a straight pipeline rather than a
+loop only because exhaustive's `propose` ignores results — the `propose ← update` feedback
+edge is absent. An adaptive method adds that edge, turning the line into a cycle that a
+single in-process driver must own; when it comes, that driver lives inside `evaluate`
+(design goes back to just drawing the sample/swept axes, analyze back to just Sobol +
+feasibility). So the optimizer maps onto the scripts *inconsistently across methods* —
+smeared across all three for exhaustive, concentrated in `evaluate` for adaptive — which is
+exactly why the scripts keep neutral names. Optimization is one thread through the pipeline
+(grid → evaluate → argmin) alongside sampling (draw → evaluate → decompose) and sweeping
+(grid → evaluate → retain), not the pipeline's identity. The concrete seam this leaves:
+the kernel stays callable at arbitrary lever values, `analyze`'s collapse is a standalone
+function over evaluated points (not assumed to be a full grid), and the `optimization:`
+method is read as early as `design` (which decides whether to materialize the lever axis at
+all).
 
 ## Design stance — guards inform, they don't gate
 
@@ -361,10 +379,10 @@ and, for the objective, substitutes a study-declared penalty (`infeasible_value:
 skips that case's objective indices with a note. Nothing errors; all cells land in the
 store.
 
-### 5. Execution
+### 5. Evaluate
 
 One kernel call per composition per study; broadcasting replaces the sweep and
-grid-search loops. After evaluation, the executor reduces the block per each search axis's
+grid-search loops. After evaluation, `evaluate` reduces the block per each search axis's
 method:
 
 - `optimization: none` (sweep) — leave the axis in place.
