@@ -77,6 +77,33 @@ holds because "materialize a grid on this axis" and "run a solver on this axis" 
 independent operations; a solver-plus-coarse-landscape combo is buildable later without a
 schema change, and we don't build it now.
 
+**The method decides *where* the lever axis collapses — and that is the whole reason
+`optimization:` is an axis property, not an `analyze` property.** Exhaustive search is the
+special case where the collapse is a tidy *post-kernel reduction*: execution materializes
+the full grid, and the argmin runs afterward. That only works because we can afford to
+evaluate every grid point. An adaptive optimizer is the opposite — it *owns the kernel
+calls*, evaluating a few chosen points and using each result to pick the next, so it
+collapses the axis *during* execution and the grid is never materialized. "Optimize only
+after the kernel" would therefore foreclose adaptive search entirely; making the method an
+axis property is exactly what keeps it open.
+
+| method | who collapses the lever axis | when | grid materialized? |
+|---|---|---|---|
+| `none` (sweep) | nobody — retained | — | yes (kept) |
+| `exhaustive_search` | `analyze`, as a post-kernel argmin | after full eval | yes (kept for landscape) |
+| solver (`newton`/`bopt`, later) | an optimizer loop wrapping the kernel | during execution | no — only visited points |
+
+The invariant that keeps everything downstream generic: **whichever method runs, the
+output is the same contract** — a block with the lever dims collapsed, every measure
+carried at the optimum. Sobol and the views consume that shape and never learn how it was
+produced. So only the collapse step itself is method-specific; it is isolated behind the
+method dispatch at the execution boundary. Two consequences for building exhaustive now:
+the numpy-safe kernel must stay callable at *arbitrary* lever values (not just grid nodes
+— it already is, since it broadcasts over whatever the leaves carry), and `analyze` must
+not assume the grid is always materialized. A vectorized adaptive optimizer, when it comes,
+loops iterations in Python and vectorizes each across the *sample* axis (every sample steps
+at once, converged ones masked) — same kernel, block speedup intact.
+
 **The objective is a chosen measure reduced over chosen axes.** Nothing about `lcot` is
 privileged; it's the default measure, not a hardcoded objective. The block produces a row
 of named measures per cell (`lcot`, `cargo`, `capex`, …, plus *derived* ones like a
@@ -121,6 +148,42 @@ Two structural consequences carry over:
   low-dimensional (search axes multiply); global designs must be sparse (one shared sample
   axis, additive). Blast globally by sampling → read indices → assign search roles for the
   local views the indices point at.
+
+## Modules and boundaries
+
+The load-bearing idea for reuse: a **producer** emits a **block** (the labeled bundle of
+measures — an xarray `Dataset` in memory, netCDF + flat parquet on disk), and *everything
+downstream of the block is producer-agnostic*. Running the strategies is one producer;
+"any other set of functions" is another, under the same contract. Strategy knowledge lives
+only in the kernel; question knowledge lives only in a small derived-measures file;
+everything between and after is generic over the block.
+
+The block is **structurally generic but semantically specific** — the measures it carries
+(`lcot`, `cargo`, `tender_reactor_kw`) are what we ran, but `analyze` never names them in
+code; it names them *from the study* (`objective: lcot`, `optimize: [op_v_kn]`). The dims
+are named by `design` according to roles, and `analyze` reads those names back. That
+name-as-config coupling — design names axes by role, analyze trusts the names — is the one
+thing the two layers must agree on; xarray's contribution is only making "reduce over the
+axis called `op_v_kn`" first-class, not the genericity itself.
+
+| stage | module | strategy-aware? |
+|---|---|---|
+| parse `config.yaml` → schema + harvest ranges | `load_config.py` (exists) | no |
+| parse `studies.yaml`, resolve roles against ranges | `studies.py` (new) | no |
+| **design** — roles → named axes, Saltelli matrix + factorial grids, place into config, build Cases | `design.py` (new, ~100 lines) | no |
+| **kernel** — the strategies (the producer) | `strategies/` (exists) | **yes — the only place** |
+| **execution** — loop compositions, call kernel, assemble the block; dispatch the lever collapse on `optimization:` method | `execute.py` (new / fold into `run.py`) | no |
+| derived / cross-strategy measures (`lcot_fuel − lcot_nuclear`) | `measures.py` (new, small) | **question-specific, isolated here** |
+| **analysis** — objective argmin (carry-by-index) for exhaustive, Sobol per slice, feasibility summary → persisted artifacts | `analyze.py` (new) | no |
+| **store** — write/read netCDF + parquet + study.yaml | `store.py` (new / fold) | no |
+| **views** — plots/tables over the store, on demand | `plots.py` (rebuild) | no |
+
+Two consumer roles, split only by persistence: **analyses** (block → derived artifact on
+disk — the optimized view, `indices.parquet`, feasibility report; canonical, run once per
+study) and **views** (block + artifacts → plots on demand; disposable). They are the same
+kind of operation — reductions/selects over the block — but the persistence boundary is
+real, so `analyze.py` and `plots.py` stay separate and Sobol logic never leaks into the
+plotting layer.
 
 ## Design stance — guards inform, they don't gate
 
