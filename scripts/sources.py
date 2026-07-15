@@ -10,8 +10,9 @@ Strategies match on the concrete subclass, then call its method. Units: see unit
 
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass
+
+import numpy as np
 
 from schema import EnergySource, Overhead
 from helpers import crf
@@ -54,9 +55,9 @@ class BatterySource(EnergySource):
         e = self.energy
         installed_kwh = deliverable_kwh / e.dod
         if self.min_discharge_h > 0.0:
-            installed_kwh = max(installed_kwh, power_kw * self.min_discharge_h)
+            installed_kwh = np.maximum(installed_kwh, power_kw * self.min_discharge_h)
         mass_t = installed_kwh * WH_PER_KWH / e.pack_wh_per_kg / KG_PER_TONNE
-        slots = max(installed_kwh / e.kwh_per_teu, mass_t / max_gross_t)
+        slots = np.maximum(installed_kwh / e.kwh_per_teu, mass_t / max_gross_t)
         return installed_kwh, slots, mass_t
 
     def life_yr(self, legs: float) -> float:
@@ -64,7 +65,7 @@ class BatterySource(EnergySource):
         (the strategy cycles one full deliverable per leg)."""
         cap = self.capex
         cycle_limited = cap.cycle_life / legs if legs > 0 else cap.calendar_life_yr
-        return min(cap.calendar_life_yr, cycle_limited)
+        return np.minimum(cap.calendar_life_yr, cycle_limited)
 
 
 @dataclass(frozen=True)
@@ -101,7 +102,7 @@ class ContainerizedReactor(ReactorSource):
         usd_per_kwh = (capital_yr + fuel_yr) / delivered_kwh_yr
         base_slots = self.overhead.slots or 0.0
         power_slots = (self.overhead.teu_per_mwe or 0.0) * reactor_kw / KWH_PER_MWH
-        slots = math.ceil((base_slots + power_slots) * 2) / 2       # round up to 0.5 TEU
+        slots = np.ceil((base_slots + power_slots) * 2) / 2       # round up to 0.5 TEU
         return usd_per_kwh, reactor_kw, slots
 
 

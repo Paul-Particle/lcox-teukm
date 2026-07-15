@@ -3,6 +3,8 @@ carried by an at-sea nuclear tender over a tether."""
 
 from __future__ import annotations
 
+import numpy as np
+
 import schema
 import helpers
 import sources
@@ -59,7 +61,7 @@ def tether_charge(case: schema.Case, point: dict) -> dict:
     coastal_kwh = bus_kw * coastal_h
     detach_buffer_kwh = bus_kw * (route.detach_duration_h or 0.0)   # unset -> no detach buffer
     # energy reserve on the coastal sub-leg only; the detach buffer is itself a weather reserve
-    deliverable_kwh = max(coastal_kwh * (1 + margins.energy_reserve), detach_buffer_kwh)
+    deliverable_kwh = np.maximum(coastal_kwh * (1 + margins.energy_reserve), detach_buffer_kwh)
     installed_kwh, slots, mass_t = battery.size(
         deliverable_kwh, bus_kw, pl.slot_limits.container_max_gross_t)
 
