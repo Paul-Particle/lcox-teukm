@@ -6,6 +6,27 @@ vectorization — plus the driver and artifact design around them. Each decision
 alternatives considered, so the choices can be challenged point by point. Sensitivity *viz*
 (tornado / index bars) stays deferred to the `plots.py` rebuild.
 
+## Design stance — guards inform, they don't gate
+
+The model's correctness rests on judgment the code can't check (is 0.02 a sane
+`detach_frac`?); the code's job is to make what *is* checkable loud and everything else
+frictionless. Two kinds of "safety" get two different treatments:
+
+- **Structural validation stays loud and blocking.** A misspelled override path raises
+  naming the exact bad field; an unknown config key `TypeError`s in the loader. These are
+  typos, never intent — in a hundred-parameter blast a silent one costs a day — and they
+  cost one schema line per parameter while shaping nothing architecturally.
+- **Intent-level checks report, they never block.** Whether an inert axis, a flat
+  parameter, or an infeasible corner of the sampled space is a mistake or just the
+  uninteresting part of a deliberately wide blast is a judgment call. The machinery below
+  surfaces these (warnings, feasibility columns, run summaries) and leaves the call to the
+  person reading the run.
+
+The target workflow this plan serves: add a parameter's value to `config.yaml` (plus its
+one-line schema field), add its range once to the ranges library, and every subsequent
+sweep or sensitivity blast picks it up across every case it resolves in — no per-study,
+per-case, per-param wiring.
+
 ## Measured baseline
 
 Numbers from this machine (Apple-silicon VM, CPython 3.11), because the vectorization
@@ -27,6 +48,7 @@ sizes that follow from it:
 | d=10, N=1024, first-order+total: N(d+2) | 12 288 | ~1.6 s |
 | d=10, N=1024, with second-order: N(2d+2) | 22 528 | ~2.9 s |
 | d=20, N=4096, with second-order | 172 032 | ~22 s |
+| d=100 ("every param"), N=1024, first-order | 104 448 | ~14 s |
 
 Headline consequence: **Sobol never makes the scalar engine the bottleneck.** The sampler
 and the vectorization question decouple; Stage-2 is re-scoped in Decision 7.
@@ -118,14 +140,16 @@ def _set(node, keys: list[str], value):
 The honest costs of (ii), and why they don't bite:
 
 - **The read-tracking guard dies with `Point`.** Replaced by a stronger *effect* check: the
-  optimizer evaluates the whole grid anyway, so it can require that rows actually differ
-  along each axis (comparing strategy-produced columns, before the runner merges the
-  coordinates in) and raise on a flat axis. Stronger, because reading isn't affecting — a
-  strategy can read a param that this case's config makes inert, which the read-guard
-  passes and the effect-check catches (e.g. an optimize axis on `design_v_kn` for
-  `reactor_direct` produces a plausible-looking "optimum" at the grid floor today only
-  because nothing varies). One false-positive mode — a genuinely consumed param that is
-  provably flat across the entire grid — so the error names both readings; axes with
+  optimizer evaluates the whole grid anyway, so it can notice rows that are identical
+  along an axis (comparing strategy-produced columns, before the runner merges the
+  coordinates in) and **warn** on a flat one — a report, not a gate, since under
+  blast-everything exploration an axis that is inert on some cases is routine, and only
+  the reader can tell mistake from don't-care (see the design stance). Stronger than
+  read-tracking, because reading isn't affecting — a strategy can read a param that this
+  case's config makes inert, which the read-guard passes and the effect-check catches
+  (e.g. an optimize axis on `design_v_kn` for `reactor_direct` produces a
+  plausible-looking "optimum" at the grid floor today only because nothing varies). The
+  warning names both readings (unconsumed param vs genuinely flat range); axes with
   `n = 1` or `lo == hi` skip the check.
 - **Hot-loop overhead.** ~5 µs of spine-rebuilding per path per grid point against
   4–5 µs per strategy eval: the full `run.py` goes ~0.5 s → ~1.5 s. Irrelevant at this
@@ -159,6 +183,11 @@ driver.
   The stale "cases.csv will be machine-generated (Sobol…)" comment in `config.yaml` gets
   corrected as part of this work.
 
+Flagged, not acted on: at a genuinely large number of hand-written scenarios the CSV's
+multi-row grouping and wide column set will strain. The escape hatch is case definitions
+in YAML (anchors give shared defaults + per-case deltas) — orthogonal to everything in
+this plan, cheap churn whenever it first hurts.
+
 ## Decision 3 — parameter-space spec
 
 - **(a) Extend `Axis` with distribution fields** — rejected; TODO already flags this:
@@ -168,24 +197,33 @@ driver.
   the eventual endgame once the tech-data library (TODO "Data & itemization") tags every
   value with source + uncertainty, but today it churns the loader and conflates *data*
   (priors) with *study design* (which params a given study varies).
-- **(c) A separate `uncertainty.yaml`** — **chosen**. Studies are named, list member cases
-  and parameters, and map 1:1 onto SALib's problem dict. When the tech-data library
-  arrives, studies can reference its priors instead of carrying bounds.
+- **(c) A separate `uncertainty.yaml`** — **chosen**, structured as a **ranges library
+  plus studies that select from it**. A range is entered once, keyed by dotted path (this
+  is the "enter lots of named params easily" end of the pipeline); a study picks cases and
+  params, both defaulting to *everything* — the blast-everything study is an empty spec.
+  When the tech-data library arrives, the ranges section is what it absorbs.
 
 ```yaml
-# uncertainty.yaml — Sobol study definitions (paths per override.py; dists per SALib)
+# uncertainty.yaml — parameter ranges (entered once) + studies that select from them.
+# Paths per override.py; dists per SALib.
+ranges:
+  sources.tender-reactor.capex.usd_per_kw:          {dist: unif, bounds: [3500, 12000]}
+  sources.tender-reactor.parasitic_kw:              {dist: unif, bounds: [1000, 5000]}
+  sources.tender-reactor.tether.cable_efficiency:   {dist: unif, bounds: [0.90, 0.98]}
+  sources.lfp.capex.usd_per_kwh:                    {dist: unif, bounds: [80, 300]}
+  params.route.standoff_nm:                         {dist: unif, bounds: [100, 400]}
+  params.route.detach_frac:                         {dist: unif, bounds: [0.0, 0.15]}
+
 studies:
+  blast:                          # the defaults: every case, every range that resolves
+    mode: sobol                   # sobol -> Saltelli matrix + indices | sweep -> 1-D traces
+    n: 1024                       # base sample count (power of 2)
   tender-screening:
-    cases: [tender, fossil]          # one shared sample matrix across member cases
-    n: 1024                          # base sample count (power of 2)
+    mode: sobol
+    cases: [tender, fossil]       # one shared sample matrix across member cases
+    params: [sources.tender-reactor.*, params.route.detach_frac]   # exact paths or globs
+    n: 1024
     second_order: false
-    params:
-      - {path: sources.tender-reactor.capex.usd_per_kw,          dist: unif,   bounds: [3500, 12000]}
-      - {path: sources.tender-reactor.parasitic_kw,              dist: unif,   bounds: [1000, 5000]}
-      - {path: sources.tender-reactor.tether.cable_efficiency,   dist: unif,   bounds: [0.90, 0.98]}
-      - {path: params.route.standoff_nm,                         dist: unif,   bounds: [100, 400]}
-      - {path: params.route.detach_frac,                         dist: unif,   bounds: [0.0, 0.15]}
-      - {path: sources.lfp.capex.usd_per_kwh,                    dist: unif,   bounds: [80, 300]}
 ```
 
 ## Decision 4 — sampler + analyzer
@@ -200,7 +238,9 @@ studies:
 - **(c) Fully hand-rolled** — rejected outright; ~100 lines of easy-to-get-quietly-wrong.
 
 Default `second_order: false` (cost N(d+2) instead of N(2d+2)); first-order + total indices
-are the standard screening pair, and S2 is a flag away when interactions matter.
+are the standard screening pair, and S2 is a flag away when interactions matter. If the
+ranges library ever grows d into the many hundreds, SALib's Morris screening is a cheaper
+first pass with the same driver shape — noted, not planned.
 
 ## Decision 5 — study semantics (the driver's contract)
 
@@ -211,8 +251,15 @@ are the standard screening pair, and S2 is a flag away when interactions matter.
 - **Resolvability rule:** a path whose *source name* is absent from a member case's
   `sources` tuple is skipped for that case (correct semantics — that case genuinely doesn't
   depend on the param; e.g. `sources.lfp.*` on `fossil`). Any other unresolvable segment is
-  an error (it's a typo — schema fields exist on every instance). Sanity floor: every path
-  must resolve in at least one member case.
+  an error (it's a typo — schema fields exist on every instance). Under a study's explicit
+  `params:` list, a path resolving in *no* member case is an error (you named it; it can't
+  apply); under the default everything-that-resolves selection it is simply not selected —
+  noted in the run summary, per the design stance.
+- **`mode: sweep` shares everything but the math.** The same ranges, resolvability rule,
+  and artifacts drive per-param 1-D traces — each param stepped across its range with the
+  others at nominal, the mass-produced version of a hand-written `cases.csv` sweep axis;
+  `mode: sobol` adds the Saltelli matrix and the indices. With `cases:` defaulting to all
+  and `params:` to all, "sweep every parameter of every scenario" is one short study.
 - **Y = min-LCOT from the case's own `optimize` axes.** Operating speed is a decision
   variable, not an uncertainty — each sample re-optimizes it. The known staircase from the
   18-point grid (optimal speeds land on knots) adds a little quantization noise to the
@@ -221,13 +268,16 @@ are the standard screening pair, and S2 is a flag away when interactions matter.
 - **`sweep` axes are ignored by the driver.** A study evaluates at the route's (possibly
   overridden) nominal `d_km`; distance enters either as a fixed override or as a sampled
   param — not as a swept trace.
-- **Infeasible samples fail the study.** Saltelli's paired design cannot tolerate dropped
-  or `inf` rows, so the driver counts `lcot = inf` rows, archives them
-  (`infeasible.parquet`) for inspection, and errors with the count — the remedy is
-  tightening bounds, which is study design, not code. (The alternative — substituting a
-  large penalty LCOT — deliberately distorts the indices toward the feasibility boundary;
-  documented here so it can be chosen consciously later if a study *wants* feasibility
-  sensitivity.)
+- **Infeasible samples are signal, not failure.** Wide blast ranges *will* cross
+  feasibility edges — that is partly what wide ranges are for — and Saltelli's paired
+  design cannot tolerate dropped rows. So the driver always reports the infeasible
+  fraction per case, and: with zero infeasibles it computes LCOT indices normally;
+  otherwise it computes indices on the *feasibility indicator* as well (which params push
+  a case off the cliff — often the more interesting result), and for the LCOT indices
+  either substitutes a study-declared penalty (`infeasible_lcot:`) or, absent one, skips
+  that case's LCOT indices with a note in the artifact. Nothing errors; all samples,
+  infeasible rows included, land in the archive. (A penalty value deliberately mixes
+  feasibility into the LCOT indices — declaring it is what makes that a conscious choice.)
 
 Driver shape: `uv run scripts/sobol.py [study ...]` → for each study, build the SALib
 problem, sample once, then per member case loop samples → `apply_overrides` →
@@ -239,7 +289,8 @@ case → write artifacts. ~120 lines, no changes to the eval engine.
 Everything under `results/sobol/<study>/`, never touching `results/lcot.*`:
 
 - `samples.parquet` — one row per (sample × case): the sampled inputs plus the *full*
-  strategy row (all the extra columns), not just LCOT. Costs nothing and keeps every
+  strategy row (all the extra columns), not just LCOT. Sweep-mode studies write the same
+  shape (one row per grid point × case), just without an indices artifact. Costs nothing and keeps every
   downstream reuse open — input/output scatters, derived-Y analyses, regression-based
   importance — without re-running.
 - `indices.parquet` + `indices.csv` — long form: `case, param, S1, S1_conf, ST, ST_conf`
@@ -277,11 +328,12 @@ masks" and both the grid dims and the sample dim enter the same way.
 
 1. **`scripts/override.py` + axis unification** — the optimizer applies axes via
    `apply_overrides` (bare axis names alias to `params.route.<name>`), strategies drop the
-   `point` parameter, the effect-based flat-axis check replaces read-tracking; correct the
-   stale machine-generated-cases comment in `config.yaml`. Acceptance: `results/lcot.csv`
-   byte-identical before/after.
-2. **`uncertainty.yaml`** seed study + `salib` dependency.
-3. **`scripts/sobol.py`** driver + artifacts.
+   `point` parameter, the effect-based flat-axis warning replaces read-tracking; derive
+   `load_config`'s `_ROUTE_FIELDS` from the `Route` dataclass fields (one fewer place to
+   touch per new per-case param); correct the stale machine-generated-cases comment in
+   `config.yaml`. Acceptance: `results/lcot.csv` byte-identical before/after.
+2. **`uncertainty.yaml`** — ranges library + seed studies; `salib` dependency.
+3. **`scripts/sobol.py`** driver (both modes) + artifacts.
 4. **TODO.md** — collapse the readiness section to what remains (viz; Stage-2 pointer here).
 
 Verification beyond the golden diff: a single-param study must return S1 ≈ ST ≈ 1; a
