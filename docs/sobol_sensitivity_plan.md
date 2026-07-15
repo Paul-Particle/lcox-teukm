@@ -1,57 +1,126 @@
 # Exploration architecture — vectorize-first
 
-Status: **proposal**, revised 2026-07-15 (v4). This iteration promotes the numpy-safe
-kernel from "deferred optimization" to the **architectural basis**: with ranges declared
-in the input and strategies that broadcast, the sampling machinery collapses into array
-construction — the dotted-path override mechanism, the `Point` channel, and the
-optimizer's loops from earlier iterations are superseded and never get built (git history
-holds those designs and their rationale). Sensitivity *viz* stays deferred to the
-`plots.py` rebuild.
+Status: **proposal**, revised 2026-07-15 (v5). v4 promoted the numpy-safe kernel from
+"deferred optimization" to the architectural basis. v5 folds in the taxonomy that fell out
+of working the shapes through: **three parameter roles** (fixed / sampled / search) with
+search parameterized by an `optimization:` *method*, a single **objective = a chosen
+measure reduced over chosen axes** formulation that covers both optimization and the
+Sobol target, and **xarray** as the in-memory block (with netCDF as its authoritative
+store). The dotted-path override mechanism, the `Point` channel, and the optimizer's loops
+from earlier iterations are superseded and never get built (git history holds those
+designs and their rationale). Sensitivity *viz* stays deferred to the `plots.py` rebuild.
 
 ## The pipeline
 
 The model is one pure function — the **kernel**: a fully-specified point in parameter
 space, plus a **composition** (platform × drivetrain × sources × strategy — the discrete,
-structural coordinates), maps to one output row (`lcot` + itemization). Around it:
+structural coordinates), maps to one output row of **measures** (`lcot` + itemization).
+Around it:
 
 ```
 values + ranges  ->  design  ->  execution  ->  store  ->  views
-  (config)        (which points,  (kernel on    (rows)   (queries: argmin, traces,
-                   as arrays)      blocks)                 indices, named scenarios)
+  (config)        (roles ->      (kernel on    (xarray  (queries: reductions,
+                   labeled axes)  blocks)       + parquet) traces, indices, scenarios)
 ```
 
 - **Design** decides *which points to evaluate* and expresses the answer as array-valued
-  config leaves: sampled params get jointly-drawn columns sharing one dimension, swept and
-  optimized params get their own factorial dimensions, everything else stays scalar.
-  Parameters have no intrinsic roles — *constant / swept / optimized / sampled* are
-  per-run assignments, one line in a study.
+  config leaves on **named axes**: sampled params get jointly-drawn columns sharing one
+  axis, search params (swept or optimized) get their own factorial axes, everything else
+  stays scalar.
 - **Execution** is one kernel call per composition; broadcasting does what the sweep and
-  grid-search loops used to do.
-- **Views** answer every question as a query over the stored rows: an optimum is
-  groupby-argmin over the lever dims, a trace is a filter, Sobol indices are an estimator
-  over a Saltelli-shaped run, a named scenario ("tender, transpacific, pessimistic
-  batteries") is a filter — and may span the composition dimension ("cheapest nuclear
-  option") as well as slice it.
+  grid-search loops used to do. Optimized axes are then reduced away by the objective;
+  swept axes are retained.
+- **Views** answer every question as a query over the stored block: an optimum is an
+  argmin over the lever axes, a trace is a select, Sobol indices are an estimator over a
+  Saltelli-shaped run, a named scenario ("tender, transpacific, pessimistic batteries") is
+  a select — and may span the composition dimension ("cheapest nuclear option") as well as
+  slice it.
 
 The frame maps one-to-one onto the exploratory-modeling / Robust Decision Making
 literature (Bankes 1993; Lempert et al., RAND) — **XLRM**: X, exogenous uncertainties =
-sampled/swept ranges; L, levers = optimized params (`op_v_kn`); R, relationships = the
-composition (the "integer param"); M, measures = the output row. "Cases as names for
-regions in the result space" is *scenario discovery* (PRIM/CART); "sensitivity ≈ choosing
-what to plot" is Saltelli's *factor mapping*.
+sampled ranges *and* retained swept conditions; L, levers = optimized params (`op_v_kn`);
+R, relationships = the composition (the "integer param"); M, measures = the output row.
+"Cases as names for regions in the result space" is *scenario discovery* (PRIM/CART);
+"sensitivity ≈ choosing what to plot" is Saltelli's *factor mapping*.
 
-Two structural consequences:
+## Three roles, and the objective
 
-- **Optimize-by-grid is a view, not a phase.** The old optimizer evaluated its grid and
-  kept the argmin; the block simply keeps everything, and argmin-over-lever-dims is a
-  query. A smarter-than-grid optimizer is *adaptive* — it chooses points from results —
-  so it returns as a design-side loop (iterations loop, each iteration evaluated
-  vectorized across all samples at once, or plain scalar: the same kernel runs 0-d
-  arrays).
+Parameters have no intrinsic roles — role is a per-run assignment, one line in a study.
+There are three, and the shapes they produce are the whole architecture:
+
+| role | axis | cost | reduction |
+|---|---|---|---|
+| **fixed** | none (0-d scalar) | — | — |
+| **sampled** | shares axis 0 (Saltelli joint draw) | **additive** — one param grows axis 0 by one `N`-slab | variance decomposition along axis 0 |
+| **search** | its own factorial axis | **multiplicative** — each axis multiplies the block | per its `optimization:` method (below) |
+
+The additive/multiplicative split is the cost model: sampled params are cheap to pile on
+(that's the headroom that makes "sample everything, then screen" the default opening
+move); each search axis costs a factor of its grid length, so budget swept and optimized
+axes the same way.
+
+**Swept and optimized are the same kind of axis** — both are factorial grid dimensions,
+built identically. The only difference is one line of post-processing, expressed as the
+axis's optimization *method*:
+
+- `optimization: none` — **swept**: the axis is *retained*. It's a condition you want the
+  answer *as a function of* (route length, fuel price scenario), never one you collapse.
+  Collapsing a condition would answer the wrong question ("nuclear is cheapest *at*
+  12 000 km" is not a decision you get to make).
+- `optimization: exhaustive_search` — **optimized (lever)**: argmin over the grid. Because
+  we have the headroom, the grid *is* the landscape and the argmin *is* the optimum, from
+  one materialization — "mark the optimum on the curve" is just starring the argmin index.
+
+That leaves a clean seam for a future `newton`/`scipy` solver method (precise optimum, no
+grid) — deferred as YAGNI while `exhaustive_search` covers every current need. The seam
+holds because "materialize a grid on this axis" and "run a solver on this axis" are
+independent operations; a solver-plus-coarse-landscape combo is buildable later without a
+schema change, and we don't build it now.
+
+**The objective is a chosen measure reduced over chosen axes.** Nothing about `lcot` is
+privileged; it's the default measure, not a hardcoded objective. The block produces a row
+of named measures per cell (`lcot`, `cargo`, `capex`, …, plus *derived* ones like a
+cross-strategy margin `lcot_nuclear − lcot_fuel`). Then:
+
+- **Optimization** = `argopt` (argmin/argmax) of the objective measure over the lever
+  axes, **carrying every other measure along at that arg** (so the winning speed, the
+  cargo at the optimum, etc. come for free — `take_along_axis` / xarray `isel`).
+- **Sensitivity** = variance-decompose a chosen measure along the sample axis. It need not
+  be the same measure as the optimization objective: feed `lcot` to ask "what drives
+  cost," or feed the cross-strategy margin to ask "what drives *whether* nuclear wins" (a
+  crossover-driver study — the "M = measures" slot in XLRM).
+
+So the whole thing is a small algebra: **measures × axes × reductions**. A crossover
+*point* is a view (compare two compositions' `lcot` surfaces over a swept axis); "what
+drives the crossover" is a Sobol study with a cross-strategy measure as its target.
+
+### Swept axes make a *family* of Sobol analyses
+
+A retained swept axis of length `K` multiplies the block and multiplies the number of
+Sobol analyses — one per condition slice:
+
+```
+block:            (M samples, K swept, L levers)
+argmin levers  -> (M samples, K swept)
+Sobol along axis 0, once per swept slice -> indices of shape (K, d)
+```
+
+That is the answer to "how do the sensitivities shift as route length grows" — sweeping
+*and* sampling in one run is the intended, powerful combination. What doesn't make sense is
+collapsing a condition (hence `optimization: none`), and what's redundant is sampling a
+param you also sweep — one role per param.
+
+Two structural consequences carry over:
+
+- **Optimize is a reduction, not a phase.** The old optimizer evaluated a grid and kept
+  the argmin; the block keeps everything and the argmin is a query. A smarter-than-grid
+  optimizer is *adaptive* (chooses points from results), so it returns later as a
+  design-side loop over the same kernel — the `optimization:` method seam is exactly where
+  it plugs in.
 - **Roles move to run-time; they don't disappear.** Dense designs must stay
-  low-dimensional (factorial dims), global designs must be sparse (one shared sample
-  dim). Blast globally by sampling → read indices → assign dense x/y roles for the local
-  views the indices point at.
+  low-dimensional (search axes multiply); global designs must be sparse (one shared sample
+  axis, additive). Blast globally by sampling → read indices → assign search roles for the
+  local views the indices point at.
 
 ## Design stance — guards inform, they don't gate
 
@@ -64,7 +133,7 @@ frictionless:
   param whose value feeds a Python-level branch fails immediately with an ambiguous-truth
   error naming the line. Typos and structural impossibilities, never intent.
 - **Intent-level checks report, they never block.** A flat parameter (no effect along its
-  dim — a nan-aware variance check on the block), an infeasible region, an unresolvable
+  axis — a nan-aware variance check on the block), an infeasible region, an unresolvable
   param under default-all selection: surfaced in run summaries and columns, judged by the
   person reading the run.
 
@@ -166,85 +235,134 @@ becomes a variance query on the block.
 
 ### 4. Design (which points, as arrays)
 
-The array builder is the one new module (~100 lines): resolve a study's selections
-against the harvested ranges, allocate dimensions, reshape, place into the config dict,
+The array builder is the one new module (~100 lines): resolve a study's role assignments
+against the harvested ranges, allocate named axes, reshape, place into the config dict,
 build Cases through the unchanged loader.
 
-- **Dimension allocation** — the picture is *not* one dim per parameter (factorial
-  explosion): **sampled params share one dimension** (SALib's Saltelli output is a matrix
-  of jointly-drawn rows, N(d+2) × d — column *i*, reshaped to dim 0, becomes param *i*'s
-  leaf), while **swept and optimized params get their own factorial dims** (a lever's 18
-  speeds are dim 1). A block is (samples × lever grid), dense only where low-dimensional.
+- **Axis allocation** — the picture is *not* one axis per parameter (factorial
+  explosion): **sampled params share one axis** (SALib's Saltelli output is a matrix of
+  jointly-drawn rows, `N(d+2) × d` — column *i*, reshaped to axis 0, becomes param *i*'s
+  leaf), while **search params get their own factorial axes** (a lever's 18 speeds are one
+  axis; a swept condition's `K` values are another). A block is (samples × search grid),
+  dense only where low-dimensional.
+- **Why `N(d+2)`** — Saltelli isn't one random cloud; it's two independent base matrices
+  **A**, **B** (`N×d` each) plus one hybrid `A_B^(i)` per parameter (**A** with column *i*
+  from **B**), `d` of them, so the estimator can isolate each param's conditional-variance
+  contribution by reusing the same base draws. `N(d+2)` for first + total order;
+  `N(2d+2)` when second-order indices are on (adds the mirror hybrids `B_A^(i)`).
 - **SALib wiring** (chosen earlier over scipy-QMC + hand-rolled estimators and over fully
   hand-rolled — the estimator subtleties and bootstrap CIs are exactly what we shouldn't
   own): build the problem dict from the selected ranges, `sample.sobol` (N a power of 2,
-  `calc_second_order` per study), evaluate, argmin over lever dims → Y in row order →
-  `analyze.sobol`. One-shot; no feedback loop. Morris screening is a cheaper first pass
-  if d ever reaches the many hundreds — noted, not planned.
-- **Studies** select and assign; cases and params default to *everything*, so the
-  blast-everything study is an empty spec:
+  `calc_second_order` per study), evaluate, reduce the lever axes by the objective → Y in
+  row order → `analyze.sobol`, once per swept slice. One-shot; no feedback loop within a
+  study (the "loop" is the human reframing roles between studies). Morris screening is a
+  cheaper first pass if d ever reaches the many hundreds — noted, not planned.
+- **Studies** assign roles and narrow; cases and params default to *everything*, so the
+  blast-everything study is nearly empty. Roles are `sample` (default for anything with a
+  range under a sensitivity study), `optimize` (a lever — `optimization: exhaustive_search`
+  today), `sweep` (a retained condition — `optimization: none`), and `fix` (a constant for
+  this run):
 
 ```yaml
 # studies.yaml — role assignment + narrowing over the ranges declared in config.yaml
 studies:
-  blast:                        # defaults: every case, every param that has a range
-    mode: sobol                 # sobol -> Saltelli + indices | sweep -> per-param 1-D traces
+  blast:                        # defaults: every case, every ranged param -> sample
     n: 1024
   tender-screening:
-    mode: sobol
     cases: [tender, fossil]     # one shared sample matrix across member cases
-    params: [sources.tender-reactor.*, params.route.detach_frac]   # paths or globs
-    fix: {params.route.d_km: 8000}      # constants for this run (override the nominal)
+    sample:  [sources.tender-reactor.*, params.route.detach_frac]  # paths or globs
+    optimize: [params.route.op_v_kn]        # lever: argmin, collapsed
+    sweep:   [params.route.d_km]            # condition: retained -> per-slice Sobol
+    fix:     {params.route.standoff_nm: 12} # constant for this run
+    objective: lcot             # measure to optimize + decompose (default: lcot)
     n: 1024
     second_order: false
 ```
 
 Semantics: one shared sample matrix per study across member cases (cross-case Ys — gaps,
-rankings — stay answerable post-hoc from the store); a path whose source name is absent
-from a member case is skipped for that case (its index is exactly zero by construction —
-correct), any other unresolvable segment errors as a typo; an explicitly listed param
-resolving in *no* member case errors, under default-all it is simply not selected (noted
-in the run summary). `mode: sweep` shares everything but the math: per-param 1-D traces,
-others at nominal — the mass-produced version of a hand-written sweep axis. Levers stay
-levers: speed is a decision, not an uncertainty, so the Sobol Y is the argmin view (grid
-quantization adds staircase noise — acceptable for screening; scipy 1-D refinement if it
-shows in the confidence intervals).
+rankings, crossover-driver measures — stay answerable post-hoc from the store); a path
+whose source name is absent from a member case is skipped for that case (its index is
+exactly zero by construction — correct), any other unresolvable segment errors as a typo;
+an explicitly listed param resolving in *no* member case errors, under default-all it is
+simply not selected (noted in the run summary). A pure `sweep` study (no `sample`) is the
+mass-produced version of a hand-written sweep axis: per-condition traces, no Saltelli.
+Levers stay levers: speed is a decision, not an uncertainty, so the Sobol Y is the argmin
+view (grid quantization adds staircase noise — acceptable for screening; a solver method
+on the lever axis if it shows in the confidence intervals).
 
 **Infeasible samples are signal, not failure**: wide ranges *will* cross feasibility
 edges. Saltelli pairing can't drop rows, so the run always reports the infeasible
-fraction per case; with zero it computes LCOT indices normally, otherwise it also
+fraction per case; with zero it computes objective indices normally, otherwise it also
 computes indices on the *feasibility indicator* (which params push a case off the cliff)
-and, for LCOT, substitutes a study-declared penalty (`infeasible_lcot:`) or skips that
-case's LCOT indices with a note. Nothing errors; all rows land in the store.
+and, for the objective, substitutes a study-declared penalty (`infeasible_value:`) or
+skips that case's objective indices with a note. Nothing errors; all cells land in the
+store.
 
 ### 5. Execution
 
 One kernel call per composition per study; broadcasting replaces the sweep and
-grid-search loops. Chunk the sample dimension if intermediate memory ever matters
-(~15 MB/array at the d=100 blast). Process pools and numba/jax are moot at nanoseconds
-per point. Adaptive optimizers later: loop the iterations, vectorize each iteration
-across the sample dim (every sample's candidate lever evaluated simultaneously), or fall
-back to scalar 0-d evaluation — same kernel either way.
+grid-search loops. After evaluation, the executor reduces the block per each search axis's
+method:
+
+- `optimization: none` (sweep) — leave the axis in place.
+- `optimization: exhaustive_search` (optimize) — `argopt` the objective measure over the
+  axis and **carry every other measure at that index** (xarray `isel`, so the optimal
+  lever value and all itemization at the optimum survive). The *full* pre-reduction block
+  is retained too — the landscape and the optimum are the same materialization.
+
+Chunk the sample dimension if intermediate memory ever matters (~15 MB/array at the d=100
+blast). Process pools and numba/jax are moot at nanoseconds per point. Adaptive optimizers
+later plug into the method seam: loop the iterations, vectorize each across the sample axis
+(every sample's candidate lever evaluated simultaneously), or fall back to scalar 0-d
+evaluation — same kernel either way.
 
 ### 6. The store
 
-Blocks flatten to rows (each output column broadcast to full shape and raveled, with the
-varied coordinates as columns): the *full* evaluated grid persists, not just winners.
-`run.py` keeps writing `results/lcot.{parquet,csv}` — reframed as the argmin *view* over
-its stored grid; studies write under `results/sobol/<study>/`:
+The in-memory block is an **xarray `Dataset`**: named dims (`sample`, `op_v_kn`, `d_km`,
+…) and one variable per measure. This *is* the "measures × axes × reductions" algebra —
+the optimizer is `ds.isel(op_v_kn=ds[objective].argmin("op_v_kn"))` (carrying every
+measure), per-slice Sobol is `ds.sel(d_km=v)`, and the views are selects. Chosen over
+plain numpy + pandas because the reduce-over-some-axes-while-keeping-others operation
+(optimize levers, retain conditions) is groupby/idxmin/merge gymnastics in pandas and one
+labeled call here; the cost is one dependency and a flatten-on-write.
 
-- `samples.parquet` — one row per (cell × case), all itemization columns + `feasible`;
-  sweep-mode runs write the same shape.
-- `indices.parquet` + `indices.csv` — long form: `case, param, S1, S1_conf, ST, ST_conf`
+Three storage tiers, each doing one job:
+
+- **netCDF** (`results/sobol/<study>/block.nc`, via `h5netcdf`) — the authoritative N-D
+  block, lossless: dims, coords, and every measure preserved. The full evaluated grid
+  persists, not just winners. (zarr is a one-line swap if a blast ever outgrows RAM or we
+  want append-per-case / lazy reads — not now.)
+- **parquet** (`samples.parquet`) — the *derived* flat table (each measure broadcast to
+  full shape and raveled, varied coordinates as columns), regenerable from the netCDF, for
+  plotly and any later PRIM/scenario-discovery tooling that wants rows. `indices.parquet` +
+  `indices.csv` hold long-form indices: `case, slice, param, S1, S1_conf, ST, ST_conf`
   (+ S2 pairs when computed).
-- `study.yaml` — snapshot of the study spec that produced the run.
+- **study.yaml** — snapshot of the study spec (roles, ranges, N, seed) that produced the
+  run.
+
+`run.py` keeps writing `results/lcot.{parquet,csv}` — reframed as the argmin *view* over
+its stored block.
 
 ### 7. Views (the analysis end)
 
-All queries over the store: argmin tables (the current artifact), LCOT-vs-X traces, Sobol
-indices, feasibility maps, named scenarios (filters; PRIM boxes when scenario discovery
-earns a dependency). Sensitivity analysis and subspace selection are the same activity —
-indices are hints for which views to open next. Viz joins the `plots.py` rebuild.
+All queries over the store; the full pre-reduction block is what makes several of them
+free (the optimum is an index *into* the block, not a recomputation). The four we want
+first:
+
+- **Sobol indices** — `S1`/`ST` per param as sorted horizontal bars (the tornado analog;
+  a proper tornado is a one-at-a-time ± idiom, this is the correct Sobol version), CI
+  whiskers from the bootstrap, optional `S2` heatmap. With a swept axis, small-multiples
+  across its slices ("how sensitivity shifts with the condition").
+- **swept vs objective, per composition** — a line per strategy over the swept axis;
+  crossovers are where lines cross.
+- **swept vs optimized** — the swept condition on x, the argmin lever value on y (e.g.
+  `d_km` vs optimal `op_v_kn`): how the best decision shifts with the condition.
+- **lever vs objective, optimum marked** — the pre-reduction lever curve for a chosen
+  sample with the argmin starred; the same plot as swept-vs-objective with the axes'
+  roles swapped, which is exactly why swept and optimized being one kind of axis pays off.
+
+Sensitivity analysis and subspace selection are the same activity — indices are hints for
+which views to open next. Viz joins the `plots.py` rebuild.
 
 ## Borrowing from the literature, not the runner
 
@@ -263,17 +381,19 @@ projects; extract it when a second project actually exists, not before.
 1. **Numpy-safe kernel pass** — strategies, `_shared`, `sources` methods, `helpers.crf`;
    behavior under scalars unchanged, existing loops untouched. Acceptance:
    `results/lcot.csv` byte-identical.
-2. **Design/array builder + block execution** — axes become dims, `Point` and
-   `optimizer.py`'s loops retire (strategies drop the `point` parameter), argmin view
-   reproduces the artifact, flat-axis variance check + feasibility masking land here.
-   Acceptance: `results/lcot.csv` identical from the block path (the prototype already
-   demonstrates one-ulp agreement, identical masks and argmins on `port_swap_battery`).
-3. **Ranges-with-values** — loader unwrap (+ `sync_excel.py` round-trip check),
-   `studies.yaml`, `salib` dependency; `mode: sobol` (shared sample dim → indices) and
-   `mode: sweep`.
-4. **Views/artifacts** — indices + summaries under `results/sobol/`; update TODO.md
-   (collapse the readiness section; retire the old Stage-1/Stage-2 vectorization framing,
-   which this plan supersedes).
+2. **Design/array builder + block execution** — roles become named axes, `Point` and
+   `optimizer.py`'s loops retire (strategies drop the `point` parameter), the block is an
+   xarray `Dataset`, the objective reduction reproduces the artifact, flat-axis variance
+   check + feasibility masking land here. Acceptance: `results/lcot.csv` identical from the
+   block path (the prototype already demonstrates one-ulp agreement, identical masks and
+   argmins on `port_swap_battery`).
+3. **Ranges-with-values + studies** — loader unwrap (+ `sync_excel.py` round-trip check),
+   `studies.yaml` with the three roles, `salib` + `xarray` + `h5netcdf` dependencies;
+   sample / optimize / sweep, per-slice Sobol, objective as a chosen measure.
+4. **Views/artifacts** — netCDF block + `samples.parquet` + indices under
+   `results/sobol/`; the four plots in the `plots.py` rebuild; update TODO.md (collapse the
+   readiness section; retire the old Stage-1/Stage-2 vectorization framing, which this plan
+   supersedes).
 
 Verification beyond the golden diffs: a single-param study must return S1 ≈ ST ≈ 1; a
 two-param study on params with known relative leverage must rank them; one real study at
