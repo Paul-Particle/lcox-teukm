@@ -10,5 +10,4 @@ dependencies = [
     "plotly>=6.8.0",
     "pyarrow>=24.0.0",
     "pyyaml>=6.0.3",
-    "ruamel-yaml>=0.18",
 ]

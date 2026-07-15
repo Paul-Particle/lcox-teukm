@@ -260,12 +260,10 @@ range on the value also means there is no separate path spec to misspell.
 
 Alternatives recorded: separate ranges file keyed by dotted path (previous iteration —
 survives only as the studies file); ranges on `Axis` (conflates grid descriptors with
-priors); ranges in the Excel mirror (no). Wrinkles: per-case route values live in
-`cases.csv` cells, so their per-case ranges go in the study file as case-rooted paths
-until case definitions move to YAML (flagged below); `sync_excel.py` must round-trip the
-scalar-or-dict leaf shape — check during implementation. A param with a value but no
-range can still be varied: studies may apply a default perturbation (e.g. ±20%) for
-screening.
+priors). Wrinkle: per-case route values live in `cases.csv` cells, so their per-case ranges
+go in the study file as case-rooted paths until case definitions move to YAML (flagged
+below). A param with a value but no range can still be varied: studies may apply a default
+perturbation (e.g. ±20%) for screening.
 
 ### 2. Compositions (the structural dimension)
 
@@ -468,9 +466,9 @@ projects; extract it when a second project actually exists, not before.
    check + feasibility masking land here. Acceptance: `results/lcot.csv` identical from the
    block path (the prototype already demonstrates one-ulp agreement, identical masks and
    argmins on `port_swap_battery`).
-3. **Ranges-with-values + studies** — loader unwrap (+ `sync_excel.py` round-trip check),
-   `studies.yaml` with the three roles, `salib` + `xarray` + `h5netcdf` dependencies;
-   sample / optimize / sweep, per-slice Sobol, objective as a chosen measure.
+3. **Ranges-with-values + studies** — loader unwrap, `studies.yaml` with the three roles,
+   `salib` + `xarray` + `h5netcdf` dependencies; sample / optimize / sweep, per-slice Sobol,
+   objective as a chosen measure.
 4. **Views/artifacts** — netCDF block + `samples.parquet` + indices under
    `results/sobol/`; the four plots in the `plots.py` rebuild; update TODO.md (collapse the
    readiness section; retire the old Stage-1/Stage-2 vectorization framing, which this plan
