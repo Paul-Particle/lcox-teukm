@@ -1,10 +1,67 @@
-# Sobol sensitivity & vectorization — implementation plan
+# Exploration architecture — Sobol, sweeps, and the evaluation store
 
-Status: **proposal** (2026-07-14). Covers the four gaps in TODO's "Sobol sensitivity —
-readiness" section — override channel, sampler + ranges spec, analysis layer, Stage-2
-vectorization — plus the driver and artifact design around them. Each decision lists the
-alternatives considered, so the choices can be challenged point by point. Sensitivity *viz*
-(tornado / index bars) stays deferred to the `plots.py` rebuild.
+Status: **proposal**, revised 2026-07-15. This iteration reorganizes the plan around the
+kernel / designs / store / views frame below; the override mechanism, sampler choice,
+measured baselines, and vectorization stance carry over from earlier iterations (git
+history has the previous structures). Sensitivity *viz* stays deferred to the `plots.py`
+rebuild.
+
+## The frame
+
+The model is one pure function — the **kernel**: a fully-specified point in parameter
+space, plus a **composition** (platform × drivetrain × sources × strategy — the discrete,
+structural coordinates), maps to one output row (`lcot` + its itemization). Everything
+around it divides into three separable jobs:
+
+1. **Designs** — decide *which points to evaluate*: a dense grid over two params, a
+   Saltelli matrix over forty, a hand-picked nominal. Parameters have no intrinsic roles —
+   *constant / swept / optimized / sampled* are per-run assignments a design makes, cheap
+   to change between runs.
+2. **Execution** — evaluate the kernel at those points (a Python loop today; a process
+   pool or numpy broadcast if it ever hurts).
+3. **Views** — every question is a query over the evaluated rows: an LCOT-vs-`d_km` trace
+   (filter + plot), an optimum (group by everything-but-the-lever, argmin), Sobol indices
+   (an estimator over a Saltelli-shaped run), a named scenario ("tender, transpacific,
+   pessimistic batteries" — a filter), a feasibility map.
+
+This is a known shape, not an invention. In the exploratory-modeling / Robust Decision
+Making literature (Bankes 1993, "Exploratory Modeling for Policy Analysis"; Lempert et
+al., RAND) this is the standard loop, and the **XLRM** vocabulary maps one-to-one onto
+what we've been calling axes and cases:
+
+| XLRM | here |
+|---|---|
+| X — exogenous uncertainties | sampled / swept params (the ranges) |
+| L — levers (decisions) | optimized params (`op_v_kn`; later `design_v_kn`) |
+| R — relationships (model structure) | the composition, incl. strategy — the "integer param" |
+| M — measures | the output row |
+
+Two more borrowed names: **scenario discovery** (PRIM / CART: find the input-space box
+where the output is interesting) is "cases as names for regions in the result space", and
+**factor mapping / Monte-Carlo filtering** (Saltelli) is "sensitivity analysis and
+choosing what to plot are the same activity". `ema_workbench` (TU Delft) is an existing
+implementation of the whole loop — see "Adopt vs build" below.
+
+Consequences the frame forces:
+
+- **Optimize-by-grid is a view, not a phase.** The optimizer already evaluates its whole
+  grid and throws away everything but the argmin; store all rows instead, and the argmin
+  becomes a groupby-min query — as does the trace, as do the indices. One store, many
+  views. (A smarter-than-grid optimizer is *adaptive* — it chooses points from results, so
+  it belongs on the design side, ask/tell style; the kernel's purity is what keeps that
+  door open.)
+- **Roles move to run-time; they don't disappear.** Not knowing in advance which params
+  matter is real, but combinatorics still rules: dense designs must stay low-dimensional
+  (grids), global designs must be sparse (Sobol/LHS). The workflow is: blast globally by
+  sampling → read the indices → assign x/y roles for the dense local views the indices
+  point at. Assignment becomes a per-study line instead of a schema commitment.
+- **`Case` currently does three jobs**: composition (structural input — keeps the name),
+  nominal per-case values (input — stays), and "this subspace is meaningful" (a view —
+  moves out to the analysis side).
+- **Inputs invert: ranges first, narrowing second.** The config declares values *with*
+  their ranges (a scalar is a degenerate range); studies narrow — select, assign roles,
+  fix. Previously the YAML pinned scalars and the CSV re-opened them; that is backwards
+  relative to how the space is actually explored.
 
 ## Design stance — guards inform, they don't gate
 
@@ -17,31 +74,27 @@ frictionless. Two kinds of "safety" get two different treatments:
   typos, never intent — in a hundred-parameter blast a silent one costs a day — and they
   cost one schema line per parameter while shaping nothing architecturally.
 - **Intent-level checks report, they never block.** Whether an inert axis, a flat
-  parameter, or an infeasible corner of the sampled space is a mistake or just the
-  uninteresting part of a deliberately wide blast is a judgment call. The machinery below
-  surfaces these (warnings, feasibility columns, run summaries) and leaves the call to the
-  person reading the run.
+  parameter, or an infeasible corner of the sampled space is a mistake or the
+  uninteresting part of a deliberately wide blast is a judgment call. The machinery
+  surfaces these (warnings, feasibility columns, run summaries) and leaves the call to
+  the person reading the run.
 
-The target workflow this plan serves: add a parameter's value to `config.yaml` (plus its
-one-line schema field), add its range once to the ranges library, and every subsequent
-sweep or sensitivity blast picks it up across every case it resolves in — no per-study,
-per-case, per-param wiring.
+Target workflow: add a parameter's value and range to `config.yaml` (plus its one-line
+schema field), and every subsequent sweep or sensitivity blast picks it up across every
+case it resolves in — no per-study, per-case, per-param wiring.
 
 ## Measured baseline
 
-Numbers from this machine (Apple-silicon VM, CPython 3.11), because the vectorization
-decision should rest on measurement, not the intuition that "thousands of samples" implies
-"slow":
+Numbers from this machine (Apple-silicon VM, CPython 3.11):
 
 | quantity | measured |
 |---|---|
-| full `run.py` (8 cases × 36 sweep × 18 speeds ≈ 5.2k strategy evals) | ~0.5 s |
-| one strategy eval | 2.6–5.4 µs |
+| full `run.py` (8 cases × 36 sweep × 18 speeds ≈ 5.2k kernel evals) | ~0.5 s |
+| one kernel eval | 2.6–5.4 µs |
 | one inner `optimize()` (18-point speed grid) | 0.05–0.10 ms |
-| prototype dotted-path override, 6 paths (see Decision 1) | 28 µs |
+| prototype dotted-path override, 6 paths | 28 µs |
 
-One Sobol sample = one override + one inner optimization ≈ **0.13 ms**. Saltelli design
-sizes that follow from it:
+One Sobol sample = one override + one inner optimization ≈ **0.13 ms**:
 
 | design | samples | est. runtime / case |
 |---|---|---|
@@ -50,55 +103,68 @@ sizes that follow from it:
 | d=20, N=4096, with second-order | 172 032 | ~22 s |
 | d=100 ("every param"), N=1024, first-order | 104 448 | ~14 s |
 
-Headline consequence: **Sobol never makes the scalar engine the bottleneck.** The sampler
-and the vectorization question decouple; Stage-2 is re-scoped in Decision 7.
+Headline: **nothing on the horizon makes the scalar kernel the bottleneck.** Store sizes
+are equally comfortable — even a 10⁶-row ensemble with ~30 columns is tens of MB of
+Parquet.
 
-## Decision 1 — how per-sample values reach the model
+## The pieces
 
-The blocker from TODO: only `d_km` / `op_v_kn` / `design_v_kn` / `detach_frac` flow through
-`point.get`; the high-leverage library params (battery/reactor/tether cost + efficiency
-blocks) are read straight off the frozen dataclasses.
+### 1. Values + ranges (the input end)
 
-Alternatives considered:
+**Decision (revised this iteration): ranges live with values in `config.yaml`.** A leaf
+is either a scalar or `{value: 250, range: [80, 300], dist: unif}`; the loader unwraps
+`value` for the schema and harvests the ranges into a path-keyed library. A parameter's
+plausible range is *data about the parameter* — it belongs next to the value, and it is
+exactly what the future tech-data library will tag with sources — while *which params
+vary in a given run* is study design and stays in the study file.
 
-- **(a) Widen the `Point` channel** — read *every* parameter as
-  `point.get("battery.capex.usd_per_kwh", battery.capex.usd_per_kwh)`. Rejected: `point`
-  never reaches the source cost methods (`BatterySource.size` reads `self.energy.dod`
-  internally), so it would have to be threaded through every `size`/`levelize`/`life_yr`
-  signature; every read site spells the path twice; strategy readability — the model's main
-  asset — degrades everywhere to serve a feature used only by the sampler.
-- **(b) Override the parsed YAML, rebuild through the loader** — set dotted paths in the
-  `config.yaml` dict, rebuild Cases per sample. Workable, and the path namespace is exactly
-  the YAML's. Rejected on three counts: `load_config` must be split into parse-once /
-  build-many (loader churn); a per-sample deepcopy + full library rebuild costs on the order
-  of the evaluation itself; and route params come from `cases.csv`, so a second namespace is
-  needed anyway.
-- **(c) Recursive `dataclasses.replace` on the built `Case`** — a pure function
-  `apply_overrides(case, {path: value}) -> Case` that rebuilds only the frozen spine along
-  each path. **Chosen.** Prototype validated: 28 µs for 6 paths; untouched subtrees stay
-  shared by reference; a misspelled path raises `AttributeError` naming the exact bad field
-  (validation against the schema itself, stronger than a dict-key check); the mechanism
-  needs no loader or schema change (what Decision 1a changes in the optimizer and
-  strategies is separate — and simplifying).
-- **(d) Mutable copies (`deepcopy` + `object.__setattr__`)** — rejected: breaks the frozen
-  invariant and risks leaking mutations through the loader's shared-by-reference
-  economics/margins/library objects.
-- **(e) omegaconf / pydantic** — dotted overrides come built in, but it's a dependency plus
-  a loader rewrite to solve a ~30-line problem.
+Alternatives considered: a separate ranges file keyed by dotted path (the previous
+iteration — kept to avoid loader churn, an objection the frame dissolves: the unwrap walk
+is ~15 lines, and value+range adjacency is the reading you actually want); ranges on
+`Axis` (rejected: conflates grid descriptors with priors); ranges in the Excel mirror
+(no).
 
-Paths are rooted at the Case and mirror the schema (which mirrors `config.yaml`
-one-to-one), with one convention: inside the `sources` tuple the next segment selects by
-source *name*:
+Wrinkles: per-case route values live in `cases.csv` cells, so their per-case ranges go in
+the study file as case-rooted paths (`params.route.standoff_nm`) until case definitions
+move to YAML (flagged below). `sync_excel.py` reads `config.yaml`; the scalar-or-dict
+leaf shape must round-trip through it — check during implementation. A param with a value
+but no range can still be varied: a study may apply a default perturbation (e.g. ±20%)
+for screening, so *entering* a param never requires deciding its range.
 
-```
-sources.lfp.capex.usd_per_kwh
-sources.tender-reactor.tether.cable_efficiency
-params.route.standoff_nm
-platform.capacity.deadweight_t
-drivetrain.operations.crew_count
-```
+### 2. Compositions (the structural dimension)
 
-Validated prototype (lands as `scripts/override.py`, plus docstrings):
+`cases.csv` stays the hand-written composition table: platform × drivetrain × sources ×
+strategy + nominal route values + the seed axes behind `run.py`'s default artifact. What
+it stops being is the roster of every subspace worth looking at — named scenarios are
+filters on the store (later PRIM boxes), not input rows, and a view may span the
+composition dimension ("cheapest nuclear option") just as well as slice it.
+
+Flagged, not acted on: at a genuinely large composition count the CSV's multi-row
+grouping and wide columns will strain; the escape hatch is YAML case definitions (anchors
+give shared defaults + per-case deltas), which would also give per-case route ranges a
+natural home.
+
+### 3. The kernel and the override channel
+
+How per-sample / per-point values reach the model. Alternatives considered:
+
+- **(a) Widen the `Point` channel** (read every param via `point.get`) — rejected:
+  `point` never reaches the source cost methods (`BatterySource.size` reads
+  `self.energy.dod` internally), every read site spells the path twice, and strategy
+  readability — the model's main asset — degrades everywhere.
+- **(b) Override the parsed YAML, rebuild through the loader** — rejected: needs a
+  parse-once/build-many loader split, costs a deepcopy + full rebuild per sample (order
+  of the evaluation itself), and route params need a second namespace anyway.
+- **(c) Recursive `dataclasses.replace` on the built `Case`** — **chosen**, prototype
+  validated: 28 µs for 6 paths, untouched subtrees stay shared, a misspelled path raises
+  `AttributeError` naming the exact bad field. No loader or schema change.
+- **(d) Mutable copies** — rejected: breaks the frozen invariant, mutation-leak risk
+  through shared library objects. **(e) omegaconf / pydantic** — a dependency plus a
+  loader rewrite to solve a ~30-line problem.
+
+Paths are rooted at the Case and mirror the schema; inside the `sources` tuple the next
+segment selects by source name (`sources.lfp.capex.usd_per_kwh`,
+`params.route.standoff_nm`, `drivetrain.operations.crew_count`).
 
 ```python
 def apply_overrides(case: schema.Case, overrides: dict[str, float]) -> schema.Case:
@@ -121,221 +187,159 @@ def _set(node, keys: list[str], value):
     return dataclasses.replace(node, **{key: _set(child, rest, value)})
 ```
 
-### Decision 1a — one mechanism or two?
+**Axes unify onto this channel** (one mechanism, not two): `Axis.param` takes the same
+dotted path (bare names alias to `params.route.<name>`, keeping `cases.csv` and columns
+as they are); the optimizer builds each grid point's Case with `apply_overrides`; the
+`Point` class and the strategies' `point` parameter retire — every
+`point.get(name, route.X)` becomes a plain read of the (possibly overridden) config.
+Costs, and why they don't bite:
 
-- **(i) Two channels** — keep `Point` for the optimizer's axes, add overrides for samples
-  only. Preserves the read-tracking axis-consumed guard and the hot loop's dict-passing
-  cheapness, but leaves two namespaces for "vary this parameter" (bare point names vs
-  dotted paths), limits axes to the four point-wired route params — sweeping a library
-  leaf (LCOT vs battery $/kWh) would need a Sobol study instead of a `cases.csv` row —
-  and keeps the `point.get` plumbing in every strategy.
-- **(ii) One channel: axes are overrides** — **chosen**. `Axis.param` takes the same
-  case-rooted dotted path as a study param (a bare name aliases to `params.route.<name>`,
-  so `cases.csv` and the artifact columns stay as they are); the optimizer builds each grid
-  point's Case with `apply_overrides` and calls it — the `Point` class and the strategies'
-  `point` parameter retire, every `point.get(name, route.X)` line becomes a plain read of
-  the (now possibly overridden) config. Any config leaf becomes sweepable/optimizable from
-  `cases.csv` by exactly the mechanism that makes it samplable.
+- **Read-tracking dies with `Point`** → replaced by a stronger *effect* check: rows
+  identical along an axis (comparing strategy-produced columns, before coordinates are
+  merged in) trigger a **warning** naming both readings — unconsumed param vs genuinely
+  flat range. A report, not a gate: under blast-everything exploration an axis inert on
+  some cases is routine. Reading isn't affecting, so this also catches read-but-inert
+  params the old guard passed (an optimize axis on `design_v_kn` for `reactor_direct`
+  yields a plausible-looking "optimum" at the grid floor only because nothing varies).
+  Axes with `n = 1` or `lo == hi` skip the check.
+- **Hot-loop overhead** ~5 µs/path/point vs 4–5 µs per eval: full `run.py` ~0.5 s →
+  ~1.5 s. Irrelevant, and it vanishes under array execution (leaf values set once per
+  case).
+- **A new axis param needs a schema field** — discipline, not loss: every variable param
+  is schema-documented, and all four previously point-wired params were already `Route`
+  fields, which is what makes the migration mechanical.
+- **Churn**: six strategies lose their `point` plumbing (`strategy(case) -> row`).
+  Acceptance: `results/lcot.csv` byte-identical before/after.
 
-The honest costs of (ii), and why they don't bite:
+### 4. Designs (which points to evaluate)
 
-- **The read-tracking guard dies with `Point`.** Replaced by a stronger *effect* check: the
-  optimizer evaluates the whole grid anyway, so it can notice rows that are identical
-  along an axis (comparing strategy-produced columns, before the runner merges the
-  coordinates in) and **warn** on a flat one — a report, not a gate, since under
-  blast-everything exploration an axis that is inert on some cases is routine, and only
-  the reader can tell mistake from don't-care (see the design stance). Stronger than
-  read-tracking, because reading isn't affecting — a strategy can read a param that this
-  case's config makes inert, which the read-guard passes and the effect-check catches
-  (e.g. an optimize axis on `design_v_kn` for `reactor_direct` produces a
-  plausible-looking "optimum" at the grid floor today only because nothing varies). The
-  warning names both readings (unconsumed param vs genuinely flat range); axes with
-  `n = 1` or `lo == hi` skip the check.
-- **Hot-loop overhead.** ~5 µs of spine-rebuilding per path per grid point against
-  4–5 µs per strategy eval: the full `run.py` goes ~0.5 s → ~1.5 s. Irrelevant at this
-  scale, and it vanishes under Stage-2 (arrays enter as leaf values once per case, not per
-  point).
-- **A new axis param needs a schema field.** `point.get` allowed ad-hoc names; now every
-  per-case variable must live on `Route` (or another block). That is discipline rather
-  than loss — variable params become schema-documented — and all four currently-wired
-  params are already `Route` fields, which is what makes the migration mechanical.
-- **Churn:** six strategies each lose their `point` plumbing (signature becomes
-  `strategy(case) -> row`); the optimizer swaps `Point` for `apply_overrides` + the effect
-  check. Acceptance: `results/lcot.csv` byte-identical before/after.
+- **Grid** — the existing `Axis` mechanics, unchanged: seed axes in `cases.csv` drive the
+  default artifact; studies can declare denser or different grids.
+- **Saltelli / Sobol via SALib** — **chosen** over `scipy.stats.qmc.Sobol` + hand-rolled
+  estimators (we'd own notoriously subtle estimator math for no gain) and over fully
+  hand-rolled (~100 lines of easy-to-get-quietly-wrong). SALib brings the
+  sampler/estimator pairing, bootstrap confidence intervals, and distributions
+  (`unif`/`triang`/`norm`/`lognorm`); its scipy dependency also unlocks the 1-D
+  grid-refinement TODO item. Default `second_order: false` (N(d+2) vs N(2d+2)); if d ever
+  grows into the many hundreds, SALib's Morris screening is a cheaper first pass with the
+  same driver shape — noted, not planned.
+- **Adaptive designs later** (real optimizers, adaptive sampling) plug in ask/tell style
+  against the pure kernel; nothing here forecloses them.
 
-Known residual limit on the *sampling* side (the effect check covers axes, not studies): a
-valid-but-inert study param — say `params.route.detach_frac` on the fossil case — is
-silently flat and comes back as an exactly-zero index. That zero is the correct answer
-(fossil LCOT is independent of detach weather); it only misleads if the study *intended*
-the param to matter. Study specs are short and reviewed; if this ever bites, a cheap probe
-pass (perturb each param once, warn if the output is bit-identical) can be added to the
-driver.
-
-## Decision 2 — where samples live
-
-- **(a) Machine-generate `cases.csv`** (the original comment in `config.yaml`). A column
-  per parameter is already rejected in TODO; a JSON-overrides column keeps the schema but
-  round-trips thousands of rows through CSV, where Saltelli's strict row ordering — which
-  the analyzer depends on — is one accidental re-sort away from silent corruption, and the
-  hand-written seed table drowns.
-- **(b) A separate driver, `scripts/sobol.py`** — **chosen**. Samples exist only as arrays
-  in the driver and as an output artifact; `cases.csv` stays the human-written seed table.
-  The stale "cases.csv will be machine-generated (Sobol…)" comment in `config.yaml` gets
-  corrected as part of this work.
-
-Flagged, not acted on: at a genuinely large number of hand-written scenarios the CSV's
-multi-row grouping and wide column set will strain. The escape hatch is case definitions
-in YAML (anchors give shared defaults + per-case deltas) — orthogonal to everything in
-this plan, cheap churn whenever it first hurts.
-
-## Decision 3 — parameter-space spec
-
-- **(a) Extend `Axis` with distribution fields** — rejected; TODO already flags this:
-  `Axis` is a grid descriptor for search/sweep, and conflating it with sampling priors
-  muddies both.
-- **(b) Priors inline in `config.yaml`** (`usd_per_kwh: {value: 250, dist: triang, …}`) —
-  the eventual endgame once the tech-data library (TODO "Data & itemization") tags every
-  value with source + uncertainty, but today it churns the loader and conflates *data*
-  (priors) with *study design* (which params a given study varies).
-- **(c) A separate `uncertainty.yaml`** — **chosen**, structured as a **ranges library
-  plus studies that select from it**. A range is entered once, keyed by dotted path (this
-  is the "enter lots of named params easily" end of the pipeline); a study picks cases and
-  params, both defaulting to *everything* — the blast-everything study is an empty spec.
-  When the tech-data library arrives, the ranges section is what it absorbs.
+Studies select and assign — cases and params default to *everything*, so the
+blast-everything study is an empty spec:
 
 ```yaml
-# uncertainty.yaml — parameter ranges (entered once) + studies that select from them.
-# Paths per override.py; dists per SALib.
-ranges:
-  sources.tender-reactor.capex.usd_per_kw:          {dist: unif, bounds: [3500, 12000]}
-  sources.tender-reactor.parasitic_kw:              {dist: unif, bounds: [1000, 5000]}
-  sources.tender-reactor.tether.cable_efficiency:   {dist: unif, bounds: [0.90, 0.98]}
-  sources.lfp.capex.usd_per_kwh:                    {dist: unif, bounds: [80, 300]}
-  params.route.standoff_nm:                         {dist: unif, bounds: [100, 400]}
-  params.route.detach_frac:                         {dist: unif, bounds: [0.0, 0.15]}
-
+# studies.yaml — role assignment + narrowing over the ranges declared in config.yaml
 studies:
-  blast:                          # the defaults: every case, every range that resolves
-    mode: sobol                   # sobol -> Saltelli matrix + indices | sweep -> 1-D traces
-    n: 1024                       # base sample count (power of 2)
+  blast:                        # defaults: every case, every param that has a range
+    mode: sobol                 # sobol -> Saltelli + indices | sweep -> per-param 1-D traces
+    n: 1024                     # base sample count (power of 2)
   tender-screening:
     mode: sobol
-    cases: [tender, fossil]       # one shared sample matrix across member cases
-    params: [sources.tender-reactor.*, params.route.detach_frac]   # exact paths or globs
+    cases: [tender, fossil]     # one shared sample matrix across member cases
+    params: [sources.tender-reactor.*, params.route.detach_frac]   # paths or globs
+    fix: {params.route.d_km: 8000}      # constants for this run (override the nominal)
     n: 1024
     second_order: false
 ```
 
-## Decision 4 — sampler + analyzer
+Semantics:
 
-- **(a) SALib** — **chosen**. The Saltelli/Sobol′ sampling and the index estimators with
-  bootstrap confidence intervals come as a validated pair (getting the estimators right by
-  hand is notoriously subtle); distributions (`unif`/`triang`/`norm`/`lognorm`) supported in
-  the problem dict. One new dependency (`salib`), pure Python over numpy/scipy — and scipy's
-  arrival is a bonus: the "swap in a real 1-D minimizer" TODO item gets its solver for free.
-- **(b) `scipy.stats.qmc.Sobol` + hand-rolled Saltelli/Jansen estimators** — scipy would be
-  a new dependency too, and we'd own the estimator subtleties for no gain.
-- **(c) Fully hand-rolled** — rejected outright; ~100 lines of easy-to-get-quietly-wrong.
+- **One shared sample matrix per study across member cases** — what makes cross-case
+  questions (LCOT gaps, rankings) answerable post-hoc from the store without re-eval.
+- **Resolvability:** a path whose source name is absent from a member case is skipped for
+  that case (that case genuinely doesn't depend on it — its index is exactly zero by
+  construction); any other unresolvable segment is a typo and errors. An explicitly
+  listed param resolving in *no* member case errors (you named it); under default-all it
+  is simply not selected, noted in the run summary.
+- **`mode: sweep` shares everything but the math** — per-param 1-D traces (each param
+  stepped across its range, others at nominal): the mass-produced version of a
+  hand-written sweep axis. `mode: sobol` adds the Saltelli matrix and indices.
+- **Levers stay levers:** each sample re-optimizes the case's `optimize` axes (speed is a
+  decision, not an uncertainty); the Sobol Y is the argmin-view LCOT. Grid quantization
+  (optima land on speed knots) adds staircase noise — acceptable for screening, scipy 1-D
+  refinement is the fix if it shows in the confidence intervals.
+- **Infeasible samples are signal, not failure.** Wide ranges *will* cross feasibility
+  edges — partly the point. Saltelli's pairing can't drop rows, so the driver always
+  reports the infeasible fraction per case; with zero it computes LCOT indices normally,
+  otherwise it also computes indices on the *feasibility indicator* (which params push a
+  case off the cliff — often the more interesting result) and, for LCOT, substitutes a
+  study-declared penalty (`infeasible_lcot:`) or skips that case's LCOT indices with a
+  note. Nothing errors; all rows land in the store.
 
-Default `second_order: false` (cost N(d+2) instead of N(2d+2)); first-order + total indices
-are the standard screening pair, and S2 is a flag away when interactions matter. If the
-ranges library ever grows d into the many hundreds, SALib's Morris screening is a cheaper
-first pass with the same driver shape — noted, not planned.
+### 5. Execution
 
-## Decision 5 — study semantics (the driver's contract)
+The ladder, cheapest lever first — re-scoped by the measured baseline (the old TODO
+assumed Sobol would force vectorization; it doesn't):
 
-- **One shared sample matrix per study, applied to every member case.** This is what makes
-  cross-case questions ("does tender beat fossil under joint uncertainty?") answerable
-  post-hoc from the artifact — any derived Y (LCOT gap, rank indicator) can be analyzed
-  against the same matrix without re-evaluating.
-- **Resolvability rule:** a path whose *source name* is absent from a member case's
-  `sources` tuple is skipped for that case (correct semantics — that case genuinely doesn't
-  depend on the param; e.g. `sources.lfp.*` on `fossil`). Any other unresolvable segment is
-  an error (it's a typo — schema fields exist on every instance). Under a study's explicit
-  `params:` list, a path resolving in *no* member case is an error (you named it; it can't
-  apply); under the default everything-that-resolves selection it is simply not selected —
-  noted in the run summary, per the design stance.
-- **`mode: sweep` shares everything but the math.** The same ranges, resolvability rule,
-  and artifacts drive per-param 1-D traces — each param stepped across its range with the
-  others at nominal, the mass-produced version of a hand-written `cases.csv` sweep axis;
-  `mode: sobol` adds the Saltelli matrix and the indices. With `cases:` defaulting to all
-  and `params:` to all, "sweep every parameter of every scenario" is one short study.
-- **Y = min-LCOT from the case's own `optimize` axes.** Operating speed is a decision
-  variable, not an uncertainty — each sample re-optimizes it. The known staircase from the
-  18-point grid (optimal speeds land on knots) adds a little quantization noise to the
-  indices; acceptable for screening, and the existing grid-refinement TODO item (now with
-  scipy available) is the fix if it ever shows in the confidence intervals.
-- **`sweep` axes are ignored by the driver.** A study evaluates at the route's (possibly
-  overridden) nominal `d_km`; distance enters either as a fixed override or as a sampled
-  param — not as a swept trace.
-- **Infeasible samples are signal, not failure.** Wide blast ranges *will* cross
-  feasibility edges — that is partly what wide ranges are for — and Saltelli's paired
-  design cannot tolerate dropped rows. So the driver always reports the infeasible
-  fraction per case, and: with zero infeasibles it computes LCOT indices normally;
-  otherwise it computes indices on the *feasibility indicator* as well (which params push
-  a case off the cliff — often the more interesting result), and for the LCOT indices
-  either substitutes a study-declared penalty (`infeasible_lcot:`) or, absent one, skips
-  that case's LCOT indices with a note in the artifact. Nothing errors; all samples,
-  infeasible rows included, land in the archive. (A penalty value deliberately mixes
-  feasibility into the LCOT indices — declaring it is what makes that a conscious choice.)
-
-Driver shape: `uv run scripts/sobol.py [study ...]` → for each study, build the SALib
-problem, sample once, then per member case loop samples → `apply_overrides` →
-`optimizer.optimize(case_i, {})` → assemble the per-sample frame → `sobol.analyze` per
-case → write artifacts. ~120 lines, no changes to the eval engine.
-
-## Decision 6 — artifacts
-
-Everything under `results/sobol/<study>/`, never touching `results/lcot.*`:
-
-- `samples.parquet` — one row per (sample × case): the sampled inputs plus the *full*
-  strategy row (all the extra columns), not just LCOT. Sweep-mode studies write the same
-  shape (one row per grid point × case), just without an indices artifact. Costs nothing and keeps every
-  downstream reuse open — input/output scatters, derived-Y analyses, regression-based
-  importance — without re-running.
-- `indices.parquet` + `indices.csv` — long form: `case, param, S1, S1_conf, ST, ST_conf`
-  (+ S2 pairs when computed). CSV for eyeballing, matching the `lcot.*` convention.
-- `study.yaml` — a snapshot of the study spec that produced the run, so an artifact is
-  self-describing after `uncertainty.yaml` moves on.
-
-## Decision 7 — vectorization, re-scoped by measurement
-
-TODO Stage-2 assumed the Sobol generator makes the grid "big enough to feel". The measured
-numbers say otherwise: the worst realistic screening study runs in seconds per case. The
-honest ladder, cheapest lever first:
-
-- **(a) Do nothing** — **chosen for now.** Nothing on the near horizon crosses a minute.
-- **(b) Process pool over samples** (`ProcessPoolExecutor`, chunked, in the driver only) —
-  the designated first lever if a study ever crosses ~minutes: ~10 lines, ×n_cores, zero
-  model-code impact. Samples are embarrassingly parallel.
-- **(c) Stage-2 numpy broadcast** (TODO's plan: `Point` carries whole-grid arrays,
-  feasibility early-returns become masks, `argmin` picks winners) — ~100× on top, but
-  priced in the readability of all six strategies (masks, `np.where`, `np.errstate` over
-  masked garbage). Its real trigger is not Sobol but the voyage-weather Monte Carlo
-  (hour-by-hour SoC over hundreds of journeys × routes) or designs orders of magnitude
-  larger. The TODO plan itself is sound — kernel inventory, GRID-vs-CONFIG branch rule,
-  byte-identical diff acceptance — keep it verbatim, unscheduled.
+- **(a) Scalar loop — chosen for now.** Worst realistic study: seconds per case.
+- **(b) Process pool over samples** (driver-only, ~10 lines, ×n_cores) — first lever if a
+  study crosses ~minutes; samples are embarrassingly parallel.
+- **(c) Numpy broadcast** (whole-grid arrays through the kernel, feasibility
+  early-returns become masks) — ~100× more, priced in the readability of all six
+  strategies. Its real trigger is the voyage-weather Monte Carlo or designs orders of
+  magnitude larger. The old TODO plan (kernel inventory, GRID-vs-CONFIG branch rule,
+  byte-identical acceptance) stays valid, unscheduled. With axes unified onto overrides
+  there is exactly one door for values into the model — config leaves — so array
+  execution later needs no second channel: an array set into a field broadcasts through
+  the pure-arithmetic kernel, grid dims and sample dims alike.
 - **(d) numba / jax** — rejected: heavy deps, and jitting dataclass-orchestration code
   means rewriting it into arrays anyway, i.e. (c) with extra steps.
 
-Nothing in this plan is thrown away by (c) later — Decision 1a makes it simpler: with axes
-unified onto overrides there is exactly one door for values into the model, the config
-leaves. `apply_overrides` is dimension-agnostic (a numpy array set into a field broadcasts
-through the pure-arithmetic kernel), so Stage-2 becomes "numpy-safe kernels + feasibility
-masks" and both the grid dims and the sample dim enter the same way.
+### 6. The store
+
+One rows artifact per run — the *full* evaluated grid, not just winners: sampled/swept
+inputs + the complete kernel row (all itemization columns) + `feasible`. `run.py` keeps
+writing `results/lcot.{parquet,csv}`, reframed as the argmin *view* over its stored grid;
+studies write under `results/sobol/<study>/`:
+
+- `samples.parquet` — one row per (sample × case); sweep-mode runs write the same shape
+  (grid point × case).
+- `indices.parquet` + `indices.csv` — long form: `case, param, S1, S1_conf, ST, ST_conf`
+  (+ S2 pairs when computed).
+- `study.yaml` — snapshot of the study spec that produced the run, so the artifact stays
+  self-describing after `studies.yaml` moves on.
+
+### 7. Views (the analysis end)
+
+All queries over the store: argmin tables (the current artifact), LCOT-vs-X traces, Sobol
+indices, feasibility maps, and named scenarios (filters; later PRIM boxes when scenario
+discovery earns a dependency). Sensitivity analysis and subspace selection are the same
+activity here — the indices are hints for which views to look at next. Viz (tornado /
+index bars / scatter) joins the `plots.py` rebuild.
+
+## Adopt vs build: `ema_workbench`
+
+The TU Delft EMA Workbench implements this exact loop: parameters declared with ranges
+(constants as degenerate cases), categorical parameters that could carry the composition
+dimension, parallel ensemble execution, SALib integration for Sobol, PRIM/CART for
+scenario discovery, results as tidy arrays. Since the kernel is a pure function of a flat
+parameter dict post-unification, wrapping it is an afternoon. Costs: it owns the run loop
+(inversion of control), drags matplotlib/seaborn/platypus along, and its API has real
+friction. **Plan: a timeboxed spike before building our own driver** — wrap the kernel,
+run one Sobol study and one PRIM box, then decide: adopt it, or keep the ~300-line
+in-repo core (override + driver + store + queries) and consciously borrow its structure.
+Either way the workflow stays portable to other projects — the four pieces are
+model-agnostic.
 
 ## Implementation order
 
-1. **`scripts/override.py` + axis unification** — the optimizer applies axes via
-   `apply_overrides` (bare axis names alias to `params.route.<name>`), strategies drop the
-   `point` parameter, the effect-based flat-axis warning replaces read-tracking; derive
-   `load_config`'s `_ROUTE_FIELDS` from the `Route` dataclass fields (one fewer place to
-   touch per new per-case param); correct the stale machine-generated-cases comment in
-   `config.yaml`. Acceptance: `results/lcot.csv` byte-identical before/after.
-2. **`uncertainty.yaml`** — ranges library + seed studies; `salib` dependency.
-3. **`scripts/sobol.py`** driver (both modes) + artifacts.
-4. **TODO.md** — collapse the readiness section to what remains (viz; Stage-2 pointer here).
+1. **`scripts/override.py` + axis unification** — optimizer applies axes via
+   `apply_overrides` (bare names alias to `params.route.<name>`), strategies drop
+   `point`, effect-based flat-axis warning replaces read-tracking; derive `load_config`'s
+   `_ROUTE_FIELDS` from the `Route` dataclass fields; correct the stale
+   machine-generated-cases comment in `config.yaml`. Acceptance: `results/lcot.csv`
+   byte-identical.
+2. **Timeboxed `ema_workbench` spike** (needs 1's kernel purity). Outcome decides step 4's
+   shape.
+3. **Ranges-with-values** — loader unwrap (+ `sync_excel.py` round-trip check) +
+   `studies.yaml` seeds; `salib` dependency.
+4. **Driver + store + index/trace views** — in-repo `scripts/sobol.py` or the EMA wrapper,
+   per the spike.
+5. **TODO.md** — collapse the readiness section to what remains (viz; execution-ladder
+   pointer here).
 
 Verification beyond the golden diff: a single-param study must return S1 ≈ ST ≈ 1; a
-two-param study on params with known relative leverage must rank them; and one real study
-run at N and 2N must agree within the bootstrap confidence intervals.
+two-param study on params with known relative leverage must rank them; one real study at
+N and 2N must agree within the bootstrap confidence intervals.
