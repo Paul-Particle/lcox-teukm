@@ -13,6 +13,8 @@ from __future__ import annotations
 import math
 from typing import NamedTuple
 
+import numpy as np
+
 import schema
 import helpers
 from units import KMH_PER_KNOT, HOURS_PER_YEAR
@@ -103,9 +105,9 @@ def carried(pl: schema.Platform, overhead_slots: float, storage_units: float, en
     def carried_dir(lf: float) -> float:
         demand = lf * cargo_cap
         free_empty = pl.slot_limits.batt_empty_usable_frac * (cargo_cap - demand)
-        vol_carried = demand - max(0.0, storage_units - free_empty)
-        return min(vol_carried, mass_limited)
+        vol_carried = demand - np.maximum(0.0, storage_units - free_empty)
+        return np.minimum(vol_carried, mass_limited)
 
-    lf_head = min(1.0, load_factor * (1.0 + load_factor_imbalance))
+    lf_head = np.minimum(1.0, load_factor * (1.0 + load_factor_imbalance))
     lf_back = load_factor * (1.0 - load_factor_imbalance)
     return 0.5 * (carried_dir(lf_head) + carried_dir(lf_back))

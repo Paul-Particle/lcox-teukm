@@ -8,12 +8,14 @@ not `physics`. Strategy-only route arithmetic (legs/year, carried) lives in stra
 
 from __future__ import annotations
 
+import numpy as np
+
 import schema
 
 
 def crf(rate: float, years: float) -> float:
     """Capital recovery factor: annual payment amortizing one unit of CAPEX over `years`."""
-    years = max(years, 1e-6)
+    years = np.maximum(years, 1e-6)
     return rate * (1 + rate) ** years / ((1 + rate) ** years - 1)
 
 
