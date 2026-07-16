@@ -7,7 +7,7 @@ import numpy as np
 
 from common import schema
 from common import helpers
-from model import sources
+from model import costing
 from common.units import KM_PER_NM, KMH_PER_KNOT
 
 from ._shared import (_resolve_demand, _fixed_costs, _lcot, _finalize,
@@ -37,8 +37,8 @@ def tether_charge(case: schema.Case) -> dict:
     d_km, op_v_kn = params.d_km, params.op_v_kn
     design_v_kn = params.design_v_kn
     # expects exactly one battery + one tender reactor source
-    battery = next(s for s in case.sources if isinstance(s, sources.BatterySource))
-    tender = next(s for s in case.sources if isinstance(s, sources.TenderReactor))
+    battery = next(s for s in case.sources if isinstance(s, schema.BatterySource))
+    tender = next(s for s in case.sources if isinstance(s, schema.TenderReactor))
     detach_frac = tender.tether.detach_frac     # expected fraction of tethered time the cable is dropped
 
     # --- route plan at the operating speed -------------------------------------
@@ -66,8 +66,8 @@ def tether_charge(case: schema.Case) -> dict:
     detach_buffer_kwh = bus_kw * detach_duration_h   # 0 when no detach event is configured
     # energy reserve on the coastal sub-leg only; the detach buffer is itself a weather reserve
     deliverable_kwh = np.maximum(coastal_kwh * (1 + margins.energy_reserve), detach_buffer_kwh)
-    installed_kwh, slots, mass_t = battery.size(
-        deliverable_kwh, bus_kw, pl.slot_limits.container_max_gross_t)
+    installed_kwh, slots, mass_t = costing.battery_size(
+        battery, deliverable_kwh, bus_kw, pl.slot_limits.container_max_gross_t)
 
     # --- annual legs + revenue cargo (pack slots + mass displace cargo) ---------
     legs = legs_per_year(op_v_kn, d_km, dt.operations.port_hours, dt.operations.availability)
@@ -89,15 +89,15 @@ def tether_charge(case: schema.Case) -> dict:
     tender_bus_kw = bus_kw + charge_kw
     tender_bus_kwh = tender_bus_kw * attached_h
     # detached hours are non-delivering time for the tender, on top of the between-ship wait
-    tender_usd_per_kwh, reactor_kw = tender.levelize(
-        tender_bus_kw, attached_h, tender.idle_h + detach_h, economics.discount_rate)
+    tender_usd_per_kwh, reactor_kw = costing.tender_levelize(
+        tender, tender_bus_kw, attached_h, tender.idle_h + detach_h, economics.discount_rate)
     tender_cost_leg = tender_bus_kwh * tender_usd_per_kwh
 
     # --- capital + fixed O&M (ship only; the tender's CAPEX is inside its $/kWh) -
     discount_rate = economics.discount_rate
     # motor sized to the FIXED design speed (cheap, off the slow-steam sweep)
     motor_kw = helpers.prop_power_kw(pl.resistance, design_v_kn, demand.propulsion_factor) * (1 + margins.sea)
-    battery_life = battery.life_yr(legs)
+    battery_life = costing.battery_life_yr(battery, legs)
     fixed = _fixed_costs(pl, dt, economics, legs, discount_rate,
                          powerplant=dt.capex.converter_usd_per_kw * motor_kw
                          * helpers.crf(discount_rate, dt.capex.life_yr),

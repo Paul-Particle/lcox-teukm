@@ -9,8 +9,9 @@ Drivetrain, EnergySource (fuel / battery / reactor); a `Case` composes them plus
 non-component (a `Params` block, a strategy name). Top-level structures first; the sub-blocks
 they compose at the bottom.
 
-The `EnergySource` base lives here (it's the empty slot `Case.sources` composes); the concrete
-fuel/battery/reactor subclasses and their cost methods live in sources.py.
+The `EnergySource` base lives here (it's the empty slot `Case.sources` composes), and so now do
+its concrete fuel/battery/reactor subclasses — all pure data. The strategy-independent cost and
+sizing functions that operate on them live in `model/costing.py`.
 """
 
 from __future__ import annotations
@@ -35,7 +36,7 @@ class Case:
 
 @dataclass(frozen=True)
 class EnergySource:
-    """Base for the energy-supplying technologies (concrete subclasses in sources.py)."""
+    """Base for the energy-supplying technologies (concrete subclasses below)."""
     name: str
 
 
@@ -208,5 +209,108 @@ class PropulsionFactor:
     propeller: float        # pods / large low-RPM props (electric only)
     wider_eff: float        # electric motor stays near optimum across speeds/sea states (electric only)
     routing: float          # weather routing, trim/draft optimization, on-time (no rush) speed
+
+
+# ==================================== energy sources (concrete EnergySource family) ====
+# Pure data mirroring config.yaml's source blocks; the cost/sizing functions are in
+# model/costing.py. Strategies pick a source by its concrete subclass, then call the matching
+# function.
+
+@dataclass(frozen=True)
+class FuelSource(EnergySource):
+    price: FuelPrice
+    energy_mass_t: float            # onboard energy-carrier mass (bunkers; 0 for fission fuel)
+
+
+@dataclass(frozen=True)
+class BatterySource(EnergySource):
+    capex: BatteryCapex
+    energy: BatteryEnergy
+    efficiency: BatteryEfficiency
+    min_discharge_h: float          # power limit (max kW = installed kWh / this); 0 = none
+    charge_usd_per_kwh: float       # grid/shore charge price, folded in
+
+
+@dataclass(frozen=True)
+class ReactorSource(EnergySource):
+    """Base for the two reactor-as-source variants. Holds only the shared reactor block;
+    each subtype adds its integration-specific fields and has its own cost function (in
+    model/costing.py), so strategies match on the SUBTYPE, not this base."""
+    capex: ReactorCapex
+    fuel_usd_per_kwh_th: float
+    generation: float               # reactor thermal -> electricity
+
+
+@dataclass(frozen=True)
+class ContainerizedReactor(ReactorSource):
+    """A reactor module that replaces cargo containers on an electric ship: occupies slots,
+    adds an onboard hotel load, bills $/kWh levelized over its fleet-pooled utilization."""
+    overhead: Overhead              # slot footprint (teu_per_mwe, sized from power)
+    hotel_delta_kw: float           # extra onboard hotel (crew/security) a containerized reactor adds, on top of the drivetrain's
+    pool: Pool                      # fleet-pooled utilization
+
+
+@dataclass(frozen=True)
+class TenderReactor(ReactorSource):
+    """A separate uncrewed vessel (capex.hull_usd is the ship ex-reactor) that tethers an
+    electric ship and feeds it over a cable; $/kWh levelized over a tethered/idle duty
+    cycle, not a slot footprint."""
+    parasitic_kw: float             # uncrewed DP station-keeping + cooling
+    om_other_usd_yr: float          # uncrewed remote ops + asset-loss insurance
+    availability: float
+    idle_h: float                   # reposition-or-wait between escorts (a non-delivering hour)
+    tether: Tether                  # cable efficiency + speed cap + coastal geometry + weather detach
+
+
+# ---- source sub-blocks (mirror config.yaml's source sub-blocks) ----
+@dataclass(frozen=True)
+class FuelPrice:
+    # different fuels quote differently; the cost model reads whichever is set
+    usd_per_t: float | None = None
+    lhv_kwh_per_kg: float | None = None
+    usd_per_kwh_chem: float | None = None
+    usd_per_kwh_th: float | None = None
+
+
+@dataclass(frozen=True)
+class BatteryCapex:
+    usd_per_kwh: float
+    cycle_life: float
+    calendar_life_yr: float
+
+
+@dataclass(frozen=True)
+class BatteryEnergy:
+    kwh_per_teu: float
+    pack_wh_per_kg: float           # system density -> battery mass (deadweight)
+    dod: float                      # usable depth of discharge
+
+
+@dataclass(frozen=True)
+class BatteryEfficiency:
+    charge: float
+    discharge: float
+
+
+@dataclass(frozen=True)
+class ReactorCapex:
+    usd_per_kw: float
+    life_yr: float
+    hull_usd: float | None = None   # tender only: the vessel ex-reactor
+
+
+@dataclass(frozen=True)
+class Pool:
+    idle_h: float                   # wait in the shared pool between assignments
+    availability: float
+
+
+@dataclass(frozen=True)
+class Tether:
+    cable_efficiency: float
+    cable_v_cap_kn: float                   # max speed while tethered (source-imposed speed cap)
+    standoff_nm: float                      # coastal sub-leg each side of the tether
+    detach_duration_h: float = 0.0          # longest continuous cable-dropped stretch the pack must sail unassisted (SIZING event, not an expected flow)
+    detach_frac: float = 0.0                # expected fraction of tethered time with the floating tether dropped for weather; an EXPECTED VALUE, calibrated from weather data / voyage simulation per route
 
 
