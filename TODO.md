@@ -5,9 +5,10 @@ component library + `cases:` compositions + `shared` voyage scalars, with sampli
 on the values) and **`studies.yaml`** (role assignment — which config leaves are sampled / fixed /
 swept / optimized). A study becomes array-valued config leaves (`design`), one broadcast kernel
 call per case with the lever argmin-collapsed (`evaluate`), a per-slice variance decomposition
-(`analyze`), and a persisted store (`store`). `run.py` renders the baseline `fleet` study to
-`results/lcot.{parquet,csv}`; `study.py` runs the sensitivity studies into `results/sobol/`;
-`plots.py` draws the fleet and sensitivity figures. `docs/sobol_sensitivity_plan.md` records the
+(`analyze`), and a persisted store (`store`). The single entry point `lcot.py` drives all of it:
+`lcot run` renders the baseline `fleet` study to `results/lcot.{parquet,csv}`, `lcot study` runs
+the sensitivity studies into `results/sobol/`, and `lcot plot` draws the fleet and sensitivity
+figures (`lcot all` = run + plot). The two evaluation renders behind the CLI live in `pipeline.py`. `docs/sobol_sensitivity_plan.md` records the
 design and the alternatives weighed at each decision point.
 
 The rebuild, the "any parameter can play any role" generalization, the vectorized kernel, and the
@@ -38,7 +39,7 @@ not plumbing.
 
 ## Deferred / future plumbing
 
-- **Incremental artifact** — `run.py` rebuilds `results/lcot.{parquet,csv}` whole each run; add
+- **Incremental artifact** — `lcot run` rebuilds `results/lcot.{parquet,csv}` whole each run; add
   append / partitioned writes once the case × sweep grid is big enough to want it.
 - **Config placeholders** — some crew/O&M values, the tender `idle_h` / `standoff_nm` / `detach_*`
   fields, and `design_v_kn` are placeholders pending real data (flagged in `assumptions.yaml`).

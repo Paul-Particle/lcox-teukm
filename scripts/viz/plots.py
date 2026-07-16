@@ -3,7 +3,7 @@ plots.py — Plotly figures for the LCOT model (interactive HTML + static PNG).
 
 Two families, two data sources:
 
-- **Fleet views** read the tidy artifact run.py writes (results/lcot.parquet): LCOT and optimal
+- **Fleet views** read the tidy artifact `lcot run` writes (results/lcot.parquet): LCOT and optimal
   speed vs D_max (a line per case, crossovers where they cross), and cost-stack breakdowns.
 - **Sensitivity views** read a study's store (results/sobol/<study>/): the Sobol S1/ST index bars
   with bootstrap CI whiskers. The lever landscape (LCOT vs speed, optimum starred) is evaluated
@@ -12,7 +12,8 @@ Two families, two data sources:
 
 The brand chrome (header dot, logo, font embedding) comes from style.py; every fill is a SOLID
 shade (plotly's `marker.pattern` hatching renders inconsistently across versions, so it is not
-used). Run after run.py; the sensitivity plots run their study if its store is missing.
+used). Driven by `lcot plot` (runs `lcot run` first, or use `lcot all`); the sensitivity plots
+run their study if its store is missing.
 """
 
 import numpy as np
@@ -38,7 +39,7 @@ Y_CAP_CENTS = 50.0
 COST_STACK_Y_CAP = 11.0
 
 # The two distances the cost-breakdown bars are drawn at (km): a medium regional hop and a long
-# ocean crossing. Both are points on run.py's D_max sweep.
+# ocean crossing. Both are points on the fleet D_max sweep.
 MEDIUM_HOP_KM = 2000.0
 OCEAN_CROSSING_KM = 14000.0
 
@@ -342,14 +343,14 @@ def _ensure_sobol(study_name: str) -> None:
     self-contained (the sensitivity views need a study's store)."""
     if (SOBOL_DIR / study_name / "indices.csv").exists():
         return
-    import study as study_module
+    from pipeline import run_study
     from assumptions.load_assumptions import read_raw
     from assumptions.studies import load_studies
     raw, ranges = read_raw(ASSUMPTIONS_PATH)
     studies = load_studies(STUDIES_PATH, ranges, raw)
     if study_name in studies:
         print(f"[study] computing {study_name!r} (no store yet)")
-        study_module.run_study(studies[study_name], raw)
+        run_study(studies[study_name], raw)
 
 
 def main() -> None:

@@ -17,13 +17,14 @@ Uses [uv](https://docs.astral.sh/uv/) (provisions Python 3.11+ automatically):
 
 ```sh
 uv sync                        # install deps (pinned in uv.lock) + the project itself (editable)
-uv run scripts/run.py          # render the `fleet` study: 8 cases x speed lever x D_max sweep -> results/lcot.{parquet,csv}
-uv run scripts/study.py        # run the sensitivity studies in studies.yaml -> results/sobol/<study>/
-uv run scripts/viz/plots.py    # LCOT/speed-vs-D_max + Sobol/lever figures from the artifacts -> results/*.{html,png}
+uv run scripts/lcot.py run     # render the `fleet` study: 8 cases x speed lever x D_max sweep -> results/lcot.{parquet,csv}
+uv run scripts/lcot.py study   # run the sensitivity studies in studies.yaml -> results/sobol/<study>/ (name some, or all)
+uv run scripts/lcot.py plot    # LCOT/speed-vs-D_max + Sobol/lever figures from the artifacts -> results/*.{html,png}
+uv run scripts/lcot.py all     # run, then plot
 uv run scripts/mrv/run_mrv.py  # (optional) ground config anchors in EU MRV fleet data
 ```
 
-`run.py` reports e.g. `288 rows across 8 cases (261 feasible)`. The MRV step needs the public
+`lcot run` reports e.g. `288 rows across 8 cases (261 feasible)`. The MRV step needs the public
 data files in `data/` — see [Grounding in real data](#grounding-in-real-data-eu-mrv).
 
 ## Architecture — three axes, a verb, a behavior
@@ -67,9 +68,9 @@ lever, `analyze` variance-decomposes per swept slice. No parameter is privileged
 `scripts/` is grouped into packages by role, with dependencies pointing downward
 (`common` ← `assumptions`/`model` ← `kernel` ← `viz`). `scripts/` is the source root: `uv sync`
 editable-installs the packages (see `pyproject.toml`), so `from common.paths import ...` resolves
-at runtime from any directory and for static tooling — no `sys.path` manipulation. The flat
-entry points (`run.py`, `study.py`) and the by-path scripts (`viz/plots.py`, `mrv/`) are invoked
-with `uv run`; everything else is imported.
+at runtime from any directory and for static tooling — no `sys.path` manipulation. The single
+entry point (`lcot.py`, with `run`/`study`/`plot`/`all` subcommands) and the by-path `mrv/` tools
+are invoked with `uv run`; everything else is imported.
 
 | Module | Role |
 |---|---|
@@ -92,9 +93,9 @@ with `uv run`; everything else is imported.
 | **`viz/`** | presentation |
 | `viz/plots.py` | LCOT/speed-vs-`D_max` lines, per-case cost-breakdown bars, Sobol-index bars, lever-landscape curves |
 | `viz/style.py` | FCA house plotting style (template, palette, brand chrome) |
-| **entry points** (flat) | |
-| `run.py` | render the `fleet` study → `results/lcot.{parquet,csv}` |
-| `study.py` | run studies.yaml studies → Sobol indices under `results/sobol/` |
+| **entry point** (flat) | |
+| `lcot.py` | single CLI — `run` (fleet → `results/lcot.{parquet,csv}`), `study` (→ Sobol under `results/sobol/`), `plot` (figures), `all` (run + plot) |
+| `pipeline.py` | the two evaluation renders behind the CLI — `build_results` (fleet table) + `run_study` (one study → store); shared with `viz/plots.py` |
 | `mrv/` | standalone EU MRV fleet tooling (`mrv_unify`, `mrv_fleet`, `run_mrv`) — runs on its own, imports only `common.units` (+ best-effort `viz.style`), nothing from the model |
 
 The two inputs — **`assumptions.yaml`** (component library + cases + shared scalars) and
@@ -127,7 +128,7 @@ hardware.
 ## Control flow
 
 ```
-run.py / study.py ─ pick a study from studies.yaml
+lcot run / lcot study ─ pick a study from studies.yaml
   └─ load_assumptions (assumptions.yaml ─> frozen dataclasses + sampling ranges)
        └─ ingest.build_study(study, raw)
             ├─ draw the Saltelli sample matrix (if any leaf is sampled)
@@ -137,8 +138,8 @@ run.py / study.py ─ pick a study from studies.yaml
                         ├─ segment the route; sources own their cost models
                         ├─ route math (carried, legs/yr) + helpers (crf, physics) ─> LCOT
                         └─ argmin the objective over the lever dims, carry every measure
-                 ├─ run.py:   flatten the fleet datasets ─> results/lcot.{parquet,csv}
-                 └─ study.py: analyze.sobol_indices per swept slice ─> store ─> results/sobol/
+                 ├─ lcot run:   flatten the fleet datasets ─> results/lcot.{parquet,csv}
+                 └─ lcot study: analyze.sobol_indices per swept slice ─> store ─> results/sobol/
 ```
 
 ## Cargo accounting (`carried`)
@@ -161,7 +162,7 @@ Two inputs, cleanly split between *what exists* and *what varies*:
 - **`studies.yaml`** — role assignment over those parameters. Each study names which config leaves
   are `sample`d / `fix`ed / `sweep`t / `optimize`d (all addressing the same dotted paths, e.g.
   `shared.op_v_kn`, `sources.lfp.capex.usd_per_kwh`). The `fleet` study is the baseline sweep
-  (all cases, speed lever, D_max condition, no sampling) that `run.py` renders to `lcot.csv`.
+  (all cases, speed lever, D_max condition, no sampling) that `lcot run` renders to `lcot.csv`.
 
 Units throughout: energy kWh, power kW, time h, distance km, speed kn, mass kg, money US$.
 
@@ -177,7 +178,7 @@ expensive capital push them to maximum speed.
 
 ## Output artifact
 
-`run.py` writes a tidy table (`results/lcot.parquet` + `results/lcot.csv`), one row per (case,
+`lcot run` writes a tidy table (`results/lcot.parquet` + `results/lcot.csv`), one row per (case,
 `D_max`, any other swept input): LCOT, optimal speed, reactor/store size, the
 energy/capital/O&M breakdown, and a feasibility flag. The annualized cost is itemized into
 `cost_hull` / `cost_powerplant` / `cost_store` / `cost_crew` / `cost_om` / `cost_energy`
