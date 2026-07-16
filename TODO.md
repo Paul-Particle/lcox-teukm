@@ -1,115 +1,56 @@
 # TODO / known limitations
 
-**Current focus — finish the rebuild on `main`.** The model is being rebuilt onto a clean
-3-axis schema (`Platform × Drivetrain × EnergySource`, composed into `Case`s, costed by
-per-case `strategy` functions). The schema, loader, shared physics, all six strategies, the
-optimizer, and the entry point are done — the model now runs end-to-end and writes the artifact.
-What's left is presentation. The earlier feature branches (scale factors, Sobol sensitivity, MRV
-fleet data) are set aside, to be redone from the refactored base.
+The model runs end-to-end on a vectorized kernel. Two inputs feed it: **`config.yaml`** (the
+component library + `cases:` compositions + `shared` voyage scalars, with sampling ranges declared
+on the values) and **`studies.yaml`** (role assignment — which config leaves are sampled / fixed /
+swept / optimized). A study becomes array-valued config leaves (`design`), one broadcast kernel
+call per case with the lever argmin-collapsed (`evaluate`), a per-slice variance decomposition
+(`analyze`), and a persisted store (`store`). `run.py` renders the baseline `fleet` study to
+`results/lcot.{parquet,csv}`; `study.py` runs the sensitivity studies into `results/sobol/`;
+`plots.py` draws the fleet and sensitivity figures. `docs/sobol_sensitivity_plan.md` records the
+design and the alternatives weighed at each decision point.
 
-## Rebuild — what's left to build
-
-- **Presentation** — rebuild `plots.py`/`style.py` against the artifact (`plots.py` is stale,
-  importing pre-rebuild modules).
-- **Incremental artifact** — `run.py` currently rebuilds `results/lcot.{parquet,csv}` whole each
-  run. Add append / partitioned writes once the case/sweep grid is big enough to want it.
-- **Config placeholders** — some crew/O&M values in `config.yaml`; some route/axis values in
-  `cases.csv` are placeholders pending real data.
+The rebuild, the "any parameter can play any role" generalization, the vectorized kernel, and the
+Sobol machinery are all done. What remains is model fidelity plus a few open modelling decisions —
+not plumbing.
 
 ## Open design decisions
 
-- **Strategy ↔ Optimizer boundary** — Revisit if a case needs the optimizer to see partial structure.
-- **Grid search** — `optimizer.py` searches free axes by exhaustive cartesian grid (each Axis ->
-  `n` linearly-spaced points). Fine for the current low-dimensional axes (just `op_v_kn`), but the
-  optimal speeds land on grid points (integer knots at the seed `n`); refine the grid or swap in a
-  real 1-D minimizer if the speed resolution matters.
+- **Strategy ↔ evaluate boundary** — revisit if a case needs the collapse to see partial
+  structure (today `evaluate` argmin-collapses the whole lever block by the objective).
+- **Grid resolution on the lever** — an optimize axis is an exhaustive grid (`n` linearly-spaced
+  points), so the optimum lands on a grid knot. Fine at the current resolution; refine the grid or
+  drop a 1-D minimizer onto the lever axis if speed precision starts to matter (the plan flags this
+  as the fallback if it shows up in the confidence intervals).
 - **Containerized-reactor pool utilization** — `ContainerizedReactor.size` levelizes over a
-  route-independent fleet utilization (`pool.availability`). So `pool.idle_h` is currently **unused**;
-  it urgently needs an estimated turnaround time just like the tender.
-- **Design speed as a live variable** — `design_v_kn` now flows through the `point` resolver, so
-  it can be put on a sweep/optimize axis like `d_km`/`op_v_kn`. But optimizing it only bites once
-  the model has a counterforce — a peak-power / brief-sprint constraint (weather evasion, schedule
-  recovery) that rewards a larger converter. Without one, minimizing converter CAPEX drives the
-  design speed to the floor. Add such a constraint before treating it as a meaningful free variable.
+  route-independent fleet utilization (`pool.availability`), so `pool.idle_h` is still **unused**;
+  it needs an estimated turnaround time like the tender's.
+- **Design speed as a live variable** — `design_v_kn` is now an ordinary config leaf
+  (`shared.design_v_kn`), so it can be sampled/swept/optimized like any other. But optimizing it
+  only bites once the model has a counterforce — a peak-power / brief-sprint constraint (weather
+  evasion, schedule recovery) that rewards a larger converter. Without one, minimizing converter
+  CAPEX drives it to the floor. Add such a constraint before treating it as a meaningful free
+  variable.
 - **Tender CAPEX on one life** — `TenderReactor.levelize` amortizes hull + reactor CAPEX over a
   single `capex.life_yr`; split if the hull and reactor lives should differ.
 - **Source roles in multi-source cases** — a plain list for now; natural roles (buffer / charger)
   may emerge as more cases are written.
 
-## Sobol sensitivity — readiness (before machine-generating `cases.csv`)
+## Deferred / future plumbing
 
-*Implementation plan (alternatives weighed at each decision point, measured baselines):
-`docs/sobol_sensitivity_plan.md`.*
-
-The eval engine (`run → optimize → strategy`, the `Point` resolver, the axis-consumed guard) is
-ready to evaluate a machine-generated batch; the input and analysis ends are not. Gaps, in
-dependency order:
-
-- **Override reach is the blocker.** Only `d_km`, `op_v_kn`, `design_v_kn`, `detach_frac` are read
-  through `point.get`; everything else is read straight off the frozen dataclasses. So
-  **route/condition params are Sobol-ready today** — `standoff_nm`, `idle_h`, `detach_duration_h`,
-  `load_factor`, `load_factor_imbalance` are per-row CSV scalars that land in each case's `Route`
-  and are read directly, no axis needed — but the **component-library params are not reachable
-  per-sample**: the battery/reactor/tether cost + efficiency blocks live in `config.yaml`,
-  referenced by name, so a case row selects *which* component, not its internals. The
-  highest-leverage uncertain params (see "Speculative parameters" below) are almost all library
-  params. Fix at altitude: generalize the `point.get` idea from route scalars to any config leaf —
-  a per-sample dotted-path override (`battery.capex.usd_per_kwh=95`) applied via
-  `dataclasses.replace` before the strategy runs — rather than adding a CSV column per parameter.
-  (This is the real state of the Stage-1 "any parameter is sweepable" note below: the *mechanism*
-  generalizes, but only the route reads are wired today.)
-- **No sampler / no ranges spec.** No `scipy`/`SALib` dependency and nothing in `scripts/` samples;
-  the parameter-space priors (distribution + bounds per uncertain param) exist only as prose here.
-  `Axis.lo/hi/n` is a grid descriptor, not a sampling prior — a Saltelli design needs its own spec.
-- **No analysis layer.** Running samples yields a table of LCOTs; computing first-order/total Sobol
-  indices from it is unwritten (SALib's Saltelli sampler + analyzer is the usual pairing, and it
-  fixes the sample count/layout).
-- **Viz doesn't serve it.** `plots.py` traces LCOT-vs-`d_km` lines; sensitivity wants
-  tornado / index-bar / scatter. Lowest priority (presentation).
-- **Performance / output become the binding case for the deferred items below:** Stage-2
-  vectorization (a Saltelli design over ~10 params is `N·(2d+2)` ≈ thousands of samples, each still
-  running the inner optimize grid) and incremental artifact writes (`run.py` rebuilds
-  `results/lcot.*` whole). Neither blocks a first run.
-
-Suggested order: (1) generalize the override channel to any config leaf; (2) parameter-space spec +
-Saltelli/Sobol generator; (3) Sobol-index analysis, then viz; (4) Stage-2 vectorization when run
-time hurts.
-
-## Vectorization (deferred until the grid is large)
-
-**Stage 1 (done).** Any config parameter is sweepable/optimizable, not just `d_km`/`op_v_kn`.
-Strategies read varying inputs through the `Point` resolver — `point.get(name, <config default>)` —
-so a parameter becomes an axis simply by being read that way; `Route.d_km`/`op_v_kn` hold the
-nominal fallback used when that axis isn't swept. `Point` records its reads, and `optimizer.run`
-rejects an axis whose `param` no strategy consumes (instead of silently varying nothing).
-
-**Stage 2 (deferred).** Replace the per-point Python grid loop with one vectorized strategy call
-per case: `Point` carries whole-grid numpy arrays, the strategy broadcasts, `argmin` over the
-optimize dims picks the winner, gather its full row. Cases stay a Python loop (they differ
-structurally — source types, the `next(...)` source selection). Work involved:
-- numpy-ify the kernel: `max`/`min` → `np.maximum`/`np.minimum` (`carried`, `BatterySource.size`,
-  `crf`), `math.ceil` → `np.ceil` (`ContainerizedReactor.size`), `life_yr`'s `legs > 0` branch →
-  `np.where`. The pure-arithmetic functions broadcast unchanged.
-- the structural part: the six strategies' `if cargo <= 0: return _infeasible(...)` early-returns
-  (and `tether_charge`'s `tethered_km <= 0` / speed-cap guard) become element-wise masks writing
-  `lcot = inf`, with `np.errstate` over the masked-out garbage regions.
-- branches on CONFIG scalars stay (`min_discharge_h > 0`, `fuel is not None`); only branches on
-  GRID quantities become masks.
-- output stays byte-identical: infeasible ⇒ `lcot = inf` AND extra fields → `NaN` (matches today's
-  short `_infeasible` row after the column union). Verify by diffing against the scalar baseline.
-
-Deferred on engineering grounds: at the current 8 cases / ~5k evals the scalar version is instant,
-and the masks/`np.where` cost strategy readability. Worth it once the Sobol generator makes the
-grid big enough to feel; nothing in stage 1 is thrown away by waiting.
+- **Incremental artifact** — `run.py` rebuilds `results/lcot.{parquet,csv}` whole each run; add
+  append / partitioned writes once the case × sweep grid is big enough to want it.
+- **Config placeholders** — some crew/O&M values, the tender `idle_h` / `standoff_nm` / `detach_*`
+  fields, and `design_v_kn` are placeholders pending real data (flagged in `config.yaml`).
 
 ## Speculative parameters
 
 The newer cases (tender, containerized reactor, e-methanol) have little commercial precedent —
 engineering estimates. Highest-leverage and most uncertain: the tender block (reactor/hull/O&M
-cost, `parasitic_kw`, `tether.cable_*`), `route.standoff_nm`, `route.detach_duration_h` and
-`route.detach_frac`, and the containerized-reactor block (`capex.usd_per_kw`,
-`overhead.teu_per_mwe`, `pool.*`). Treat the new
-cases' absolute LCOTs as order-of-magnitude until grounded in real data.
+cost, `parasitic_kw`, `tether.cable_*`, `tether.standoff_nm`, `tether.detach_duration_h`,
+`tether.detach_frac`) and the containerized-reactor block (`capex.usd_per_kw`,
+`overhead.teu_per_mwe`, `pool.*`). Treat the new cases' absolute LCOTs as order-of-magnitude until
+grounded in real data.
 
 ## Reactor sizing & speed
 

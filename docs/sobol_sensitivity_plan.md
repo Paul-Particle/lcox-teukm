@@ -471,13 +471,13 @@ projects; extract it when a second project actually exists, not before.
 
 1. **Numpy-safe kernel pass** — strategies, `_shared`, `sources` methods, `helpers.crf`;
    behavior under scalars unchanged, existing loops untouched. Acceptance:
-   `results/lcot.csv` byte-identical.
+   `results/lcot.csv` reproduced to numerical-error level.
 2. **Design/array builder + block execution** — roles become named axes, `Point` and
    `optimizer.py`'s loops retire (strategies drop the `point` parameter), the block is an
    xarray `Dataset`, the objective reduction reproduces the artifact, flat-axis variance
-   check + feasibility masking land here. Acceptance: `results/lcot.csv` identical from the
-   block path (the prototype already demonstrates one-ulp agreement, identical masks and
-   argmins on `port_swap_battery`).
+   check + feasibility masking land here. Acceptance: `results/lcot.csv` reproduced to
+   numerical-error level from the block path (the prototype demonstrates one-ulp agreement,
+   identical masks and argmins on `port_swap_battery`).
 3. **Ranges-with-values + studies** — loader unwrap, `studies.yaml` with the three roles,
    `salib` + `xarray` + `h5netcdf` dependencies; sample / optimize / sweep, per-slice Sobol,
    objective as a chosen measure.
@@ -486,6 +486,6 @@ projects; extract it when a second project actually exists, not before.
    readiness section; retire the old Stage-1/Stage-2 vectorization framing, which this plan
    supersedes).
 
-Verification beyond the golden diffs: a single-param study must return S1 ≈ ST ≈ 1; a
-two-param study on params with known relative leverage must rank them; one real study at
-N and 2N must agree within the bootstrap confidence intervals.
+Verification beyond that numerical-agreement check: a single-param study must return
+S1 ≈ ST ≈ 1; a two-param study on params with known relative leverage must rank them; one
+real study at N and 2N must agree within the bootstrap confidence intervals.
