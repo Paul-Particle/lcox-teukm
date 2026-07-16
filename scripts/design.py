@@ -12,15 +12,10 @@ rebuild — so any config leaf can be sampled, fixed, swept, or optimized. `fix`
 `sample` sets the Saltelli column reshaped onto the shared sample dim; `sweep`/`optimize` set a
 grid reshaped onto their own block dim. A bad path raises `KeyError` — the structural check.
 
-Two entry points:
-- `place(case, order)` — the fleet-artifact path (`run.py`): a built case's axes placed as grids
-  onto its `Params` via `dataclasses.replace`. Narrower than the study path (the axis name must
-  be a `Params` field, which the fleet's op_v_kn/d_km are); the general "any leaf" reach lives in
-  the study path.
-- `build_study(study, raw)` — the study path: draw the Saltelli matrix, set every sampled/fixed
-  leaf and every swept/lever grid at its dotted config path in a copy of the raw config, rebuild
-  once, and return a `Design` carrying the placed member cases + the block layout
-  (dims/shape/coords) + the SALib problem for analysis.
+`build_study(study, raw)` is the sole entry point: draw the Saltelli matrix, set every
+sampled/fixed leaf and every swept/lever grid at its dotted config path in a copy of the raw
+config, rebuild once, and return a `Design` carrying the placed member cases + the block layout
+(dims/shape/coords) + the SALib problem for analysis.
 """
 
 from __future__ import annotations
@@ -43,20 +38,6 @@ def grid(axis: schema.Axis) -> np.ndarray:
         return np.array([float(axis.lo)])
     step = (axis.hi - axis.lo) / (axis.n - 1)
     return axis.lo + step * np.arange(axis.n)
-
-
-def place(case: schema.Case, order: tuple[schema.Axis, ...]) -> schema.Case:
-    """Return `case` with each axis replaced by its grid on its own block dimension, in the given
-    `order` (swept dims first, then lever dims). Places onto `Params` by field name (`axis.name`),
-    so the fleet's op_v_kn/d_km axes work; a name that is not a `Params` field raises TypeError."""
-    ndim = len(order)
-    updates: dict[str, np.ndarray] = {}
-    for dim, axis in enumerate(order):
-        shape = [1] * ndim
-        shape[dim] = axis.n
-        updates[axis.name] = grid(axis).reshape(shape)
-    params = dataclasses.replace(case.params, **updates)
-    return dataclasses.replace(case, params=params)
 
 
 # ======================================================= the study path ====

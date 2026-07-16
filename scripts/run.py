@@ -3,12 +3,11 @@ run.py — entry point: render the `fleet` study (config.yaml + studies.yaml) in
 results artifact.
 
 The fleet sweep is a study like any other (all cases, the op_v_kn lever + d_km condition, no
-sampling); run.py evaluates its member cases with `evaluate.run_case` and assembles the tidy
-table. Each case yields one optimized row per swept point; rows are tagged with the case name
-and concatenated (one row per (case, swept inputs), columns unioned across the heterogeneous
-strategy rows — absent fields are NaN). Written as Parquet (primary) and CSV (for eyeballing)
-under results/. The artifact is the argmin *view* over each case's block (`evaluate` builds the
-block and collapses the lever axis).
+sampling), evaluated through the same `design` -> `evaluate_design` path as every study. Each
+case's collapsed xarray `Dataset` (one optimized point per swept d_km) is flattened to rows,
+tagged with the case name, and concatenated — one row per (case, d_km), columns unioned across
+the heterogeneous strategies (absent fields NaN). Written as Parquet (primary) + CSV under
+results/. The artifact is the argmin *view* over each case's block (the lever collapsed).
 """
 
 from __future__ import annotations
@@ -17,9 +16,10 @@ from pathlib import Path
 
 import pandas as pd
 
-from load_config import read_raw, build_library, build_cases
+from load_config import read_raw
 from studies import load_studies
-from evaluate import run_case
+from design import build_study
+from evaluate import evaluate_design
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 CONFIG_PATH = REPO_ROOT / "config.yaml"
@@ -33,18 +33,15 @@ _LEAD_COLUMNS = ["case", "feasible", "lcot", "op_v_kn", "d_km",
 
 
 def build_results(config_path=CONFIG_PATH, studies_path=STUDIES_PATH) -> pd.DataFrame:
-    """Optimize every fleet-study case over its sweep and assemble the tidy results table."""
+    """Render the fleet study into the tidy results table: evaluate each case's block, collapse
+    the lever, flatten the per-case datasets, and concatenate (columns unioned)."""
     raw, ranges = read_raw(config_path)
-    cases = build_cases(raw, build_library(raw))
     studies = load_studies(studies_path, ranges, raw)
     if FLEET_STUDY not in studies:
         raise SystemExit(f"studies.yaml has no {FLEET_STUDY!r} study (the fleet sweep -> lcot.csv)")
-    fleet = studies[FLEET_STUDY]
-    names = fleet.cases if fleet.cases is not None else tuple(cases)
-    rows = [{"case": name, **row}
-            for name in names
-            for row in run_case(cases[name], fleet.sweep, fleet.optimize)]
-    frame = pd.DataFrame(rows)
+    datasets = evaluate_design(build_study(studies[FLEET_STUDY], raw))
+    frame = pd.concat([ds.to_dataframe().reset_index().assign(case=name)
+                       for name, ds in datasets.items()], ignore_index=True)
     lead = [c for c in _LEAD_COLUMNS if c in frame.columns]
     rest = [c for c in frame.columns if c not in lead]
     return frame[lead + rest]
