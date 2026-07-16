@@ -13,8 +13,9 @@ block — what the old scalar sweep/grid-search loops did falls out of numpy bro
 The argmin flattens the lever dims in C-order (last axis fastest) and numpy's argmin keeps the
 first minimum on ties, so an all-infeasible slice (every lever `inf`) collapses to lever index 0.
 Feasibility masking lives in the strategies (`_finalize`); the objective is the study's (default
-`lcot`). Each case becomes one xarray `Dataset` over the retained dims — `run.py` renders the
-fleet study's datasets to the flat artifact, `analyze` variance-decomposes them.
+`lcot`). Each case becomes one xarray `Dataset` over the retained dims — `build_results`
+(pipeline) renders the fleet study's datasets to the flat artifact, `analyze` variance-decomposes
+them.
 """
 
 from __future__ import annotations
