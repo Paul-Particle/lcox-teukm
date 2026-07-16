@@ -117,7 +117,8 @@ class TenderReactor(ReactorSource):
     parasitic_kw: float             # uncrewed DP station-keeping + cooling
     om_other_usd_yr: float          # uncrewed remote ops + asset-loss insurance
     availability: float
-    tether: Tether                  # cable efficiency + source-imposed speed cap
+    idle_h: float                   # reposition-or-wait between escorts (a non-delivering hour)
+    tether: Tether                  # cable efficiency + speed cap + coastal geometry + weather detach
 
     def levelize(self, bus_kw: float, tethered_h: float, idle_h: float,
                  discount_rate: float) -> tuple[float, float]:
@@ -185,4 +186,7 @@ class Pool:
 @dataclass(frozen=True)
 class Tether:
     cable_efficiency: float
-    cable_v_cap_kn: float           # max speed while tethered (source-imposed speed cap)
+    cable_v_cap_kn: float                   # max speed while tethered (source-imposed speed cap)
+    standoff_nm: float                      # coastal sub-leg each side of the tether
+    detach_duration_h: float = 0.0          # longest continuous cable-dropped stretch the pack must sail unassisted (SIZING event, not an expected flow)
+    detach_frac: float = 0.0                # expected fraction of tethered time with the floating tether dropped for weather; an EXPECTED VALUE, calibrated from weather data / voyage simulation per route

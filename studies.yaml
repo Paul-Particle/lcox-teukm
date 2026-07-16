@@ -1,37 +1,42 @@
 # studies.yaml — role assignment over the parameters config.yaml describes. Each study names
-# which params vary and how (sample / optimize / sweep / fix); the ranges come from config.yaml
-# (declared on the value) or from a study's own `ranges:` block. See studies.py for resolution.
+# which params vary and how; the ranges themselves live in config.yaml (declared on the value).
 #
 # Roles:
-#   sample   Saltelli-drawn on the shared sample axis, variance-decomposed (paths or globs;
-#            omitted = every ranged config param). optimize/sweep default to the case's cases.csv
-#            axes (op_v_kn lever, d_km condition); `[]` disables them.
-#   optimize argmin-collapsed lever;  sweep  retained condition (one Sobol analysis per slice)
-#   fix      pin a leaf to a constant;  objective  measure to optimize + decompose (default lcot)
+#   sample   Saltelli-drawn on the shared sample axis, variance-decomposed. A list of config
+#            leaf paths or globs (a source capex `sources.lfp.capex.usd_per_kwh`, a tether field
+#            `sources.tender-reactor.tether.detach_frac`); omitted = every ranged config param
+#            (blast), `[]` = none. Each path's range is the one declared in config.yaml, else a
+#            +/-20% screening default around the config value.
+#   optimize argmin-collapsed lever grid, `{param: [lo, hi, n]}`
+#   sweep    retained condition grid, `{param: [lo, hi, n]}` (one Sobol analysis per slice)
+#   fix      pin a config leaf (source or route field) to a constant
+#   objective  measure to optimize + decompose (default lcot)
 
 studies:
+
+  # --- the baseline fleet sweep: all cases, speed lever, distance condition, no sampling.
+  #     run.py renders this to results/lcot.csv (the seed artifact). --------------------------
+  fleet:
+    sample: []                          # a pure sweep — nothing decomposed
+    optimize: {op_v_kn: [5.0, 22.0, 18]}
+    sweep:    {d_km: [500.0, 18000.0, 36]}
+    # cases omitted -> every case in config.yaml, in config order
 
   # --- validation: a single sampled param, nothing else varying -> S1 ~ ST ~ 1 -----------
   lfp-price-check:
     cases: [lfp]
-    sample: [sources.lfp.capex.usd_per_kwh]
-    ranges:
-      sources.lfp.capex.usd_per_kwh: [150.0, 400.0]
-    optimize: []        # pin the lever + condition so the only variance is the sampled price
-    sweep: []
+    sample: [sources.lfp.capex.usd_per_kwh]     # range [150, 400] declared in config.yaml
     n: 512
+    # optimize/sweep omitted -> no axes; the lever + condition sit at the Route defaults
 
   # --- screening: tender reactor cost + weather detach fraction, as a function of route ----
   tender-screening:
     cases: [tender]
     sample:
-      - sources.tender-reactor.capex.usd_per_kw
-      - params.route.detach_frac
-    ranges:
-      sources.tender-reactor.capex.usd_per_kw: [4000.0, 12000.0]
-      params.route.detach_frac: [0.0, 0.10]     # route param -> range must be explicit here
-    optimize: [params.route.op_v_kn]            # lever: argmin over the cases.csv speed grid
-    sweep: [params.route.d_km]                  # condition: one Sobol analysis per route length
+      - sources.tender-reactor.capex.usd_per_kw           # range [4000, 12000] in config.yaml
+      - sources.tender-reactor.tether.detach_frac         # range [0.0, 0.10]  in config.yaml
+    optimize: {op_v_kn: [5.0, 22.0, 18]}          # lever: argmin over the speed grid
+    sweep:    {d_km: [500.0, 18000.0, 36]}        # condition: one Sobol analysis per route length
     objective: lcot
     n: 256
     second_order: false

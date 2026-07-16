@@ -18,8 +18,8 @@ def reactor_electric_integrated(case: schema.Case) -> dict:
     own lives). Energy is fission fuel (thermal $/kWh) or nothing. Both stages sized to the
     operating speed (the reactor caps speed anyway).
     """
-    pl, dt = case.platform, case.drivetrain
-    economics, margins, route = case.params.economics, case.params.margins, case.params.route
+    pl, dt, params = case.platform, case.drivetrain, case.params
+    economics, margins, route = params.economics, params.margins, params.route
     d_km, op_v_kn = route.d_km, route.op_v_kn
     fuels = [s for s in case.sources if isinstance(s, sources.FuelSource)]
     fuel = fuels[0] if fuels else None
@@ -32,7 +32,7 @@ def reactor_electric_integrated(case: schema.Case) -> dict:
 
     legs = legs_per_year(op_v_kn, d_km, dt.operations.port_hours, dt.operations.availability)
     cargo = carried(pl, dt.overhead.slots, 0.0, 0.0,
-                    route.load_factor, route.load_factor_imbalance)
+                    params.load_factor, params.load_factor_imbalance)
     mask = cargo > 0        # reactor overhead swamps the ship -> infeasible
 
     # --- energy: thermal fuel over the leg (zero if fueled-for-life) -------------

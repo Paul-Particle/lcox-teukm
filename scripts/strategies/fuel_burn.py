@@ -17,10 +17,10 @@ def fuel_burn(case: schema.Case) -> dict:
     fuel over full D_max legs. The fuel is a THIN EnergySource — a normalized price + bunker
     mass, no sizing. Engine sized to the fixed design speed; burn scales with operating speed.
     """
-    pl, dt = case.platform, case.drivetrain
-    economics, margins, route = case.params.economics, case.params.margins, case.params.route
+    pl, dt, params = case.platform, case.drivetrain, case.params
+    economics, margins, route = params.economics, params.margins, params.route
     d_km, op_v_kn = route.d_km, route.op_v_kn
-    design_v_kn = route.design_v_kn
+    design_v_kn = params.design_v_kn
     fuel = next(s for s in case.sources if isinstance(s, sources.FuelSource))
 
     # --- fuel-energy INPUT demand at the operating speed (drive/hotel = chemical->shaft/hotel) ---
@@ -32,7 +32,7 @@ def fuel_burn(case: schema.Case) -> dict:
     # --- annual legs + revenue cargo (bunkers displace deadweight, no slot footprint) ---
     legs = legs_per_year(op_v_kn, d_km, dt.operations.port_hours, dt.operations.availability)
     cargo = carried(pl, dt.overhead.slots, 0.0, fuel.energy_mass_t,
-                    route.load_factor, route.load_factor_imbalance)
+                    params.load_factor, params.load_factor_imbalance)
     mask = cargo > 0        # store swamps the ship -> infeasible
 
     # --- energy: full-leg burn at the normalized fuel price ----------------------

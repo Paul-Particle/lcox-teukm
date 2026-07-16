@@ -11,12 +11,15 @@
 shared:
   discount_rate: 0.08
   crew_cost_usd_yr: 90000.0        # loaded annual cost per crew member
+  load_factor: 0.80                # mean cargo load factor over the route/market (equal across cases)
+  load_factor_imbalance: 0.2       # head/back-haul demand split (directions differ in demand)
+  design_v_kn: 18.0                # design speed the cheap converter is sized to (integrated-reactor cases size to op speed and ignore it)
   margins:
     energy_reserve: 0.20           # spare energy on a battery ship's pack (weather/contingency)
     sea: 0.15                      # power margin on installed propulsion
-  # Per-case (NOT shared) — cases are Sobol-generated, so these vary per case:
-  #   load_factor (0.80) + load_factor_imbalance (0.2) -> each case's `route`
-  #   v_min_kn (5.0) / v_max_kn (22.0)                 -> the op_v_kn `optimize` axis
+  # The op_v_kn lever (5..22) and d_km condition (500..18000) are not parameters here — they are
+  # study-owned axis grids (studies.yaml). Any leaf may carry a `range:` on its value; that range
+  # is a prior a study can sample against, never a value the model reads.
 
 # ========================================================= platforms ====
 platforms:
@@ -122,7 +125,7 @@ sources:
   # ---- full separable-hardware sources (carry CAPEX + sizing; price folded in) ----
   lfp:
     type: battery
-    capex:      {usd_per_kwh: 250.0, cycle_life: 4000.0, calendar_life_yr: 12.0}   # cost + amortization life (mirrors hull capex)
+    capex:      {usd_per_kwh: {value: 250.0, range: [150.0, 400.0]}, cycle_life: 4000.0, calendar_life_yr: 12.0}   # cost (ranged prior) + amortization life (mirrors hull capex)
     energy:     {kwh_per_teu: 3000.0, pack_wh_per_kg: 130.0, dod: 0.90}   # 3 MWh/TEU ; system density ; usable depth
     efficiency: {charge: 0.97, discharge: 0.98}
     min_discharge_h: 0.0           # no power limit
@@ -144,43 +147,68 @@ sources:
     pool:       {idle_h: 8.0, availability: 0.92}   # fleet-pooled utilization (owned == leased under this assumption)
   tender-reactor:                  # separate uncrewed vessel; tethers an electric ship
     type: reactor
-    capex:      {usd_per_kw: 7000.0, hull_usd: 50.0e+6, life_yr: 25.0}   # per-kW reactor + the tender vessel (ex-reactor)
+    capex:      {usd_per_kw: {value: 7000.0, range: [4000.0, 12000.0]}, hull_usd: 50.0e+6, life_yr: 25.0}   # per-kW reactor (ranged prior) + the tender vessel (ex-reactor)
     fuel:       {usd_per_kwh_th: 0.012}   # ? thorium ~one-time — candidate to fold into capex (fueled-for-life)
     efficiency: {generation: 0.45}        # sCO2
     parasitic_kw: 2500.0           # uncrewed DP station-keeping + cooling
     om_other_usd_yr: 4.0e+6         # uncrewed remote ops + asset-loss insurance
     availability: 0.95
-    tether:     {cable_efficiency: 0.96, cable_v_cap_kn: 16.0}   # cable_v_cap = source-imposed speed cap
+    idle_h: 12.0                    # PLACEHOLDER: reposition-or-wait between escorts (a non-delivering hour)
+    tether:                         # cable + coastal geometry + weather detach (all tether-owned)
+      cable_efficiency: 0.96
+      cable_v_cap_kn: 16.0          # source-imposed speed cap while tethered
+      standoff_nm: 200.0            # PLACEHOLDER: coastal sub-leg each side of the tether
+      detach_duration_h: 12.0       # PLACEHOLDER: longest continuous cable-dropped stretch the pack sails unassisted (sizing event)
+      detach_frac: {value: 0.02, range: [0.0, 0.10]}   # PLACEHOLDER: expected fraction of tethered time the tether is dropped for weather (ranged prior; awaits weather-driven voyage sim)
     # reactor power optimizer-sized like the others; no ship-slot overhead (separate vessel);
     # ship-side hotel handled by the plain electric drivetrain (tender is uncrewed)
 
 # ============================================================= cases ====
-# Cases live in a SEPARATE TIDY TABLE — cases.csv — not here. A case spans one or more rows
-# sharing `name`. The case-level scalars (platform + drivetrain + strategy + `route` fields)
-# repeat on every row; the multi-valued `source` and optimize/sweep axes (`*_param/_lo/_hi/_n`
-# columns) are enumerated one per row, so a 2nd source or axis is just a continuation row.
-# `strategy` names the function in strategies.py; a blank `source` models a fueled-for-life
-# converter. This file stays the COMPONENT LIBRARY (the reusable platforms/drivetrains/sources
-# + shared economics); the cases table is tabular because it will be machine-generated (Sobol
-# over the parameter space, dozens–thousands of rows) — cases.csv just holds the hand-written seeds.
-#
-# The eight seed cases (was nine; owned/leased reactor collapsed):
-#   fossil          container + mechanical-fossil  + [vlsfo]                   fuel_burn
-#   e-methanol      container + mechanical-fossil  + [e-methanol]              fuel_burn
-#   lfp             container + electric           + [lfp]                     port_swap_battery
-#   iron-air        container + electric           + [iron-air]                port_swap_battery
-#   nuclear-direct  container + mechanical-nuclear + [fission-fuel]            reactor_direct
-#   nuclear-int-el  container + electric-nuclear   + [fission-fuel]            reactor_electric_integrated
-#   nuclear-cont    container + electric           + [containerized-reactor]   reactor_electric
-#   tender          container + electric           + [lfp, tender-reactor]     tether_charge
-#
-# Each row's `route` carries only the fields its strategy reads (reactor_direct / _integrated
-# read neither design_v_kn nor a detach buffer — those cells are blank). crew_count and
-# om_other_usd_yr live on each Drivetrain's operations above, not per-case (the tender's
-# om_other lives on its source). PLACEHOLDER values still unpinned, flagged in cases.csv as
-# blank-or-guessed: design_v_kn 18.0 ; detach_duration_h 12.0 ; detach_frac 0.02 ;
-# standoff_nm 200.0 ; idle_h 12.0 ; op_v_kn axis 5..22 n=18 ; d_km sweep 500..18000 n=36.
-# detach_duration_h sizes the tender pack to the longest continuous cable-dropped stretch sailed
-# unassisted; detach_frac is the EXPECTED fraction of tethered time with the floating tether
-# dropped for weather — both await calibration from a weather-data-driven voyage simulation
-# (see TODO). Weather that stops the ship outright lives in operations.availability.
+# A case composes the library above: `platform` + `drivetrain` (library keys), `sources` (a list
+# of keys — empty models a fueled-for-life converter), and `strategy` (the function in the
+# strategies package). That is all a case IS — a composition. It holds no parameters of its own:
+# the voyage operating point (op_v_kn lever, d_km sweep) is study-owned (studies.yaml), and the
+# market load + design speed are shared assumptions on `shared`. The tender's tether geometry and
+# weather-detach live on its `tender-reactor` source (their owner), not per-case. crew_count and
+# om_other_usd_yr live on each Drivetrain's operations.
+cases:
+  fossil:
+    platform: container
+    drivetrain: mechanical-fossil
+    sources: [vlsfo]
+    strategy: fuel_burn
+  e-methanol:
+    platform: container
+    drivetrain: mechanical-fossil
+    sources: [e-methanol]
+    strategy: fuel_burn
+  lfp:
+    platform: container
+    drivetrain: electric
+    sources: [lfp]
+    strategy: port_swap_battery
+  iron-air:
+    platform: container
+    drivetrain: electric
+    sources: [iron-air]
+    strategy: port_swap_battery
+  nuclear-direct:
+    platform: container
+    drivetrain: mechanical-nuclear
+    sources: [fission-fuel]
+    strategy: reactor_direct
+  nuclear-int-el:
+    platform: container
+    drivetrain: electric-nuclear
+    sources: [fission-fuel]
+    strategy: reactor_electric_integrated
+  nuclear-cont:
+    platform: container
+    drivetrain: electric
+    sources: [containerized-reactor]
+    strategy: reactor_electric
+  tender:
+    platform: container
+    drivetrain: electric
+    sources: [lfp, tender-reactor]
+    strategy: tether_charge

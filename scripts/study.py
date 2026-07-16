@@ -24,12 +24,11 @@ import store
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 CONFIG_PATH = REPO_ROOT / "config.yaml"
-CASES_PATH = REPO_ROOT / "cases.csv"
 STUDIES_PATH = REPO_ROOT / "studies.yaml"
 
 
-def run_study(study, raw, cases_df) -> None:
-    design = design_module.build_study(study, raw, cases_df)
+def run_study(study, raw) -> None:
+    design = design_module.build_study(study, raw)
     datasets = evaluate.evaluate_design(design)
     indices, feasibility = analyze.sobol_indices(design, datasets)
     out = store.write(design, datasets, indices, feasibility)
@@ -57,12 +56,11 @@ def _report_indices(indices: pd.DataFrame) -> None:
 def main() -> None:
     raw, ranges = read_raw(CONFIG_PATH)
     studies = load_studies(STUDIES_PATH, ranges, raw)
-    cases_df = pd.read_csv(CASES_PATH)
     names = sys.argv[1:] or list(studies)
     for name in names:
         if name not in studies:
             raise SystemExit(f"unknown study {name!r}; known: {list(studies)}")
-        run_study(studies[name], raw, cases_df)
+        run_study(studies[name], raw)
 
 
 if __name__ == "__main__":

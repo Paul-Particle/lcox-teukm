@@ -260,22 +260,28 @@ range on the value also means there is no separate path spec to misspell.
 
 Alternatives recorded: separate ranges file keyed by dotted path (previous iteration —
 survives only as the studies file); ranges on `Axis` (conflates grid descriptors with
-priors). Wrinkle: per-case route values live in `cases.csv` cells, so their per-case ranges
-go in the study file as case-rooted paths until case definitions move to YAML (flagged
-below). A param with a value but no range can still be varied: studies may apply a default
+priors). A param with a value but no range can still be varied: studies may apply a default
 perturbation (e.g. ±20%) for screening.
+
+Route ranges: the earlier wrinkle — per-case route values living in `cases.csv` cells, so
+their ranges could not be declared on a value — is gone. The route was never really a
+per-case thing; its params moved to their owners in `config.yaml` (§2) — market load +
+design speed to `shared`, the tether's geometry + weather to the `tender-reactor` source —
+so each is an ordinary config leaf (`sources.tender-reactor.tether.detach_frac`) carrying
+its `range:` on its value. There is no per-study range spec.
 
 ### 2. Compositions (the structural dimension)
 
-`cases.csv` stays the hand-written composition table: platform × drivetrain × sources ×
-strategy + nominal route values + the seed axes behind `run.py`'s default artifact.
-Compositions are the one loop that remains — they differ structurally (source types, the
-`next(...)` source selection), which arrays cannot span. What `cases.csv` stops being is
-the roster of every subspace worth looking at: named scenarios are filters on the store
-(later PRIM boxes), not input rows. Flagged, not acted on: at a genuinely large
-composition count the CSV's multi-row grouping will strain; the escape hatch is YAML case
-definitions (anchors give shared defaults + deltas) — which would also give per-case
-route ranges a natural home.
+Cases live in `config.yaml`'s `cases:` section (revised from the original `cases.csv`): each
+case names its platform × drivetrain × sources × strategy and nothing else — it is purely a
+composition. Its former per-case route values were never really per-case; they moved to
+their owners (§1): market load + design speed to `shared`, the tether's geometry + weather
+to the tender source. The axis grids behind the artifact (the op_v_kn lever, the d_km sweep)
+are study-owned (§4); the baseline sweep is itself a `fleet` study `run.py` renders to
+`lcot.csv`. Compositions are the one loop that remains — they differ structurally (source
+types, the `next(...)` source selection), which arrays cannot span. What the case table
+stops being is the roster of every subspace worth looking at: named scenarios are filters on
+the store (later PRIM boxes), not input rows.
 
 ### 3. The kernel, numpy-safe (the core decision)
 
@@ -336,23 +342,28 @@ build Cases through the unchanged loader.
   row order → `analyze.sobol`, once per swept slice. One-shot; no feedback loop within a
   study (the "loop" is the human reframing roles between studies). Morris screening is a
   cheaper first pass if d ever reaches the many hundreds — noted, not planned.
-- **Studies** assign roles and narrow; cases and params default to *everything*, so the
-  blast-everything study is nearly empty. Roles are `sample` (default for anything with a
-  range under a sensitivity study), `optimize` (a lever — `optimization: exhaustive_search`
-  today), `sweep` (a retained condition — `optimization: none`), and `fix` (a constant for
-  this run):
+- **Studies** assign roles and narrow; cases default to *everything* and an omitted `sample`
+  defaults to every ranged param, so the blast-everything study is nearly empty. Roles are
+  `sample` (paths/globs over config leaves, `[]` = none), `optimize` (a lever, argmin-
+  collapsed), `sweep` (a retained condition), and `fix` (a constant for this run). The axis
+  grids belong to the study, written `{param: [lo, hi, n]}`; ranges belong to config.yaml,
+  never to a study:
 
 ```yaml
 # studies.yaml — role assignment + narrowing over the ranges declared in config.yaml
 studies:
+  fleet:                        # the baseline sweep -> results/lcot.csv (rendered by run.py)
+    sample: []                  # no decomposition
+    optimize: {op_v_kn: [5, 22, 18]}
+    sweep:    {d_km: [500, 18000, 36]}
   blast:                        # defaults: every case, every ranged param -> sample
     n: 1024
   tender-screening:
     cases: [tender, fossil]     # one shared sample matrix across member cases
-    sample:  [sources.tender-reactor.*, params.route.detach_frac]  # paths or globs
-    optimize: [params.route.op_v_kn]        # lever: argmin, collapsed
-    sweep:   [params.route.d_km]            # condition: retained -> per-slice Sobol
-    fix:     {params.route.standoff_nm: 12} # constant for this run
+    sample:  [sources.tender-reactor.capex.usd_per_kw, sources.tender-reactor.tether.detach_frac]
+    optimize: {op_v_kn: [5, 22, 18]}          # lever: argmin, collapsed
+    sweep:    {d_km: [500, 18000, 36]}        # condition: retained -> per-slice Sobol
+    fix:      {sources.tender-reactor.tether.standoff_nm: 12.0}   # constant for this run
     objective: lcot             # measure to optimize + decompose (default: lcot)
     n: 1024
     second_order: false
