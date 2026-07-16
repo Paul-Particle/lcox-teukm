@@ -1,0 +1,37 @@
+# studies.yaml — role assignment over the parameters config.yaml describes. Each study names
+# which params vary and how (sample / optimize / sweep / fix); the ranges come from config.yaml
+# (declared on the value) or from a study's own `ranges:` block. See studies.py for resolution.
+#
+# Roles:
+#   sample   Saltelli-drawn on the shared sample axis, variance-decomposed (paths or globs;
+#            omitted = every ranged config param). optimize/sweep default to the case's cases.csv
+#            axes (op_v_kn lever, d_km condition); `[]` disables them.
+#   optimize argmin-collapsed lever;  sweep  retained condition (one Sobol analysis per slice)
+#   fix      pin a leaf to a constant;  objective  measure to optimize + decompose (default lcot)
+
+studies:
+
+  # --- validation: a single sampled param, nothing else varying -> S1 ~ ST ~ 1 -----------
+  lfp-price-check:
+    cases: [lfp]
+    sample: [sources.lfp.capex.usd_per_kwh]
+    ranges:
+      sources.lfp.capex.usd_per_kwh: [150.0, 400.0]
+    optimize: []        # pin the lever + condition so the only variance is the sampled price
+    sweep: []
+    n: 512
+
+  # --- screening: tender reactor cost + weather detach fraction, as a function of route ----
+  tender-screening:
+    cases: [tender]
+    sample:
+      - sources.tender-reactor.capex.usd_per_kw
+      - params.route.detach_frac
+    ranges:
+      sources.tender-reactor.capex.usd_per_kw: [4000.0, 12000.0]
+      params.route.detach_frac: [0.0, 0.10]     # route param -> range must be explicit here
+    optimize: [params.route.op_v_kn]            # lever: argmin over the cases.csv speed grid
+    sweep: [params.route.d_km]                  # condition: one Sobol analysis per route length
+    objective: lcot
+    n: 256
+    second_order: false

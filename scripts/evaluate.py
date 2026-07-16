@@ -28,6 +28,7 @@ from __future__ import annotations
 import warnings
 
 import numpy as np
+import xarray as xr
 
 import schema
 import strategies
@@ -50,13 +51,39 @@ def run_case(case: schema.Case) -> list[dict]:
     return _to_rows(reduced)
 
 
-def _collapse(block: dict, n_sweep: int, shape: tuple[int, ...]) -> dict:
+def evaluate_design(design_: design.Design) -> dict[str, xr.Dataset]:
+    """Evaluate every member case of a study over its block and collapse the lever dims, one
+    xarray `Dataset` per case. The kernel runs once per case (broadcasting over sample x swept x
+    lever); the trailing lever dims are argmin-collapsed by the study objective, carrying every
+    measure at the optimum; the retained dims are `sample` (if sampled) + the swept conditions."""
+    objective = design_.study.objective
+    n_keep = len(design_.dims) - len(design_.optimize_dims)
+    kept_dims = design_.dims[:n_keep]
+    datasets: dict[str, xr.Dataset] = {}
+    for name, case in design_.cases.items():
+        strategy = getattr(strategies, case.strategy)
+        with np.errstate(all="ignore"):
+            row = strategy(case)
+        block = {measure: np.broadcast_to(np.asarray(value), design_.shape)
+                 for measure, value in row.items()}
+        reduced = _collapse(block, n_sweep=n_keep, shape=design_.shape, objective=objective)
+        coords = {d: design_.coords[d] for d in kept_dims if d in design_.coords}
+        # a swept param (e.g. d_km) is a kept coordinate; the strategy also echoes it as a
+        # measure with identical values — keep the coordinate, drop the duplicate data variable.
+        datasets[name] = xr.Dataset(
+            {measure: (kept_dims, np.asarray(values))
+             for measure, values in reduced.items() if measure not in coords},
+            coords=coords)
+    return datasets
+
+
+def _collapse(block: dict, n_sweep: int, shape: tuple[int, ...], objective: str = OBJECTIVE) -> dict:
     """Argmin the objective over the trailing (lever) dims and carry every measure at that
     index. Returns each measure reduced to the leading swept dims."""
     sweep_shape = shape[:n_sweep]
     lever_size = int(np.prod(shape[n_sweep:], dtype=int))       # 1 when there are no lever dims
-    objective = block[OBJECTIVE].reshape(sweep_shape + (lever_size,))
-    winner = np.argmin(objective, axis=-1)                      # first minimum on ties
+    objective_grid = block[objective].reshape(sweep_shape + (lever_size,))
+    winner = np.argmin(objective_grid, axis=-1)                 # first minimum on ties
     return {name: np.take_along_axis(value.reshape(sweep_shape + (lever_size,)),
                                      winner[..., None], axis=-1)[..., 0]
             for name, value in block.items()}

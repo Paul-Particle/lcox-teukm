@@ -11,12 +11,34 @@ A config leaf may be a bare scalar or a ranged wrapper `{value:, range: [lo, hi]
 the schema builds exactly as before) and records any declared range under its dotted path
 (`sources.lfp.capex.usd_per_kwh`, `shared.margins.sea`, ...). The range library is *data about
 the parameters*, consumed by studies to decide what to sample — never read here.
+
+Loading is decomposed so `design` can rebuild with sampled values placed: `read_raw` parses +
+unwraps, `build_library` turns an (already unwrapped) config dict into the component `Library`,
+and `build_cases` assembles Cases against a library. `design` places sampled/fixed leaves into a
+copy of the raw dict, rebuilds the library, and re-assembles the member cases — so array-valued
+leaves flow into the frozen components and the kernel broadcasts over them. `load_config` is the
+nominal composition of the three.
 """
+
+from __future__ import annotations
+
+from dataclasses import dataclass
 
 import pandas as pd
 
 import schema
 import sources
+
+
+@dataclass(frozen=True)
+class Library:
+    """The built component library from config.yaml — everything a Case composes, keyed by
+    name, plus the cross-case economics/margins that keep cases comparable."""
+    economics: schema.Economics
+    margins: schema.Margins
+    platforms: dict[str, schema.Platform]
+    drivetrains: dict[str, schema.Drivetrain]
+    sources: dict[str, sources.EnergySource]
 
 
 def _unwrap(node, prefix: str, ranges: dict[str, schema.Range]):
@@ -105,42 +127,55 @@ def _axis(row, prefix: str) -> schema.Axis | None:
                    float(row[f"{prefix}_hi"]), int(row[f"{prefix}_n"]))
 
 
-def _case(group, economics: schema.Economics, margins: schema.Margins,
-          platforms: dict, drivetrains: dict, sources: dict) -> schema.Case:
+def _case(group, library: Library) -> schema.Case:
     """Build one Case from its group of rows: scalars off the first row, every non-blank
-    source/axis collected across the group. `economics`/`margins` are shared BY REFERENCE."""
+    source/axis collected across the group. Economics/margins come from the shared library."""
     head = group.iloc[0]
     source_names = group["source"].dropna().tolist()       # "" sources -> fueled-for-life
     optimize = tuple(a for _, r in group.iterrows() if (a := _axis(r, "optimize")))
     sweep = tuple(a for _, r in group.iterrows() if (a := _axis(r, "sweep")))
     return schema.Case(
         name=head["name"],
-        sources=tuple(sources[s] for s in source_names),
-        platform=platforms[head["platform"]],
-        drivetrain=drivetrains[head["drivetrain"]],
+        sources=tuple(library.sources[s] for s in source_names),
+        platform=library.platforms[head["platform"]],
+        drivetrain=library.drivetrains[head["drivetrain"]],
         strategy=head["strategy"],
-        params=schema.Params(economics, margins, _route(head)),
+        params=schema.Params(library.economics, library.margins, _route(head)),
         optimize=optimize,
         sweep=sweep,
     )
 
 
-def load_config(config_path, cases_path) -> tuple[dict[str, schema.Case], dict[str, schema.Range]]:
-    """Build the Cases (keyed by name) from config.yaml + cases.csv, plus the range library
-    harvested from the ranged leaves. Returns `(cases, ranges)`: the platforms / drivetrains /
-    sources libraries and cross-case economics/margins from the YAML, then one self-contained
-    Case per group of CSV rows; `ranges` maps each ranged leaf's dotted path to its `Range`."""
+def read_raw(config_path) -> tuple[dict, dict[str, schema.Range]]:
+    """Parse config.yaml and unwrap ranged leaves: the plain-scalar config dict plus the
+    harvested range library (dotted path -> Range)."""
     import yaml
     with open(config_path) as f:
         raw = yaml.safe_load(f)
     ranges: dict[str, schema.Range] = {}
-    d = _unwrap(raw, "", ranges)
-    s = d["shared"]
-    economics, margins = _economics(s), _margins(s)
-    platforms = {n: _platform(n, b) for n, b in d["platforms"].items()}
-    drivetrains = {n: _drivetrain(n, b) for n, b in d["drivetrains"].items()}
-    sources = {n: _source(n, b) for n, b in d["sources"].items()}
-    cases = pd.read_csv(cases_path)
-    built = {name: _case(group, economics, margins, platforms, drivetrains, sources)
-             for name, group in cases.groupby("name", sort=False)}
-    return built, ranges
+    return _unwrap(raw, "", ranges), ranges
+
+
+def build_library(raw: dict) -> Library:
+    """Build the component library from an already-unwrapped config dict."""
+    s = raw["shared"]
+    return Library(
+        economics=_economics(s),
+        margins=_margins(s),
+        platforms={n: _platform(n, b) for n, b in raw["platforms"].items()},
+        drivetrains={n: _drivetrain(n, b) for n, b in raw["drivetrains"].items()},
+        sources={n: _source(n, b) for n, b in raw["sources"].items()},
+    )
+
+
+def build_cases(cases_df, library: Library) -> dict[str, schema.Case]:
+    """Assemble Cases (keyed by name) from the cases.csv table against a built `library`."""
+    return {name: _case(group, library) for name, group in cases_df.groupby("name", sort=False)}
+
+
+def load_config(config_path, cases_path) -> tuple[dict[str, schema.Case], dict[str, schema.Range]]:
+    """The nominal build: `(cases, ranges)` from config.yaml + cases.csv. `cases` keyed by name,
+    `ranges` maps each ranged leaf's dotted path to its `Range`."""
+    raw, ranges = read_raw(config_path)
+    cases_df = pd.read_csv(cases_path)
+    return build_cases(cases_df, build_library(raw)), ranges
