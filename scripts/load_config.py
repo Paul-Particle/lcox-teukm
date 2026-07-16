@@ -38,6 +38,8 @@ class Library:
     margins: schema.Margins
     load_factor: float
     load_factor_imbalance: float
+    d_km: float
+    op_v_kn: float
     design_v_kn: float | None
     platforms: dict[str, schema.Platform]
     drivetrains: dict[str, schema.Drivetrain]
@@ -116,18 +118,18 @@ def _source(name: str, d: dict) -> sources.EnergySource:
 
 
 def _case(name: str, spec: dict, library: Library) -> schema.Case:
-    """Build one Case from its config entry. The shared assumptions (economics/margins + market
-    load + design speed) come from the library; `Route` starts at its nominal defaults for a
-    study to place axes onto."""
+    """Build one Case from its config entry. All the non-component inputs (economics/margins +
+    the voyage scalars) are shared assumptions injected from the library; a study places axis
+    grids over any of them."""
     return schema.Case(
         name=name,
         sources=tuple(library.sources[s] for s in spec.get("sources", ())),
         platform=library.platforms[spec["platform"]],
         drivetrain=library.drivetrains[spec["drivetrain"]],
         strategy=spec["strategy"],
-        params=schema.Params(library.economics, library.margins, schema.Route(),
+        params=schema.Params(library.economics, library.margins,
                              library.load_factor, library.load_factor_imbalance,
-                             library.design_v_kn),
+                             library.d_km, library.op_v_kn, library.design_v_kn),
     )
 
 
@@ -149,6 +151,8 @@ def build_library(raw: dict) -> Library:
         margins=_margins(s),
         load_factor=s["load_factor"],
         load_factor_imbalance=s["load_factor_imbalance"],
+        d_km=s["d_km"],
+        op_v_kn=s["op_v_kn"],
         design_v_kn=s.get("design_v_kn"),
         platforms={n: _platform(n, b) for n, b in raw["platforms"].items()},
         drivetrains={n: _drivetrain(n, b) for n, b in raw["drivetrains"].items()},

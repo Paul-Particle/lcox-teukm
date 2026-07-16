@@ -11,8 +11,10 @@ A study is one line of role assignment over the parameters config.yaml already d
   `Range`: the range harvested from config.yaml (declared on the value), else — for a leaf with a
   value but no range — a default +/-20% perturbation for screening. Ranges live in config, never
   in a study.
-- **optimize** / **sweep** — factorial axis grids the STUDY owns, written `{param: [lo, hi, n]}`
-  (lever argmin-collapsed / condition retained, one Sobol analysis per swept slice). Omitted -> none.
+- **optimize** / **sweep** — factorial axis grids the STUDY owns, written `{path: [lo, hi, n]}`
+  over the SAME config leaves `sample`/`fix` address (lever argmin-collapsed / condition retained,
+  one Sobol analysis per swept slice). Omitted -> none. Any leaf works — `shared.op_v_kn` as the
+  usual lever, `shared.d_km` the usual sweep, but `shared.design_v_kn` or a source field just as well.
 - **fix** — pin a config leaf (a source or route field) to a constant for this run.
 - **objective** — the measure to optimize and decompose (default `lcot`).
 
@@ -110,13 +112,14 @@ def _range_for(name, path, ranges, leaves) -> schema.Range:
 
 
 def _axes(spec) -> tuple[schema.Axis, ...]:
-    """Parse an optimize/sweep block `{param: [lo, hi, n]}` into `Axis` grids ((): omitted/none).
-    `param` is the leaf the grid replaces (`op_v_kn`, `d_km`); a name no strategy reads surfaces
-    later as a `Route`-field TypeError when `design` places it."""
+    """Parse an optimize/sweep block `{path: [lo, hi, n]}` into `Axis` grids ((): omitted/none).
+    `path` is the dotted config leaf the grid replaces (`shared.op_v_kn`, `shared.d_km`, or any
+    other leaf) — the same addressing `sample`/`fix` use; a bad path surfaces as a KeyError when
+    `design` places it."""
     if not spec:
         return ()
-    return tuple(schema.Axis(param, float(lo), float(hi), int(n))
-                 for param, (lo, hi, n) in spec.items())
+    return tuple(schema.Axis(path, float(lo), float(hi), int(n))
+                 for path, (lo, hi, n) in spec.items())
 
 
 def _flatten(node, prefix: str = "") -> dict[str, float]:

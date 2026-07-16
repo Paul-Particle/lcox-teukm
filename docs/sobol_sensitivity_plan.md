@@ -345,24 +345,25 @@ build Cases through the unchanged loader.
 - **Studies** assign roles and narrow; cases default to *everything* and an omitted `sample`
   defaults to every ranged param, so the blast-everything study is nearly empty. Roles are
   `sample` (paths/globs over config leaves, `[]` = none), `optimize` (a lever, argmin-
-  collapsed), `sweep` (a retained condition), and `fix` (a constant for this run). The axis
-  grids belong to the study, written `{param: [lo, hi, n]}`; ranges belong to config.yaml,
-  never to a study:
+  collapsed), `sweep` (a retained condition), and `fix` (a constant for this run). All four
+  roles address the same dotted config leaves, so any param can play any role; the axis grids
+  belong to the study, written `{path: [lo, hi, n]}`; ranges belong to config.yaml, never to a
+  study:
 
 ```yaml
 # studies.yaml — role assignment + narrowing over the ranges declared in config.yaml
 studies:
   fleet:                        # the baseline sweep -> results/lcot.csv (rendered by run.py)
     sample: []                  # no decomposition
-    optimize: {op_v_kn: [5, 22, 18]}
-    sweep:    {d_km: [500, 18000, 36]}
+    optimize: {shared.op_v_kn: [5, 22, 18]}
+    sweep:    {shared.d_km: [500, 18000, 36]}
   blast:                        # defaults: every case, every ranged param -> sample
     n: 1024
   tender-screening:
     cases: [tender, fossil]     # one shared sample matrix across member cases
     sample:  [sources.tender-reactor.capex.usd_per_kw, sources.tender-reactor.tether.detach_frac]
-    optimize: {op_v_kn: [5, 22, 18]}          # lever: argmin, collapsed
-    sweep:    {d_km: [500, 18000, 36]}        # condition: retained -> per-slice Sobol
+    optimize: {shared.op_v_kn: [5, 22, 18]}   # lever: argmin, collapsed
+    sweep:    {shared.d_km: [500, 18000, 36]} # condition: retained -> per-slice Sobol
     fix:      {sources.tender-reactor.tether.standoff_nm: 12.0}   # constant for this run
     objective: lcot             # measure to optimize + decompose (default: lcot)
     n: 1024

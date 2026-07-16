@@ -13,13 +13,15 @@ shared:
   crew_cost_usd_yr: 90000.0        # loaded annual cost per crew member
   load_factor: 0.80                # mean cargo load factor over the route/market (equal across cases)
   load_factor_imbalance: 0.2       # head/back-haul demand split (directions differ in demand)
+  d_km: 10000.0                    # nominal D_max hop; the fleet study sweeps it (500..18000)
+  op_v_kn: 14.0                    # nominal operating speed; the fleet study optimizes it (5..22)
   design_v_kn: 18.0                # design speed the cheap converter is sized to (integrated-reactor cases size to op speed and ignore it)
   margins:
     energy_reserve: 0.20           # spare energy on a battery ship's pack (weather/contingency)
     sea: 0.15                      # power margin on installed propulsion
-  # The op_v_kn lever (5..22) and d_km condition (500..18000) are not parameters here — they are
-  # study-owned axis grids (studies.yaml). Any leaf may carry a `range:` on its value; that range
-  # is a prior a study can sample against, never a value the model reads.
+  # These voyage scalars are ordinary leaves: a study may sample, fix, sweep, or optimize ANY of
+  # them (the fleet study sweeps d_km + optimizes op_v_kn — see studies.yaml). A `range:` on a
+  # value is a prior a study samples against, never a value the model reads.
 
 # ========================================================= platforms ====
 platforms:

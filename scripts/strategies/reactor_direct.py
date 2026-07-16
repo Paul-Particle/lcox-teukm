@@ -19,8 +19,8 @@ def reactor_direct(case: schema.Case) -> dict:
     v_max). Being expensive, the reactor is sized to the OPERATING speed, not a fixed design one.
     """
     pl, dt, params = case.platform, case.drivetrain, case.params
-    economics, margins, route = params.economics, params.margins, params.route
-    d_km, op_v_kn = route.d_km, route.op_v_kn
+    economics, margins = params.economics, params.margins
+    d_km, op_v_kn = params.d_km, params.op_v_kn
     fuels = [s for s in case.sources if isinstance(s, sources.FuelSource)]
     fuel = fuels[0] if fuels else None                  # None => fueled-for-life (no energy cost)
 

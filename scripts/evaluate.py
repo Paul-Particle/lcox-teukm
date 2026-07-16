@@ -116,4 +116,4 @@ def _report_flat_axes(case: schema.Case, order: tuple[schema.Axis, ...], block: 
             spread = np.nanmax(finite, axis=dim) - np.nanmin(finite, axis=dim)
             if not np.any(spread > 0):
                 print(f"  [flat-axis] {case.name}: {OBJECTIVE} is constant along "
-                      f"{axis.param!r} — misnamed axis or no effect (reporting only)")
+                      f"{axis.name!r} — misnamed axis or no effect (reporting only)")
