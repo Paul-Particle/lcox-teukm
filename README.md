@@ -5,9 +5,11 @@ cargo-unit·km — US¢/TEU·km for the container platform) of ship-technology *
 of **`D_max`**, the longest port-to-port hop on a route, so powertrains and energy strategies
 compare on an absolute basis, not just as ratios.
 
-The pipeline runs end-to-end: a hierarchical config of composable components → per-case cost
-strategies → a cost-optimal speed search over a `D_max` sweep → a tidy results artifact →
-figures. A standalone EU MRV fleet-data toolchain grounds the config in real ships.
+The pipeline runs end-to-end: a component library + case compositions in `config.yaml`, a study
+in `studies.yaml` naming which parameters vary and how → a vectorized kernel that evaluates a
+whole block per case in one broadcast call and collapses the cost-optimal speed lever → a tidy
+results artifact / Sobol indices → figures. A standalone EU MRV fleet-data toolchain grounds the
+config in real ships.
 
 ## Quick start
 
@@ -15,8 +17,9 @@ Uses [uv](https://docs.astral.sh/uv/) (provisions Python 3.11+ automatically):
 
 ```sh
 uv sync                        # install deps (pinned in uv.lock)
-uv run scripts/run.py          # load config -> optimize the 8 cases over the D_max sweep -> results/lcot.{parquet,csv}
-uv run scripts/plots.py        # LCOT- and speed-vs-D_max figures from the artifact -> results/*.{html,png}
+uv run scripts/run.py          # render the `fleet` study: 8 cases x speed lever x D_max sweep -> results/lcot.{parquet,csv}
+uv run scripts/study.py        # run the sensitivity studies in studies.yaml -> results/sobol/<study>/
+uv run scripts/plots.py        # LCOT/speed-vs-D_max + Sobol/lever figures from the artifacts -> results/*.{html,png}
 uv run scripts/mrv/run_mrv.py  # (optional) ground config anchors in EU MRV fleet data
 ```
 
@@ -39,22 +42,24 @@ Every powertrain is a composition of three independently-configured, frozen data
   containerized reactor, tender — CAPEX, sizing, levelization). Holds its tech spec **and its
   energy cost model**. A Case bundles **zero or more** (zero = fueled-for-life converter).
 
-**Case** (the verb) — a frozen composition + everything that isn't one of the three: a `params`
-block (cross-case `economics` + `margins`; per-case `route`), a named **strategy**, and
-`optimize`/`sweep` axis lists. Self-contained evaluation spec with no behavior of its own — a
-the optimizer reads its declarations and drives sweep → optimize → strategy. A Case can be
-multi-source (the tender case is also a battery case).
+**Case** (the verb) — a frozen composition + the cross-case `params` block (`economics`,
+`margins`, load factors, and the voyage scalars `d_km` / `op_v_kn` / `design_v_kn`) and a named
+**strategy**. Self-contained evaluation spec with no behavior of its own; it declares no axes —
+what varies is a study's concern, not the case's. A Case can be multi-source (the tender case is
+also a battery case).
 
-**Strategy** — a plain function `strategy(case, point) -> dict`, bespoke per case-type, named by
-the Case. Segments the route, orchestrates the sources, sizes the stores, computes
-`carried`/`legs_per_year`, returns the levelized cost (`lcot`) plus artifact fields. They live in
-the `strategies/` package, one module per strategy.
+**Strategy** — a plain function `strategy(case) -> dict`, bespoke per case-type, named by the
+Case. Pure arithmetic that **broadcasts over whichever config leaves are scalars or arrays**:
+segments the route, orchestrates the sources, sizes the stores, computes `carried`/`legs_per_year`,
+returns the levelized cost (`lcot`) plus artifact fields. They live in the `strategies/` package,
+one module per strategy.
 
-**Optimizer** — `optimize(case, swept_point) -> dict` searches the Case's **free** axes
-(sizing/dispatch) at one fixed swept point, keeping the min-`lcot` row. **`run(case)`** iterates
-the **swept** axes (`D_max` by default), collecting one optimal row per point. The search is an
-exhaustive grid (each `Axis` → `n` linearly-spaced points); swap in a real solver later without
-touching the strategies.
+**Study** — the driver, in `studies.yaml`. A study assigns each parameter a **role** over any
+config leaf: `fix` (a scalar), `sample` (a Saltelli column on the shared sample dim), `sweep` (a
+retained condition grid), `optimize` (an argmin-collapsed lever grid). `design` places those as
+array leaves on the config, `evaluate` runs one broadcast kernel call per case and collapses the
+lever, `analyze` variance-decomposes per swept slice. No parameter is privileged: `op_v_kn` and
+`d_km` are ordinary leaves that the `fleet` study happens to optimize and sweep.
 
 ### Module map
 
@@ -66,17 +71,22 @@ The model is flat modules under `scripts/`; nothing cross-imports beyond what is
 | `helpers.py` | shared only: `crf` + ship physics (`prop_power_kw`, `propulsion_factor`) |
 | `schema.py` | frozen config schema (Platform / Drivetrain / `EnergySource` base / Case / Params / Axis) — passive structure mirroring `config.yaml` |
 | `sources.py` | concrete `EnergySource` family (fuel / battery / reactor) + their cost methods (`size` / `levelize` / `usd_per_kwh` / `life_yr`) |
-| `load_config.py` | YAML library + pandas CSV cases → built Cases (`dict[name → Case]`) |
+| `load_config.py` | YAML library + `cases:` → built Cases (`dict[name → Case]`); harvests `{value, range}` sampling priors |
+| `studies.py` | parse `studies.yaml` into `Study` role assignments; resolve each sampled leaf's range from config |
 | `strategies/` | package: one module per strategy (6) + `_shared.py` (scaffolding + route math `legs_per_year`/`carried`) |
-| `optimizer.py` | `optimize` (free-param grid search) + `run` (sweep) |
-| `run.py` | entry point → load → run → artifact |
-| `plots.py` | LCOT- and speed-vs-`D_max` line figures + per-case cost-breakdown bars from the artifact |
+| `design.py` | place a study's roles as array-valued config leaves → a `Design` (member cases + block layout + SALib problem) |
+| `evaluate.py` | one broadcast kernel call per case; argmin-collapse the lever dims → one xarray `Dataset` per case |
+| `analyze.py` | Sobol first-order/total indices (SALib) per swept slice + feasibility reporting |
+| `store.py` | persist block + samples + indices + feasibility + a spec snapshot under `results/sobol/<study>/` |
+| `run.py` | entry point → render the `fleet` study → `results/lcot.{parquet,csv}` |
+| `study.py` | entry point → run studies.yaml studies → Sobol indices under `results/sobol/` |
+| `plots.py` | LCOT/speed-vs-`D_max` lines, per-case cost-breakdown bars, Sobol-index bars, lever-landscape curves |
 | `style.py` | FCA house plotting style (template, palette, brand chrome) |
 | `mrv/` | standalone EU MRV fleet tooling (`mrv_unify`, `mrv_fleet`, `run_mrv`) — runs on its own, imports nothing from the model |
 
-The two inputs into the schema — **`config.yaml`** (component library) and **`cases.csv`** (the
-case table) — still carry some placeholder values (crew/O&M, a few route/axis parameters) pending
-grounding; see [`docs/mrv_grounding.md`](docs/mrv_grounding.md) and **TODO.md**.
+The two inputs — **`config.yaml`** (component library + cases + shared scalars) and
+**`studies.yaml`** (role assignment) — still carry some placeholder values (crew/O&M, a few tender
+parameters) pending grounding; see [`docs/mrv_grounding.md`](docs/mrv_grounding.md) and **TODO.md**.
 
 ## The cases & the integration rule
 
@@ -96,24 +106,26 @@ hardware.
 - **Owned vs. leased reactors collapse** — at fleet-scale utilization the levelized cost is
   identical, so each reactor has a single cost model (the pooled-utilization $/kWh below).
 - **No-energy-source cases.** A fueled-for-life reactor has no marginal energy cost, so the Case
-  carries no EnergySource; there is then no slow-steaming incentive (the optimizer pushes to the
-  max feasible speed, traded only against sizing CAPEX).
+  carries no EnergySource; there is then no slow-steaming incentive (the speed lever collapses to
+  the max feasible speed, traded only against sizing CAPEX).
 - **Speed caps come from either axis** — the Drivetrain (an integrated reactor's power) or the
   EnergySource (iron-air's C/50 power limit; the tender's cable speed cap).
 
 ## Control flow
 
 ```
-run.py ─ run(case) for each built Case
-  └─ load_config (config.yaml + cases.csv ─> frozen dataclasses)
-       └─ for each point in case.sweep (D_max by default):
-            optimize(case, swept_point)
-              └─ search the Case's free params
-                   strategy(case, point) ─> row dict
-                     ├─ segment the route; sources own their cost models
-                     ├─ route math (carried, legs/yr) + helpers (crf, physics) ─> LCOT
-                     └─ keep min-lcot ─> the point's row
-            └─ write artifact (rows ─> Parquet + CSV)
+run.py / study.py ─ pick a study from studies.yaml
+  └─ load_config (config.yaml ─> frozen dataclasses + sampling ranges)
+       └─ design.build_study(study, raw)
+            ├─ draw the Saltelli sample matrix (if any leaf is sampled)
+            └─ place every role as an array leaf on the config, rebuild once ─> Design
+                 └─ evaluate.evaluate_design(design)      # one broadcast call per case
+                      strategy(case) ─> block of measures over (sample x swept x lever)
+                        ├─ segment the route; sources own their cost models
+                        ├─ route math (carried, legs/yr) + helpers (crf, physics) ─> LCOT
+                        └─ argmin the objective over the lever dims, carry every measure
+                 ├─ run.py:   flatten the fleet datasets ─> results/lcot.{parquet,csv}
+                 └─ study.py: analyze.sobol_indices per swept slice ─> store ─> results/sobol/
 ```
 
 ## Cargo accounting (`carried`)
@@ -125,15 +137,18 @@ infeasible.
 
 ## Configuration
 
-Two inputs into the frozen schema:
+Two inputs, cleanly split between *what exists* and *what varies*:
 
-- **`config.yaml`** — the reusable **component library** (hierarchical): `shared` (cross-case
-  economics + margins), `platforms`, `drivetrains`, `sources`. `type:` is the loader's
-  cost-model discriminator.
-- **`cases.csv`** — the flat **case table** (tidy, read with pandas), one case per *group* of
-  rows. Case-level scalars repeat on every row; `source` and the optimize/sweep axes are
-  enumerated one per row (an extra source/axis is a continuation row). A blank `source` =
-  fueled-for-life. Machine-generated later by a Sobol sweep; seeds hand-written for now.
+- **`config.yaml`** — the component library + the model's parameters. `shared` (cross-case
+  economics, margins, load factors, and the voyage scalars `d_km` / `op_v_kn` / `design_v_kn`),
+  `platforms`, `drivetrains`, `sources`, and `cases:` (pure compositions — platform + drivetrain +
+  sources + strategy, no route). `type:` is the loader's cost-model discriminator. A value may be
+  wrapped `{value:, range: [lo, hi], dist:}` to declare a sampling prior; the model reads only the
+  `value`, and a study samples against the `range`.
+- **`studies.yaml`** — role assignment over those parameters. Each study names which config leaves
+  are `sample`d / `fix`ed / `sweep`t / `optimize`d (all addressing the same dotted paths, e.g.
+  `shared.op_v_kn`, `sources.lfp.capex.usd_per_kwh`). The `fleet` study is the baseline sweep
+  (all cases, speed lever, D_max condition, no sampling) that `run.py` renders to `lcot.csv`.
 
 Units throughout: energy kWh, power kW, time h, distance km, speed kn, mass kg, money US$.
 
@@ -159,11 +174,16 @@ CAPEX into a per-kWh rate, so that capital sits in `cost_energy`, not `cost_powe
 are unioned across the heterogeneous strategy rows (absent fields are NaN). It is regenerated
 whole each run; incremental/partitioned writes for large sweeps are a TODO.
 
-`plots.py` adds two cost-breakdown figures (`results/cost_stack_{medium,ocean}.{html,png}`):
+`plots.py` also draws cost-breakdown figures (`results/cost_stack_{medium,ocean}.{html,png}`):
 stacked bars of absolute LCOT by case at a fixed hop distance (a medium 2,000 km hop and a
 14,000 km ocean crossing), each bar colored by case (hue) and each cost component read off its
-shade (lighter up the stack). The two share a y-axis so they compare directly; a case whose LCOT exceeds the cap
-(long-haul LFP) overflows the frame and is labelled with its off-scale total.
+shade (lighter up the stack). The two share a y-axis so they compare directly; a case whose LCOT
+exceeds the cap (long-haul LFP) overflows the frame and is labelled with its off-scale total.
+
+From the sensitivity studies it draws two more (reading `results/sobol/<study>/`): **Sobol-index
+bars** (`sobol_<study>.{html,png}`) — grouped horizontal S1/ST bars with bootstrap-CI whiskers,
+small-multipled across the swept slices — and a **lever landscape** (`lever_landscape.{html,png}`)
+— LCOT vs. the operating-speed lever per case at a fixed hop, with each case's optimum starred.
 
 ## Grounding in real data (EU MRV)
 
@@ -191,13 +211,15 @@ Two cases rest on operational concepts that aren't yet commercial. The reactor i
 **Mobile nuclear tender (dedicated escort).** An uncrewed nuclear tender recharges a
 battery-electric ship *at sea*: the ship runs untethered on battery through coastal/territorial
 waters (`standoff_nm`), meets the tender at the regulatory border, then cables up and crosses the
-open ocean tethered (the tender drives propulsion *and* recharges the coastal drain). In severe
-seas the cable disconnects and the ship rides out the storm on battery (`storm_duration_h`).
-The pack is sized only for the worst untethered stretch — `max(coastal transit, storm)` — so it
-is far smaller than a port-swap pack; energy is priced at the tender's levelized $/kWh (its
-annualized hull+reactor+O&M+fuel over the bus energy it pushes across the cable, including a
-tethered/idle duty cycle); tethered speed is capped by the cable. `standoff_nm` defaults to the
-12 nm UNCLOS territorial-sea minimum; ~200 nm tests a full-EEZ standoff.
+open ocean tethered (the tender drives propulsion *and* recharges the coastal drain). The tether
+is a floating cable that detaches in heavy seas; the ship then sails on battery for an expected
+fraction `detach_frac` of the tethered hours (billed into energy as an expected-value drain), and
+the pack is sized for the longest single detached stretch `detach_duration_h`. The pack covers the
+worst untethered stretch — `max(coastal transit, detach_duration)` — so it is far smaller than a
+port-swap pack; energy is priced at the tender's levelized $/kWh (its annualized
+hull+reactor+O&M+fuel over the bus energy it pushes across the cable, including a tethered/idle
+duty cycle); tethered speed is capped by the cable. `standoff_nm` defaults to the 12 nm UNCLOS
+territorial-sea minimum; ~200 nm tests a full-EEZ standoff.
 
 **Containerized (pooled) reactor.** A containerized nuclear-electric ship loads reactor modules
 at port and returns them to a shared pool on arrival. The reactor's CAPEX + thermal fuel is
