@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from common import schema
 from common import helpers
-from model import sources
+from model import costing
 from common.units import KMH_PER_KNOT
 
 from ._shared import (_resolve_demand, _fixed_costs, _lcot, _finalize,
@@ -21,7 +21,7 @@ def fuel_burn(case: schema.Case) -> dict:
     economics, margins = params.economics, params.margins
     d_km, op_v_kn = params.d_km, params.op_v_kn
     design_v_kn = params.design_v_kn
-    fuel = next(s for s in case.sources if isinstance(s, sources.FuelSource))
+    fuel = next(s for s in case.sources if isinstance(s, schema.FuelSource))
 
     # --- fuel-energy INPUT demand at the operating speed (drive/hotel = chemical->shaft/hotel) ---
     sail_h = d_km / (op_v_kn * KMH_PER_KNOT)
@@ -36,7 +36,7 @@ def fuel_burn(case: schema.Case) -> dict:
     mask = cargo > 0        # store swamps the ship -> infeasible
 
     # --- energy: full-leg burn at the normalized fuel price ----------------------
-    fuel_cost_leg = fuel_kwh_leg * fuel.usd_per_kwh()
+    fuel_cost_leg = fuel_kwh_leg * costing.fuel_usd_per_kwh(fuel)
 
     # --- capital + fixed O&M ----------------------------------------------------
     discount_rate = economics.discount_rate

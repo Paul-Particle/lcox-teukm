@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from common import schema
 from common import helpers
-from model import sources
+from model import costing
 from common.units import KMH_PER_KNOT
 
 from ._shared import (_resolve_demand, _fixed_costs, _lcot, _finalize,
@@ -21,7 +21,7 @@ def reactor_direct(case: schema.Case) -> dict:
     pl, dt, params = case.platform, case.drivetrain, case.params
     economics, margins = params.economics, params.margins
     d_km, op_v_kn = params.d_km, params.op_v_kn
-    fuels = [s for s in case.sources if isinstance(s, sources.FuelSource)]
+    fuels = [s for s in case.sources if isinstance(s, schema.FuelSource)]
     fuel = fuels[0] if fuels else None                  # None => fueled-for-life (no energy cost)
 
     # reactor thermal input demand (drive/hotel = thermal->shaft/hotel, both off reactor heat)
@@ -37,7 +37,7 @@ def reactor_direct(case: schema.Case) -> dict:
     mask = cargo > 0        # reactor overhead swamps the ship -> infeasible
 
     # --- energy: thermal fuel over the leg (zero if fueled-for-life) -------------
-    fuel_cost_leg = fuel_kwh_leg * fuel.usd_per_kwh() if fuel is not None else 0.0
+    fuel_cost_leg = fuel_kwh_leg * costing.fuel_usd_per_kwh(fuel) if fuel is not None else 0.0
 
     discount_rate = economics.discount_rate
     # reactor sized to the OPERATING speed; converter_usd_per_kw is the reactor+steam+shaft plant

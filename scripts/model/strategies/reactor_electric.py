@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from common import schema
 from common import helpers
-from model import sources
+from model import costing
 from common.units import KMH_PER_KNOT
 
 from ._shared import (_resolve_demand, _fixed_costs, _lcot, _finalize,
@@ -22,7 +22,7 @@ def reactor_electric(case: schema.Case) -> dict:
     economics, margins = params.economics, params.margins
     d_km, op_v_kn = params.d_km, params.op_v_kn
     design_v_kn = params.design_v_kn
-    reactor = next(s for s in case.sources if isinstance(s, sources.ContainerizedReactor))
+    reactor = next(s for s in case.sources if isinstance(s, schema.ContainerizedReactor))
 
     # the containerized reactor sits onboard, so its crew/security hotel delta adds to the bus
     sail_h = d_km / (op_v_kn * KMH_PER_KNOT)
@@ -31,7 +31,7 @@ def reactor_electric(case: schema.Case) -> dict:
     sizing_kw = demand.prop_kw * (1 + margins.sea) / dt.efficiency.drive + demand.hotel_kw / dt.efficiency.hotel
 
     # --- size the reactor to the bus (its slots displace cargo below) ------------
-    reactor_usd_per_kwh, reactor_kw, reactor_slots = reactor.size(sizing_kw, economics.discount_rate)
+    reactor_usd_per_kwh, reactor_kw, reactor_slots = costing.containerized_reactor_size(reactor, sizing_kw, economics.discount_rate)
 
     legs = legs_per_year(op_v_kn, d_km, dt.operations.port_hours, dt.operations.availability)
     # the reactor's slots displace cargo (like a battery's); drivetrain overhead is the bare motor

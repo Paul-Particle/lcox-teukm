@@ -39,8 +39,9 @@ Every powertrain is a composition of three independently-configured, frozen data
   integrated-electric). Propulsion factor, drive/hotel efficiencies, converter CAPEX, tug cost.
 - **EnergySource** — *one* energy-supplying technology. **Thin** for a commodity (fossil/fission
   fuel — just a price, folded in), **full** for separable hardware (swappable battery,
-  containerized reactor, tender — CAPEX, sizing, levelization). Holds its tech spec **and its
-  energy cost model**. A Case bundles **zero or more** (zero = fueled-for-life converter).
+  containerized reactor, tender — CAPEX, sizing, levelization). Holds its tech spec as **pure
+  data**; the cost/sizing that reads it lives in `model/costing.py`. A Case bundles **zero or
+  more** (zero = fueled-for-life converter).
 
 **Case** (the verb) — a frozen composition + the cross-case `params` block (`economics`,
 `margins`, load factors, and the voyage scalars `d_km` / `op_v_kn` / `design_v_kn`) and a named
@@ -71,7 +72,7 @@ else is imported.
 | Module | Role |
 |---|---|
 | **`common/`** | shared vocabulary + math — the foundation everything imports |
-| `common/schema.py` | frozen config schema (Platform / Drivetrain / `EnergySource` base / Case / Params / Axis) — passive structure mirroring `config.yaml` |
+| `common/schema.py` | frozen config schema (Platform / Drivetrain / the `EnergySource` family: fuel / battery / reactor / Case / Params / Axis) — passive structure mirroring `config.yaml` |
 | `common/units.py` | unit conversions, single source of truth |
 | `common/helpers.py` | shared only: `crf` + ship physics (`prop_power_kw`, `propulsion_factor`) |
 | `common/paths.py` | canonical repo/input/output paths, derived once so no module counts `parents[...]` levels |
@@ -79,7 +80,7 @@ else is imported.
 | `config/load_config.py` | YAML library + `cases:` → built Cases (`dict[name → Case]`); harvests `{value, range}` sampling priors |
 | `config/studies.py` | parse `studies.yaml` into `Study` role assignments; resolve each sampled leaf's range from config |
 | **`model/`** | the cost / sizing model |
-| `model/sources.py` | concrete `EnergySource` family (fuel / battery / reactor) + their cost methods (`size` / `levelize` / `usd_per_kwh` / `life_yr`) |
+| `model/costing.py` | per-source cost/sizing **functions** (`battery_size` / `battery_life_yr` / `fuel_usd_per_kwh` / `containerized_reactor_size` / `tender_levelize`) over the schema source records |
 | `model/strategies/` | package: one module per strategy (6) + `_shared.py` (scaffolding + route math `legs_per_year`/`carried`) |
 | **`kernel/`** | the vectorized study → results pipeline |
 | `kernel/design.py` | place a study's roles as array-valued config leaves → a `Design` (member cases + block layout + SALib problem) |

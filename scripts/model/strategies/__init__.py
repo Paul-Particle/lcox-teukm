@@ -11,8 +11,9 @@ scalar (one point — the debugging path). Feasibility is a boolean mask applied
 
 `evaluate` does `getattr(strategies, case.strategy)`, so each strategy is re-exported here
 by name. One strategy per structurally-distinct case-type; cases differing only in parameters
-share one (fossil/e-methanol; LFP/iron-air). Each orchestrates the source cost methods on its
-EnergySource (`size` / `life_yr` / `usd_per_kwh` / `levelize`, defined in sources.py):
+share one (fossil/e-methanol; LFP/iron-air). Each orchestrates the source cost functions for its
+EnergySource (`battery_size` / `battery_life_yr` / `fuel_usd_per_kwh` / `tender_levelize` /
+`containerized_reactor_size`, defined in `model/costing.py`):
   - fuel_burn                   — fossil / e-methanol: mechanical drivetrain, thin commodity fuel.
   - port_swap_battery           — LFP / iron-air: electric, pack carries a whole leg, swapped at port.
   - tether_charge               — nuclear tender: battery ship, crossing carried by an at-sea reactor.

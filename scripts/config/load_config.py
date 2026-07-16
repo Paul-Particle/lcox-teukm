@@ -26,7 +26,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from common import schema
-from model import sources
 
 
 @dataclass(frozen=True)
@@ -43,7 +42,7 @@ class Library:
     design_v_kn: float | None
     platforms: dict[str, schema.Platform]
     drivetrains: dict[str, schema.Drivetrain]
-    sources: dict[str, sources.EnergySource]
+    sources: dict[str, schema.EnergySource]
 
 
 def _unwrap(node, prefix: str, ranges: dict[str, schema.Range]):
@@ -86,27 +85,27 @@ def _drivetrain(name: str, d: dict) -> schema.Drivetrain:
                          schema.PropulsionFactor(**d["propulsion_factor"]))
 
 
-def _source(name: str, d: dict) -> sources.EnergySource:
+def _source(name: str, d: dict) -> schema.EnergySource:
     t = d["type"]
     if t == "fuel":
-        return sources.FuelSource(name, sources.FuelPrice(**d["price"]), d["energy_mass_t"])
+        return schema.FuelSource(name, schema.FuelPrice(**d["price"]), d["energy_mass_t"])
     if t == "battery":
-        return sources.BatterySource(name, sources.BatteryCapex(**d["capex"]),
-                                     sources.BatteryEnergy(**d["energy"]),
-                                     sources.BatteryEfficiency(**d["efficiency"]),
-                                     d["min_discharge_h"], d["charge_usd_per_kwh"])
+        return schema.BatterySource(name, schema.BatteryCapex(**d["capex"]),
+                                    schema.BatteryEnergy(**d["energy"]),
+                                    schema.BatteryEfficiency(**d["efficiency"]),
+                                    d["min_discharge_h"], d["charge_usd_per_kwh"])
     if t == "reactor":
         # both reactor sources share the reactor block; `tether` discriminates the subtype
-        capex, fuel_th = sources.ReactorCapex(**d["capex"]), d["fuel"]["usd_per_kwh_th"]
+        capex, fuel_th = schema.ReactorCapex(**d["capex"]), d["fuel"]["usd_per_kwh_th"]
         generation = d["efficiency"]["generation"]
         if "tether" in d:
-            return sources.TenderReactor(name, capex, fuel_th, generation,
-                                         d["parasitic_kw"], d["om_other_usd_yr"],
-                                         d["availability"], d["idle_h"],
-                                         sources.Tether(**d["tether"]))
-        return sources.ContainerizedReactor(name, capex, fuel_th, generation,
-                                            schema.Overhead(**d["overhead"]), d["hotel_delta_kw"],
-                                            sources.Pool(**d["pool"]))
+            return schema.TenderReactor(name, capex, fuel_th, generation,
+                                        d["parasitic_kw"], d["om_other_usd_yr"],
+                                        d["availability"], d["idle_h"],
+                                        schema.Tether(**d["tether"]))
+        return schema.ContainerizedReactor(name, capex, fuel_th, generation,
+                                           schema.Overhead(**d["overhead"]), d["hotel_delta_kw"],
+                                           schema.Pool(**d["pool"]))
     raise ValueError(f"unknown source type {t!r} for source {name!r}")
 
 
