@@ -16,6 +16,9 @@ data/
 # Config backup snapshots (created by sync_excel.py)
 backups/
 
+# Serena MCP data folder (local project.yml + cache/memories)
+.serena/
+
 # OS / editor cruft
 .DS_Store
 .idea/
