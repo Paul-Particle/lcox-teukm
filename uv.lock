@@ -373,7 +373,7 @@ wheels = [
 [[package]]
 name = "lcox-teukm"
 version = "0.1.0"
-source = { virtual = "." }
+source = { editable = "." }
 dependencies = [
     { name = "h5netcdf" },
     { name = "h5py" },
