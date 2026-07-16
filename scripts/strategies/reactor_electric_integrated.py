@@ -19,8 +19,8 @@ def reactor_electric_integrated(case: schema.Case) -> dict:
     operating speed (the reactor caps speed anyway).
     """
     pl, dt, params = case.platform, case.drivetrain, case.params
-    economics, margins, route = params.economics, params.margins, params.route
-    d_km, op_v_kn = route.d_km, route.op_v_kn
+    economics, margins = params.economics, params.margins
+    d_km, op_v_kn = params.d_km, params.op_v_kn
     fuels = [s for s in case.sources if isinstance(s, sources.FuelSource)]
     fuel = fuels[0] if fuels else None
 

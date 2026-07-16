@@ -19,8 +19,8 @@ def port_swap_battery(case: schema.Case) -> dict:
     floor in BatterySource.size pins the economic speed low). No new source interface.
     """
     pl, dt, params = case.platform, case.drivetrain, case.params
-    economics, margins, route = params.economics, params.margins, params.route
-    d_km, op_v_kn = route.d_km, route.op_v_kn
+    economics, margins = params.economics, params.margins
+    d_km, op_v_kn = params.d_km, params.op_v_kn
     design_v_kn = params.design_v_kn
     battery = next(s for s in case.sources if isinstance(s, sources.BatterySource))
 

@@ -68,15 +68,17 @@ class Drivetrain:
 # ---- case ----
 @dataclass(frozen=True)
 class Params:
-    """The Case's non-component inputs. economics/margins and the market load + design speed are
-    shared assumptions injected from `shared` (equal across cases, to keep them comparable); the
-    `route` is the per-case voyage operating point a study varies."""
+    """The Case's non-component inputs — the shared assumptions injected from `shared` (equal
+    across cases, to keep them comparable). economics/margins stay grouped; the voyage scalars
+    are flat, and a study varies any of them (op_v_kn is the usual lever, d_km the usual sweep,
+    but design_v_kn or the load factors are just as reachable — all are ordinary config leaves)."""
     economics: Economics            # general economic assumptions, equal across cases to keep them comparable
     margins: Margins                # design sizing margins (energy reserve + propulsion power margin)
-    route: Route                    # voyage operating point (hop distance + operating speed)
-    load_factor: float              # shared: mean cargo load factor over the route/market
-    load_factor_imbalance: float    # shared: head/back-haul demand split (directions differ in demand)
-    design_v_kn: float | None = None  # shared: design speed the cheap converter is sized to (integrated-reactor cases size to op speed and ignore it)
+    load_factor: float              # mean cargo load factor over the route/market
+    load_factor_imbalance: float    # head/back-haul demand split (directions differ in demand)
+    d_km: float = 10000.0           # nominal D_max hop; a sweep axis overrides it
+    op_v_kn: float = 14.0           # nominal operating speed; an optimize axis overrides it
+    design_v_kn: float | None = None  # design speed the cheap converter is sized to (integrated-reactor cases size to op speed and ignore it)
 
 
 @dataclass(frozen=True)
@@ -95,24 +97,20 @@ class Margins:
 
 
 @dataclass(frozen=True)
-class Route:
-    """The voyage operating point a study varies: hop distance and operating speed, both
-    study-owned axes (`design` places their grids here). With no axis they sit at these nominal
-    defaults. Everything that used to live here moved to its owner — market load to `shared`
-    (Params.load_factor), the tether's geometry + weather to the tender source."""
-    d_km: float = 10000.0           # nominal D_max hop; the swept axis overrides it
-    op_v_kn: float = 14.0           # nominal operating speed; the optimized axis overrides it
-
-
-@dataclass(frozen=True)
 class Axis:
     """A parameter varied over a grid, becoming one block dimension. Same shape whether
     `optimize` (argmin-collapsed for min lcot) or `sweep` (retained as an LCOT-vs-X trace) —
-    the study's block decides which."""
-    param: str                      # the config leaf it replaces with a grid, e.g. "op_v_kn" or "d_km"
+    the study's block decides which. `path` is the dotted config leaf the grid replaces (the
+    SAME addressing `sample`/`fix` use), so ANY leaf can be an axis; `name` (its last segment)
+    labels the block dimension."""
+    path: str                       # dotted config leaf the grid replaces, e.g. "shared.op_v_kn"
     lo: float
     hi: float
     n: int                          # number of grid points
+
+    @property
+    def name(self) -> str:
+        return self.path.rsplit(".", 1)[-1]
 
 
 @dataclass(frozen=True)

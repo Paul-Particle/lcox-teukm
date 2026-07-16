@@ -7,18 +7,20 @@ Each axis becomes a 1-D grid reshaped onto its OWN block dimension; a study's sa
 share ONE leading dimension (the Saltelli draw). Dimension order is **sample, then swept, then
 optimized (lever)**, so `evaluate` collapses the trailing lever dims and retains the rest.
 
-Two entry points:
-- `place(case, order)` — the fleet-artifact path: a study's axes (op_v_kn lever, d_km condition)
-  placed onto the route as grids, no sampling. Used by `run.py`.
-- `build_study(study, raw)` — the study path: draw the Saltelli matrix, place each sampled/fixed
-  leaf by dotted path into a copy of the raw config and rebuild, place the study's swept/lever
-  grids onto the `Route`, and return a `Design` carrying the placed member cases + the block
-  layout (dims/shape/coords) + the SALib problem for analysis.
+All four roles place by the SAME mechanism — a value set at a dotted config path, then one
+rebuild — so any config leaf can be sampled, fixed, swept, or optimized. `fix` sets a scalar;
+`sample` sets the Saltelli column reshaped onto the shared sample dim; `sweep`/`optimize` set a
+grid reshaped onto their own block dim. A bad path raises `KeyError` — the structural check.
 
-Sampled/fixed leaves are set by dotted path into the raw dict (a source capex, a route field —
-route is a config leaf now), so a bad path raises `KeyError`. The axis grids are placed onto the
-`Route` with `dataclasses.replace`, so an axis param that is not a `Route` field raises
-`TypeError` — the structural "misnamed axis" check, at the same design-time moment.
+Two entry points:
+- `place(case, order)` — the fleet-artifact path (`run.py`): a built case's axes placed as grids
+  onto its `Params` via `dataclasses.replace`. Narrower than the study path (the axis name must
+  be a `Params` field, which the fleet's op_v_kn/d_km are); the general "any leaf" reach lives in
+  the study path.
+- `build_study(study, raw)` — the study path: draw the Saltelli matrix, set every sampled/fixed
+  leaf and every swept/lever grid at its dotted config path in a copy of the raw config, rebuild
+  once, and return a `Design` carrying the placed member cases + the block layout
+  (dims/shape/coords) + the SALib problem for analysis.
 """
 
 from __future__ import annotations
@@ -44,16 +46,16 @@ def grid(axis: schema.Axis) -> np.ndarray:
 
 
 def place(case: schema.Case, order: tuple[schema.Axis, ...]) -> schema.Case:
-    """Return `case` with each axis param replaced by its grid — reshaped so each axis occupies
-    its own block dimension, in the given `order` (swept dims first, then lever dims)."""
+    """Return `case` with each axis replaced by its grid on its own block dimension, in the given
+    `order` (swept dims first, then lever dims). Places onto `Params` by field name (`axis.name`),
+    so the fleet's op_v_kn/d_km axes work; a name that is not a `Params` field raises TypeError."""
     ndim = len(order)
     updates: dict[str, np.ndarray] = {}
     for dim, axis in enumerate(order):
         shape = [1] * ndim
         shape[dim] = axis.n
-        updates[axis.param] = grid(axis).reshape(shape)
-    route = dataclasses.replace(case.params.route, **updates)
-    params = dataclasses.replace(case.params, route=route)
+        updates[axis.name] = grid(axis).reshape(shape)
+    params = dataclasses.replace(case.params, **updates)
     return dataclasses.replace(case, params=params)
 
 
@@ -96,8 +98,8 @@ def build_study(study: studies.Study, raw: dict) -> Design:
 
     sweep_axes, optimize_axes = study.sweep, study.optimize   # the study owns one block layout
     sample_dims = ("sample",) if sample_paths else ()
-    sweep_dims = tuple(a.param for a in sweep_axes)
-    optimize_dims = tuple(a.param for a in optimize_axes)
+    sweep_dims = tuple(a.name for a in sweep_axes)
+    optimize_dims = tuple(a.name for a in optimize_axes)
     dims = sample_dims + sweep_dims + optimize_dims
     shape = (((X.shape[0],) if sample_paths else ())
              + tuple(a.n for a in sweep_axes) + tuple(a.n for a in optimize_axes))
@@ -115,24 +117,21 @@ def build_study(study: studies.Study, raw: dict) -> Design:
 
 def _place_case(name, study, raw, sample_paths, X,
                 sample_dims, sweep_axes, optimize_axes, ndim) -> schema.Case:
-    """Place a study's values for one member case: sampled/fixed leaves (a source capex, a route
-    field) by dotted path into a copy of the raw config, then rebuild the case; the study's axis
-    grids onto the rebuilt case's Route (op_v_kn/d_km live only in the study)."""
+    """Place a study's values for one member case: every role sets a leaf at its dotted config
+    path in a copy of the raw config — fix a scalar, sample the Saltelli column on the shared
+    dim, each swept/lever grid on its own dim — then rebuild once so the array leaves flow into
+    the frozen components."""
     cfg = copy.deepcopy(raw)
     for i, path in enumerate(sample_paths):
         _set_path(cfg, path, _reshaped(X[:, i], 0, ndim))
     for path, value in study.fix.items():
         _set_path(cfg, path, value)
-    case = load_config.build_cases(cfg, load_config.build_library(cfg))[name]
-
-    updates: dict[str, np.ndarray] = {}
     offset = len(sample_dims)
     for dim, axis in enumerate(sweep_axes):
-        updates[axis.param] = _reshaped(grid(axis), offset + dim, ndim)
+        _set_path(cfg, axis.path, _reshaped(grid(axis), offset + dim, ndim))
     for dim, axis in enumerate(optimize_axes):
-        updates[axis.param] = _reshaped(grid(axis), offset + len(sweep_axes) + dim, ndim)
-    route = dataclasses.replace(case.params.route, **updates)
-    return dataclasses.replace(case, params=dataclasses.replace(case.params, route=route))
+        _set_path(cfg, axis.path, _reshaped(grid(axis), offset + len(sweep_axes) + dim, ndim))
+    return load_config.build_cases(cfg, load_config.build_library(cfg))[name]
 
 
 def _reshaped(values, pos: int, ndim: int) -> np.ndarray:

@@ -19,8 +19,8 @@ def reactor_electric(case: schema.Case) -> dict:
     utilization. The bare motor is design-sized; the reactor sized to the operating bus.
     """
     pl, dt, params = case.platform, case.drivetrain, case.params
-    economics, margins, route = params.economics, params.margins, params.route
-    d_km, op_v_kn = route.d_km, route.op_v_kn
+    economics, margins = params.economics, params.margins
+    d_km, op_v_kn = params.d_km, params.op_v_kn
     design_v_kn = params.design_v_kn
     reactor = next(s for s in case.sources if isinstance(s, sources.ContainerizedReactor))
 
