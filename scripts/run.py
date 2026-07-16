@@ -31,7 +31,7 @@ _LEAD_COLUMNS = ["case", "feasible", "lcot", "op_v_kn", "d_km",
 
 def build_results(config_path=CONFIG_PATH, cases_path=CASES_PATH) -> pd.DataFrame:
     """Optimize every Case over its sweep and assemble the tidy results table."""
-    cases = load_config(config_path, cases_path)
+    cases, _ranges = load_config(config_path, cases_path)
     rows = [{"case": name, **row}
             for name, case in cases.items()
             for row in run_case(case)]

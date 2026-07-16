@@ -1,16 +1,41 @@
 """
 load_config.py — read the component library (config.yaml) + case table (cases.csv) into
-the frozen schema, returning Cases keyed by name.
+the frozen schema, returning Cases keyed by name plus the harvested range library.
 
 Trusted input: no validation beyond what the dataclass constructors enforce (a bad key
 raises TypeError). Library loading is mechanical (`Block(**yaml_subdict)`, sources dispatch
 on `type`); cases are a tidy CSV read with pandas, one case per group of rows.
+
+A config leaf may be a bare scalar or a ranged wrapper `{value:, range: [lo, hi], dist:}`.
+`_unwrap` walks the parsed tree once: it replaces every wrapper with its scalar `value` (so
+the schema builds exactly as before) and records any declared range under its dotted path
+(`sources.lfp.capex.usd_per_kwh`, `shared.margins.sea`, ...). The range library is *data about
+the parameters*, consumed by studies to decide what to sample — never read here.
 """
 
 import pandas as pd
 
 import schema
 import sources
+
+
+def _unwrap(node, prefix: str, ranges: dict[str, schema.Range]):
+    """Return `node` with every ranged wrapper replaced by its scalar `value`, harvesting any
+    declared range into `ranges` keyed by dotted path. A wrapper is any dict carrying a `value`
+    key; genuine sub-blocks (no `value` key) are recursed into."""
+    if isinstance(node, dict):
+        if "value" in node:
+            extra = set(node) - {"value", "range", "dist"}
+            if extra:
+                raise ValueError(f"ranged leaf {prefix!r} has unexpected keys {sorted(extra)}; "
+                                 "a ranged value is {value:, range: [lo, hi], dist:}")
+            if "range" in node:
+                lo, hi = node["range"]
+                ranges[prefix] = schema.Range(float(lo), float(hi), node.get("dist", "unif"))
+            return node["value"]
+        return {key: _unwrap(value, f"{prefix}.{key}" if prefix else key, ranges)
+                for key, value in node.items()}
+    return node
 
 
 def _economics(d: dict) -> schema.Economics:
@@ -100,18 +125,22 @@ def _case(group, economics: schema.Economics, margins: schema.Margins,
     )
 
 
-def load_config(config_path, cases_path) -> dict[str, schema.Case]:
-    """Build the Cases (keyed by name) from config.yaml + cases.csv: the platforms /
-    drivetrains / sources libraries and cross-case economics/margins from the YAML, then one
-    self-contained Case per group of CSV rows."""
+def load_config(config_path, cases_path) -> tuple[dict[str, schema.Case], dict[str, schema.Range]]:
+    """Build the Cases (keyed by name) from config.yaml + cases.csv, plus the range library
+    harvested from the ranged leaves. Returns `(cases, ranges)`: the platforms / drivetrains /
+    sources libraries and cross-case economics/margins from the YAML, then one self-contained
+    Case per group of CSV rows; `ranges` maps each ranged leaf's dotted path to its `Range`."""
     import yaml
     with open(config_path) as f:
-        d = yaml.safe_load(f)
+        raw = yaml.safe_load(f)
+    ranges: dict[str, schema.Range] = {}
+    d = _unwrap(raw, "", ranges)
     s = d["shared"]
     economics, margins = _economics(s), _margins(s)
     platforms = {n: _platform(n, b) for n, b in d["platforms"].items()}
     drivetrains = {n: _drivetrain(n, b) for n, b in d["drivetrains"].items()}
     sources = {n: _source(n, b) for n, b in d["sources"].items()}
     cases = pd.read_csv(cases_path)
-    return {name: _case(group, economics, margins, platforms, drivetrains, sources)
-            for name, group in cases.groupby("name", sort=False)}
+    built = {name: _case(group, economics, margins, platforms, drivetrains, sources)
+             for name, group in cases.groupby("name", sort=False)}
+    return built, ranges

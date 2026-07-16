@@ -116,6 +116,17 @@ class Axis:
     n: int                          # number of grid points
 
 
+@dataclass(frozen=True)
+class Range:
+    """A parameter's plausible range, declared ON its value in config.yaml (a leaf written as
+    `{value:, range: [lo, hi], dist:}`) and harvested by the loader into a path-keyed library.
+    This is *data about the parameter* (a prior); which params actually vary in a run is study
+    design, decided against these ranges in the study file — never here."""
+    lo: float
+    hi: float
+    dist: str = "unif"              # sampling distribution; only "unif" is wired today
+
+
 # ---- platform ----
 @dataclass(frozen=True)
 class Capacity:
