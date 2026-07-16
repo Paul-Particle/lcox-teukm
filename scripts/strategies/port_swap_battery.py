@@ -8,11 +8,11 @@ import helpers
 import sources
 from units import KMH_PER_KNOT
 
-from ._shared import (_resolve_demand, _fixed_costs, _lcot, _row, _infeasible,
+from ._shared import (_resolve_demand, _fixed_costs, _lcot, _finalize,
                       legs_per_year, carried)
 
 
-def port_swap_battery(case: schema.Case, point: dict) -> dict:
+def port_swap_battery(case: schema.Case) -> dict:
     """Port-swap battery ship (LFP / iron-air). Like `tether_charge` but with no tender: the
     pack carries the WHOLE leg and the grid refills it at each port swap. Motor sized to the
     fixed design speed; pack to the operating-speed energy (and for iron-air the C/50 power
@@ -20,8 +20,8 @@ def port_swap_battery(case: schema.Case, point: dict) -> dict:
     """
     pl, dt = case.platform, case.drivetrain
     economics, margins, route = case.params.economics, case.params.margins, case.params.route
-    d_km, op_v_kn = point.get("d_km", route.d_km), point.get("op_v_kn", route.op_v_kn)
-    design_v_kn = point.get("design_v_kn", route.design_v_kn)
+    d_km, op_v_kn = route.d_km, route.op_v_kn
+    design_v_kn = route.design_v_kn
     battery = next(s for s in case.sources if isinstance(s, sources.BatterySource))
 
     # --- route plan + power demand at the operating speed ----------------------
@@ -41,8 +41,7 @@ def port_swap_battery(case: schema.Case, point: dict) -> dict:
     legs = legs_per_year(op_v_kn, d_km, dt.operations.port_hours, dt.operations.availability)
     cargo = carried(pl, dt.overhead.slots, slots, mass_t,
                     route.load_factor, route.load_factor_imbalance)
-    if cargo <= 0:
-        return _infeasible(op_v_kn, d_km)
+    mask = cargo > 0        # pack swamps the ship -> infeasible
 
     # --- energy: the swap refills what the leg consumed in expectation ------------
     # the reserve is sizing-only (capex + mass), matching the fuel cases' nominal burn;
@@ -64,5 +63,5 @@ def port_swap_battery(case: schema.Case, point: dict) -> dict:
     annual_energy = grid_cost_leg * legs
     lcot = _lcot(annual_fixed, annual_energy, legs, d_km, cargo)
 
-    return _row(lcot, op_v_kn, d_km, cargo, legs, annual_fixed, annual_energy,
-                battery_slots=slots, battery_kwh=installed_kwh, motor_kw=motor_kw, **fixed)
+    return _finalize(mask, lcot, op_v_kn, d_km, cargo, legs, annual_fixed, annual_energy,
+                     battery_slots=slots, battery_kwh=installed_kwh, motor_kw=motor_kw, **fixed)

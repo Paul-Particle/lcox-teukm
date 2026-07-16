@@ -22,8 +22,9 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class Case:
-    """One composition plus how to explore it. Pure data: the optimizer reads `sweep`/`optimize`
-    and drives sweep -> optimize -> strategy."""
+    """One composition plus how to explore it. Pure data: `design` reads `sweep`/`optimize` and
+    turns them into named block axes, which `evaluate` retains (sweep) or argmin-collapses
+    (optimize)."""
     name: str
     sources: tuple[EnergySource, ...]   # zero or more (zero = fueled-for-life converter)
     platform: Platform
@@ -106,9 +107,10 @@ class Route:
 
 @dataclass(frozen=True)
 class Axis:
-    """A point-coordinate the optimizer varies over a grid. Same shape whether `optimize`
-    (searched for min lcot) or `sweep` (traced as LCOT-vs-X) — the Case's list decides which."""
-    param: str                      # the point-dict key it sets, e.g. "op_v_kn" or "d_km"
+    """A parameter varied over a grid, becoming one block dimension. Same shape whether
+    `optimize` (argmin-collapsed for min lcot) or `sweep` (retained as an LCOT-vs-X trace) —
+    the Case's list decides which."""
+    param: str                      # the config leaf it replaces with a grid, e.g. "op_v_kn" or "d_km"
     lo: float
     hi: float
     n: int                          # number of grid points
