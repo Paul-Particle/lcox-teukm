@@ -1,5 +1,5 @@
 """
-load_config.py — read config.yaml (the component library AND the cases that compose it) into
+load_assumptions.py — read assumptions.yaml (the component library AND the cases that compose it) into
 the frozen schema, returning Cases keyed by name plus the harvested range library.
 
 Trusted input: no validation beyond what the dataclass constructors enforce (a bad key
@@ -13,12 +13,12 @@ the schema builds exactly as before) and records any declared range under its do
 (`sources.lfp.capex.usd_per_kwh`, `sources.tender-reactor.tether.detach_frac`, ...). The library is
 *data about the parameters*, consumed by studies to decide what to sample — never read here.
 
-Loading is decomposed so `design` can rebuild with sampled values placed: `read_raw` parses +
+Loading is decomposed so `ingest` can rebuild with sampled values placed: `read_raw` parses +
 unwraps, `build_library` turns an (already unwrapped) config dict into the component `Library`,
-and `build_cases` assembles Cases against a library. `design` places sampled/fixed leaves (a
+and `build_cases` assembles Cases against a library. `ingest` places sampled/fixed leaves (a
 source capex, a route field) by dotted path into a copy of the raw dict, rebuilds, and
 re-assembles — so array-valued leaves flow into the frozen components and the kernel broadcasts
-over them. `load_config` is the nominal composition of the three.
+over them. `load_assumptions` is the nominal composition of the three.
 """
 
 from __future__ import annotations
@@ -30,7 +30,7 @@ from common import schema
 
 @dataclass(frozen=True)
 class Library:
-    """The built component library from config.yaml — everything a Case composes, keyed by
+    """The built component library from assumptions.yaml — everything a Case composes, keyed by
     name, plus the cross-case shared assumptions (economics/margins + market load + design speed)
     that keep cases comparable."""
     economics: schema.Economics
@@ -109,7 +109,7 @@ def _source(name: str, d: dict) -> schema.EnergySource:
     raise ValueError(f"unknown source type {t!r} for source {name!r}")
 
 
-# ---- cases: config.yaml's `cases:` section, one entry per case ----
+# ---- cases: assumptions.yaml's `cases:` section, one entry per case ----
 # A case names its platform/drivetrain (by library key), its sources (a list of keys — empty for
 # a fueled-for-life converter), and its strategy (a function in the strategies package). It holds
 # no parameters of its own: the voyage operating point (d_km/op_v_kn) is study-owned (design fills
@@ -132,11 +132,11 @@ def _case(name: str, spec: dict, library: Library) -> schema.Case:
     )
 
 
-def read_raw(config_path) -> tuple[dict, dict[str, schema.Range]]:
-    """Parse config.yaml and unwrap ranged leaves: the plain-scalar config dict plus the
+def read_raw(assumptions_path) -> tuple[dict, dict[str, schema.Range]]:
+    """Parse assumptions.yaml and unwrap ranged leaves: the plain-scalar config dict plus the
     harvested range library (dotted path -> Range)."""
     import yaml
-    with open(config_path) as f:
+    with open(assumptions_path) as f:
         raw = yaml.safe_load(f)
     ranges: dict[str, schema.Range] = {}
     return _unwrap(raw, "", ranges), ranges
@@ -165,8 +165,8 @@ def build_cases(raw: dict, library: Library) -> dict[str, schema.Case]:
     return {name: _case(name, spec, library) for name, spec in raw["cases"].items()}
 
 
-def load_config(config_path) -> tuple[dict[str, schema.Case], dict[str, schema.Range]]:
-    """The nominal build: `(cases, ranges)` from config.yaml. `cases` keyed by name (config
+def load_assumptions(assumptions_path) -> tuple[dict[str, schema.Case], dict[str, schema.Range]]:
+    """The nominal build: `(cases, ranges)` from assumptions.yaml. `cases` keyed by name (config
     order), `ranges` maps each ranged leaf's dotted path to its `Range`."""
-    raw, ranges = read_raw(config_path)
+    raw, ranges = read_raw(assumptions_path)
     return build_cases(raw, build_library(raw)), ranges

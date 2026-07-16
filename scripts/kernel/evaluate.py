@@ -1,7 +1,7 @@
 """
 evaluate.py — run the kernel over each study case's block and collapse the lever axes.
 
-One kernel call per case: `design` has already turned the study's axes into array leaves on the
+One kernel call per case: `ingest` has already turned the study's axes into array leaves on the
 config, so the strategy is called ONCE and broadcasts over the whole (sample x swept x lever)
 block — what the old scalar sweep/grid-search loops did falls out of numpy broadcasting. Then:
 
@@ -23,12 +23,12 @@ import numpy as np
 import xarray as xr
 
 from model import strategies
-from . import design
+from . import ingest
 
 OBJECTIVE = "lcot"      # default objective the lever collapse minimizes (a study overrides it)
 
 
-def evaluate_design(design_: design.Design) -> dict[str, xr.Dataset]:
+def evaluate_design(design_: ingest.Design) -> dict[str, xr.Dataset]:
     """Evaluate every member case of a study over its block and collapse the lever dims, one
     xarray `Dataset` per case. The kernel runs once per case (broadcasting over sample x swept x
     lever); the trailing lever dims are argmin-collapsed by the study objective, carrying every

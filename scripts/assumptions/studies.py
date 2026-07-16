@@ -1,14 +1,14 @@
 """
 studies.py — parse studies.yaml and resolve each study's role assignments against the ranges.
 
-A study is one line of role assignment over the parameters config.yaml already describes. Roles:
+A study is one line of role assignment over the parameters assumptions.yaml already describes. Roles:
 
 - **sample** — jointly Saltelli-drawn on the shared sample axis (variance-decomposed). Paths or
   globs over config leaves (a source capex `sources.lfp.capex.usd_per_kwh`, a tether field
   `sources.tender-reactor.tether.detach_frac` — every param is an ordinary config leaf now);
   omitted means *every ranged config param* (the blast default), `[]` means none. Each sampled
   path resolves a
-  `Range`: the range harvested from config.yaml (declared on the value), else — for a leaf with a
+  `Range`: the range harvested from assumptions.yaml (declared on the value), else — for a leaf with a
   value but no range — a default +/-20% perturbation for screening. Ranges live in config, never
   in a study.
 - **optimize** / **sweep** — factorial axis grids the STUDY owns, written `{path: [lo, hi, n]}`
@@ -64,7 +64,7 @@ def _resolve(name, body: dict, ranges: dict[str, schema.Range],
              leaves: dict[str, float]) -> Study:
     if "ranges" in body:
         raise ValueError(f"study {name!r} declares `ranges:` — parameter ranges now live in "
-                         "config.yaml on the value ({value:, range: [lo, hi]}); a study only "
+                         "assumptions.yaml on the value ({value:, range: [lo, hi]}); a study only "
                          "chooses which params to sample, not how wide they are")
     return Study(
         name=name,
@@ -108,14 +108,14 @@ def _range_for(name, path, ranges, leaves) -> schema.Range:
         nominal = leaves[path]
         return schema.Range(nominal * (1 - DEFAULT_PERTURB), nominal * (1 + DEFAULT_PERTURB))
     raise ValueError(f"study {name!r}: sampled path {path!r} is not a config leaf — check the "
-                     "dotted path against config.yaml")
+                     "dotted path against assumptions.yaml")
 
 
 def _axes(spec) -> tuple[schema.Axis, ...]:
     """Parse an optimize/sweep block `{path: [lo, hi, n]}` into `Axis` grids ((): omitted/none).
     `path` is the dotted config leaf the grid replaces (`shared.op_v_kn`, `shared.d_km`, or any
     other leaf) — the same addressing `sample`/`fix` use; a bad path surfaces as a KeyError when
-    `design` places it."""
+    `ingest` places it."""
     if not spec:
         return ()
     return tuple(schema.Axis(path, float(lo), float(hi), int(n))
