@@ -1,7 +1,7 @@
 """
-design.py — turn exploration axes and study roles into array-valued config leaves.
+ingest.py — turn exploration axes and study roles into array-valued config leaves.
 
-`design` decides *which points to evaluate* and expresses the answer as arrays placed on the
+`ingest` decides *which points to evaluate* and expresses the answer as arrays placed on the
 config, so the kernel evaluates a whole block in one broadcast call instead of a scalar loop.
 Each axis becomes a 1-D grid reshaped onto its OWN block dimension; a study's sampled params
 share ONE leading dimension (the Saltelli draw). Dimension order is **sample, then swept, then
@@ -27,8 +27,8 @@ import numpy as np
 from SALib.sample import sobol as sobol_sample
 
 from common import schema
-from config import studies
-from config import load_config
+from assumptions import studies
+from assumptions import load_assumptions
 
 
 def grid(axis: schema.Axis) -> np.ndarray:
@@ -112,7 +112,7 @@ def _place_case(name, study, raw, sample_paths, X,
         _set_path(cfg, axis.path, _reshaped(grid(axis), offset + dim, ndim))
     for dim, axis in enumerate(optimize_axes):
         _set_path(cfg, axis.path, _reshaped(grid(axis), offset + len(sweep_axes) + dim, ndim))
-    return load_config.build_cases(cfg, load_config.build_library(cfg))[name]
+    return load_assumptions.build_cases(cfg, load_assumptions.build_library(cfg))[name]
 
 
 def _reshaped(values, pos: int, ndim: int) -> np.ndarray:

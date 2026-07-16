@@ -14,17 +14,17 @@ import sys
 
 import pandas as pd
 
-from common.paths import REPO_ROOT, CONFIG_PATH, STUDIES_PATH
-from config.load_config import read_raw
-from config.studies import load_studies
-from kernel import design as design_module
+from common.paths import REPO_ROOT, ASSUMPTIONS_PATH, STUDIES_PATH
+from assumptions.load_assumptions import read_raw
+from assumptions.studies import load_studies
+from kernel import ingest as ingest_module
 from kernel import evaluate
 from kernel import analyze
 from kernel import store
 
 
 def run_study(study, raw) -> None:
-    design = design_module.build_study(study, raw)
+    design = ingest_module.build_study(study, raw)
     datasets = evaluate.evaluate_design(design)
     indices, feasibility = analyze.sobol_indices(design, datasets)
     out = store.write(design, datasets, indices, feasibility)
@@ -50,7 +50,7 @@ def _report_indices(indices: pd.DataFrame) -> None:
 
 
 def main() -> None:
-    raw, ranges = read_raw(CONFIG_PATH)
+    raw, ranges = read_raw(ASSUMPTIONS_PATH)
     studies = load_studies(STUDIES_PATH, ranges, raw)
     names = sys.argv[1:] or list(studies)
     for name in names:

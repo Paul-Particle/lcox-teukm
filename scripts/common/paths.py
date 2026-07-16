@@ -11,7 +11,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]     # common/ -> scripts/ -> repo root
 
-CONFIG_PATH = REPO_ROOT / "config.yaml"
+ASSUMPTIONS_PATH = REPO_ROOT / "assumptions.yaml"
 STUDIES_PATH = REPO_ROOT / "studies.yaml"
 
 RESULTS_DIR = REPO_ROOT / "results"

@@ -1,10 +1,10 @@
 """
 schema.py — the config schema, as frozen dataclasses.
 
-The leaf sub-blocks mirror config.yaml one-to-one, so the loader builds them mechanically
+The leaf sub-blocks mirror assumptions.yaml one-to-one, so the loader builds them mechanically
 (`Block(**yaml_subdict)`); the top-level composites (Platform, Drivetrain, Case, Params) it
 assembles by hand from a name plus the nested blocks. Everything — the components AND the cases
-that compose them (each with its fixed `route`) — lives in config.yaml. Three nouns — Platform,
+that compose them (each with its fixed `route`) — lives in assumptions.yaml. Three nouns — Platform,
 Drivetrain, EnergySource (fuel / battery / reactor); a `Case` composes them plus everything
 non-component (a `Params` block, a strategy name). Top-level structures first; the sub-blocks
 they compose at the bottom.
@@ -25,7 +25,7 @@ from dataclasses import dataclass
 class Case:
     """One composition: the components plus its fixed route/economics. Pure data. Which axes to
     sweep/optimize and which leaves to sample is NOT here — that is study design (studies.yaml),
-    applied to a case by `design`; a case is only the thing a study explores."""
+    applied to a case by `ingest`; a case is only the thing a study explores."""
     name: str
     sources: tuple[EnergySource, ...]   # zero or more (zero = fueled-for-life converter)
     platform: Platform
@@ -64,7 +64,7 @@ class Drivetrain:
     propulsion_factor: PropulsionFactor # itemized hull/propeller multipliers scaling propulsion power
 
 
-# ================= sub-blocks (detail; mostly mirror config.yaml's sub-blocks) ====
+# ================= sub-blocks (detail; mostly mirror assumptions.yaml's sub-blocks) ====
 
 # ---- case ----
 @dataclass(frozen=True)
@@ -116,7 +116,7 @@ class Axis:
 
 @dataclass(frozen=True)
 class Range:
-    """A parameter's plausible range, declared ON its value in config.yaml (a leaf written as
+    """A parameter's plausible range, declared ON its value in assumptions.yaml (a leaf written as
     `{value:, range: [lo, hi], dist:}`) and harvested by the loader into a path-keyed library.
     This is *data about the parameter* (a prior); which params actually vary in a run is study
     design, decided against these ranges in the study file — never here."""
@@ -212,7 +212,7 @@ class PropulsionFactor:
 
 
 # ==================================== energy sources (concrete EnergySource family) ====
-# Pure data mirroring config.yaml's source blocks; the cost/sizing functions are in
+# Pure data mirroring assumptions.yaml's source blocks; the cost/sizing functions are in
 # model/costing.py. Strategies pick a source by its concrete subclass, then call the matching
 # function.
 
@@ -262,7 +262,7 @@ class TenderReactor(ReactorSource):
     tether: Tether                  # cable efficiency + speed cap + coastal geometry + weather detach
 
 
-# ---- source sub-blocks (mirror config.yaml's source sub-blocks) ----
+# ---- source sub-blocks (mirror assumptions.yaml's source sub-blocks) ----
 @dataclass(frozen=True)
 class FuelPrice:
     # different fuels quote differently; the cost model reads whichever is set

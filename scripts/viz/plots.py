@@ -25,7 +25,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import numpy as np
 import pandas as pd
 
-from common.paths import RESULTS_DIR, SOBOL_DIR, CONFIG_PATH, STUDIES_PATH, LCOT_PARQUET
+from common.paths import RESULTS_DIR, SOBOL_DIR, ASSUMPTIONS_PATH, STUDIES_PATH, LCOT_PARQUET
 from common.units import CENTS_PER_USD
 from viz.style import (
     fca_template, fca_blue, blue_black, dark_gray, highlight_blue, light_blue,
@@ -303,13 +303,13 @@ def plot_lever_landscape(cases=("fossil", "lfp", "nuclear-cont", "tender"),
     speed starred. Same data as the sweep plots with the axes' roles swapped: op_v_kn is retained
     (a `sweep`) instead of argmin-collapsed (`optimize`), evaluated fresh through the study path."""
     import plotly.graph_objects as go
-    from config.load_config import read_raw
+    from assumptions.load_assumptions import read_raw
     from common import schema
-    from config.studies import Study
-    from kernel.design import build_study
+    from assumptions.studies import Study
+    from kernel.ingest import build_study
     from kernel.evaluate import evaluate_design
 
-    raw, _ranges = read_raw(CONFIG_PATH)
+    raw, _ranges = read_raw(ASSUMPTIONS_PATH)
     fig = go.Figure()
     for case in cases:
         if case not in _DISPLAY:
@@ -350,9 +350,9 @@ def _ensure_sobol(study_name: str) -> None:
     if (SOBOL_DIR / study_name / "indices.csv").exists():
         return
     import study as study_module
-    from config.load_config import read_raw
-    from config.studies import load_studies
-    raw, ranges = read_raw(CONFIG_PATH)
+    from assumptions.load_assumptions import read_raw
+    from assumptions.studies import load_studies
+    raw, ranges = read_raw(ASSUMPTIONS_PATH)
     studies = load_studies(STUDIES_PATH, ranges, raw)
     if study_name in studies:
         print(f"[study] computing {study_name!r} (no store yet)")

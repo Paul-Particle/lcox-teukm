@@ -5,7 +5,7 @@ cargo-unit·km — US¢/TEU·km for the container platform) of ship-technology *
 of **`D_max`**, the longest port-to-port hop on a route, so powertrains and energy strategies
 compare on an absolute basis, not just as ratios.
 
-The pipeline runs end-to-end: a component library + case compositions in `config.yaml`, a study
+The pipeline runs end-to-end: a component library + case compositions in `assumptions.yaml`, a study
 in `studies.yaml` naming which parameters vary and how → a vectorized kernel that evaluates a
 whole block per case in one broadcast call and collapses the cost-optimal speed lever → a tidy
 results artifact / Sobol indices → figures. A standalone EU MRV fleet-data toolchain grounds the
@@ -57,7 +57,7 @@ one module per strategy.
 
 **Study** — the driver, in `studies.yaml`. A study assigns each parameter a **role** over any
 config leaf: `fix` (a scalar), `sample` (a Saltelli column on the shared sample dim), `sweep` (a
-retained condition grid), `optimize` (an argmin-collapsed lever grid). `design` places those as
+retained condition grid), `optimize` (an argmin-collapsed lever grid). `ingest` places those as
 array leaves on the config, `evaluate` runs one broadcast kernel call per case and collapses the
 lever, `analyze` variance-decomposes per swept slice. No parameter is privileged: `op_v_kn` and
 `d_km` are ordinary leaves that the `fleet` study happens to optimize and sweep.
@@ -65,25 +65,25 @@ lever, `analyze` variance-decomposes per swept slice. No parameter is privileged
 ### Module map
 
 `scripts/` is grouped into packages by role, with dependencies pointing downward
-(`common` ← `config`/`model` ← `kernel` ← `viz`). The two flat entry points (`run.py`,
+(`common` ← `assumptions`/`model` ← `kernel` ← `viz`). The two flat entry points (`run.py`,
 `study.py`) and `viz/plots.py` are run by path (the last via a `sys.path` shim); everything
 else is imported.
 
 | Module | Role |
 |---|---|
 | **`common/`** | shared vocabulary + math — the foundation everything imports |
-| `common/schema.py` | frozen config schema (Platform / Drivetrain / the `EnergySource` family: fuel / battery / reactor / Case / Params / Axis) — passive structure mirroring `config.yaml` |
+| `common/schema.py` | frozen config schema (Platform / Drivetrain / the `EnergySource` family: fuel / battery / reactor / Case / Params / Axis) — passive structure mirroring `assumptions.yaml` |
 | `common/units.py` | unit conversions, single source of truth |
 | `common/helpers.py` | shared only: `crf` + ship physics (`prop_power_kw`, `propulsion_factor`) |
 | `common/paths.py` | canonical repo/input/output paths, derived once so no module counts `parents[...]` levels |
-| **`config/`** | the two YAML inputs → typed objects |
-| `config/load_config.py` | YAML library + `cases:` → built Cases (`dict[name → Case]`); harvests `{value, range}` sampling priors |
-| `config/studies.py` | parse `studies.yaml` into `Study` role assignments; resolve each sampled leaf's range from config |
+| **`assumptions/`** | the two YAML inputs → typed objects |
+| `assumptions/load_assumptions.py` | YAML library + `cases:` → built Cases (`dict[name → Case]`); harvests `{value, range}` sampling priors |
+| `assumptions/studies.py` | parse `studies.yaml` into `Study` role assignments; resolve each sampled leaf's range from config |
 | **`model/`** | the cost / sizing model |
 | `model/costing.py` | per-source cost/sizing **functions** (`battery_size` / `battery_life_yr` / `fuel_usd_per_kwh` / `containerized_reactor_size` / `tender_levelize`) over the schema source records |
 | `model/strategies/` | package: one module per strategy (6) + `_shared.py` (scaffolding + route math `legs_per_year`/`carried`) |
 | **`kernel/`** | the vectorized study → results pipeline |
-| `kernel/design.py` | place a study's roles as array-valued config leaves → a `Design` (member cases + block layout + SALib problem) |
+| `kernel/ingest.py` | place a study's roles as array-valued config leaves → a `Design` (member cases + block layout + SALib problem) |
 | `kernel/evaluate.py` | one broadcast kernel call per case; argmin-collapse the lever dims → one xarray `Dataset` per case |
 | `kernel/analyze.py` | Sobol first-order/total indices (SALib) per swept slice + feasibility reporting |
 | `kernel/store.py` | persist block + samples + indices + feasibility + a spec snapshot under `results/sobol/<study>/` |
@@ -95,7 +95,7 @@ else is imported.
 | `study.py` | run studies.yaml studies → Sobol indices under `results/sobol/` |
 | `mrv/` | standalone EU MRV fleet tooling (`mrv_unify`, `mrv_fleet`, `run_mrv`) — runs on its own, imports only `common.units` (+ best-effort `viz.style`), nothing from the model |
 
-The two inputs — **`config.yaml`** (component library + cases + shared scalars) and
+The two inputs — **`assumptions.yaml`** (component library + cases + shared scalars) and
 **`studies.yaml`** (role assignment) — still carry some placeholder values (crew/O&M, a few tender
 parameters) pending grounding; see [`docs/mrv_grounding.md`](docs/mrv_grounding.md) and **TODO.md**.
 
@@ -126,8 +126,8 @@ hardware.
 
 ```
 run.py / study.py ─ pick a study from studies.yaml
-  └─ load_config (config.yaml ─> frozen dataclasses + sampling ranges)
-       └─ design.build_study(study, raw)
+  └─ load_assumptions (assumptions.yaml ─> frozen dataclasses + sampling ranges)
+       └─ ingest.build_study(study, raw)
             ├─ draw the Saltelli sample matrix (if any leaf is sampled)
             └─ place every role as an array leaf on the config, rebuild once ─> Design
                  └─ evaluate.evaluate_design(design)      # one broadcast call per case
@@ -150,7 +150,7 @@ infeasible.
 
 Two inputs, cleanly split between *what exists* and *what varies*:
 
-- **`config.yaml`** — the component library + the model's parameters. `shared` (cross-case
+- **`assumptions.yaml`** — the component library + the model's parameters. `shared` (cross-case
   economics, margins, load factors, and the voyage scalars `d_km` / `op_v_kn` / `design_v_kn`),
   `platforms`, `drivetrains`, `sources`, and `cases:` (pure compositions — platform + drivetrain +
   sources + strategy, no route). `type:` is the loader's cost-model discriminator. A value may be

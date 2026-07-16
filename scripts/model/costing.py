@@ -4,7 +4,7 @@ The strategy-independent cost model for each concrete energy source: given a sou
 (a frozen `schema` record) plus the demand a strategy has computed, return its levelized cost
 and physical sizing. Strategies select their source by concrete type and call the matching
 function; the functions never depend on the strategy. Split out of the source dataclasses (which
-are now pure data in `common/schema.py`) so the schema stays a passive mirror of config.yaml.
+are now pure data in `common/schema.py`) so the schema stays a passive mirror of assumptions.yaml.
 Units: see common/units.py.
 """
 

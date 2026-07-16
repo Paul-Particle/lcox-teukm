@@ -168,7 +168,7 @@ axis called `op_v_kn`" first-class, not the genericity itself.
 
 | stage | module | strategy-aware? |
 |---|---|---|
-| parse `config.yaml` → schema + harvest ranges | `load_config.py` (exists) | no |
+| parse `assumptions.yaml` → schema + harvest ranges | `load_config.py` (exists) | no |
 | parse `studies.yaml`, resolve roles against ranges | `studies.py` (new) | no |
 | **design** — roles → named axes, Saltelli matrix + factorial grids, place into config, build Cases | `design.py` (new, ~100 lines) | no |
 | **kernel** — the strategies (the producer) | `strategies/` (exists) | **yes — the only place** |
@@ -218,7 +218,7 @@ frictionless:
   param under default-all selection: surfaced in run summaries and columns, judged by the
   person reading the run.
 
-Target workflow: add a parameter's value and range to `config.yaml` (plus its one-line
+Target workflow: add a parameter's value and range to `assumptions.yaml` (plus its one-line
 schema field), and every subsequent sweep or sensitivity blast picks it up across every
 case it resolves in — no per-study, per-case, per-param wiring.
 
@@ -251,7 +251,7 @@ matters. Performance is simply off the table; vectorization is justified here by
 
 ### 1. Values + ranges (the input end)
 
-**Ranges live with values in `config.yaml`**: a leaf is either a scalar or
+**Ranges live with values in `assumptions.yaml`**: a leaf is either a scalar or
 `{value: 250, range: [80, 300], dist: unif}`; the loader unwraps `value` for the nominal
 schema and harvests ranges into a path-keyed library. A parameter's plausible range is
 *data about the parameter* (and what the future tech-data library will tag with sources);
@@ -265,14 +265,14 @@ perturbation (e.g. ±20%) for screening.
 
 Route ranges: the earlier wrinkle — per-case route values living in `cases.csv` cells, so
 their ranges could not be declared on a value — is gone. The route was never really a
-per-case thing; its params moved to their owners in `config.yaml` (§2) — market load +
+per-case thing; its params moved to their owners in `assumptions.yaml` (§2) — market load +
 design speed to `shared`, the tether's geometry + weather to the `tender-reactor` source —
 so each is an ordinary config leaf (`sources.tender-reactor.tether.detach_frac`) carrying
 its `range:` on its value. There is no per-study range spec.
 
 ### 2. Compositions (the structural dimension)
 
-Cases live in `config.yaml`'s `cases:` section (revised from the original `cases.csv`): each
+Cases live in `assumptions.yaml`'s `cases:` section (revised from the original `cases.csv`): each
 case names its platform × drivetrain × sources × strategy and nothing else — it is purely a
 composition. Its former per-case route values were never really per-case; they moved to
 their owners (§1): market load + design speed to `shared`, the tether's geometry + weather
@@ -347,11 +347,11 @@ build Cases through the unchanged loader.
   `sample` (paths/globs over config leaves, `[]` = none), `optimize` (a lever, argmin-
   collapsed), `sweep` (a retained condition), and `fix` (a constant for this run). All four
   roles address the same dotted config leaves, so any param can play any role; the axis grids
-  belong to the study, written `{path: [lo, hi, n]}`; ranges belong to config.yaml, never to a
+  belong to the study, written `{path: [lo, hi, n]}`; ranges belong to assumptions.yaml, never to a
   study:
 
 ```yaml
-# studies.yaml — role assignment + narrowing over the ranges declared in config.yaml
+# studies.yaml — role assignment + narrowing over the ranges declared in assumptions.yaml
 studies:
   fleet:                        # the baseline sweep -> results/lcot.csv (rendered by run.py)
     sample: []                  # no decomposition

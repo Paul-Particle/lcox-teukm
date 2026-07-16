@@ -18,10 +18,10 @@ import xarray as xr
 import pandas as pd
 
 from common.paths import SOBOL_DIR
-from . import design as design_module
+from . import ingest as ingest_module
 
 
-def write(design: design_module.Design, datasets: dict[str, xr.Dataset],
+def write(design: ingest_module.Design, datasets: dict[str, xr.Dataset],
           indices: pd.DataFrame, feasibility: pd.DataFrame) -> Path:
     """Write a study's block(s), flat samples, indices, feasibility, and spec snapshot. Returns
     the study directory."""

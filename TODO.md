@@ -1,6 +1,6 @@
 # TODO / known limitations
 
-The model runs end-to-end on a vectorized kernel. Two inputs feed it: **`config.yaml`** (the
+The model runs end-to-end on a vectorized kernel. Two inputs feed it: **`assumptions.yaml`** (the
 component library + `cases:` compositions + `shared` voyage scalars, with sampling ranges declared
 on the values) and **`studies.yaml`** (role assignment — which config leaves are sampled / fixed /
 swept / optimized). A study becomes array-valued config leaves (`design`), one broadcast kernel
@@ -41,7 +41,7 @@ not plumbing.
 - **Incremental artifact** — `run.py` rebuilds `results/lcot.{parquet,csv}` whole each run; add
   append / partitioned writes once the case × sweep grid is big enough to want it.
 - **Config placeholders** — some crew/O&M values, the tender `idle_h` / `standoff_nm` / `detach_*`
-  fields, and `design_v_kn` are placeholders pending real data (flagged in `config.yaml`).
+  fields, and `design_v_kn` are placeholders pending real data (flagged in `assumptions.yaml`).
 
 ## Speculative parameters
 
