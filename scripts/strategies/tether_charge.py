@@ -10,11 +10,11 @@ import helpers
 import sources
 from units import KM_PER_NM, KMH_PER_KNOT
 
-from ._shared import (_resolve_demand, _fixed_costs, _lcot, _row, _infeasible,
+from ._shared import (_resolve_demand, _fixed_costs, _lcot, _finalize,
                       legs_per_year, carried)
 
 
-def tether_charge(case: schema.Case, point: dict) -> dict:
+def tether_charge(case: schema.Case) -> dict:
     """Nuclear-tender case: a battery ship whose ocean crossing is carried by a
     nuclear tender over a tether. Three segments — coastal-out (battery, refilled at sea by
     the tender), tethered open ocean (tender propels directly), coastal-in (battery, refilled
@@ -34,9 +34,9 @@ def tether_charge(case: schema.Case, point: dict) -> dict:
     """
     pl, dt = case.platform, case.drivetrain
     economics, margins, route = case.params.economics, case.params.margins, case.params.route
-    d_km, op_v_kn = point.get("d_km", route.d_km), point.get("op_v_kn", route.op_v_kn)
-    design_v_kn = point.get("design_v_kn", route.design_v_kn)
-    detach_frac = point.get("detach_frac", route.detach_frac) or 0.0   # unset route -> no detach weather
+    d_km, op_v_kn = route.d_km, route.op_v_kn
+    design_v_kn = route.design_v_kn
+    detach_frac = route.detach_frac or 0.0   # unset route -> no detach weather
     # expects exactly one battery + one tender reactor source
     battery = next(s for s in case.sources if isinstance(s, sources.BatterySource))
     tender = next(s for s in case.sources if isinstance(s, sources.TenderReactor))
@@ -44,8 +44,11 @@ def tether_charge(case: schema.Case, point: dict) -> dict:
     # --- route plan at the operating speed -------------------------------------
     coastal_km = route.standoff_nm * KM_PER_NM          # one identical to/from-tender sub-leg
     tethered_km = d_km - 2 * coastal_km
-    if tethered_km <= 0 or op_v_kn > tender.tether.cable_v_cap_kn or detach_frac >= 1.0:
-        return _infeasible(op_v_kn, d_km)
+    # no open-ocean leg, speed over the cable cap, or a route detached all the time -> infeasible.
+    # Combined with the cargo check below into one end-of-function mask (computed anyway, hidden
+    # where it bites); a masked cell's arithmetic may divide by zero -> handled under errstate.
+    feasible_route = ((tethered_km > 0) & (op_v_kn <= tender.tether.cable_v_cap_kn)
+                      & (detach_frac < 1.0))
     kmh = op_v_kn * KMH_PER_KNOT
     sail_h = d_km / kmh
     coastal_h = coastal_km / kmh
@@ -69,8 +72,7 @@ def tether_charge(case: schema.Case, point: dict) -> dict:
     legs = legs_per_year(op_v_kn, d_km, dt.operations.port_hours, dt.operations.availability)
     cargo = carried(pl, dt.overhead.slots, slots, mass_t,
                     route.load_factor, route.load_factor_imbalance)
-    if cargo <= 0:
-        return _infeasible(op_v_kn, d_km)
+    mask = feasible_route & (cargo > 0)     # pack swamps the ship -> also infeasible
 
     # --- energy per leg: expected consumption, not pack capacity ----------------
     # the grid fills the pack at port (spent on coastal-out); the tender fills it mid-ocean
@@ -104,8 +106,8 @@ def tether_charge(case: schema.Case, point: dict) -> dict:
     annual_energy = (grid_cost_leg + tender_cost_leg) * legs
     lcot = _lcot(annual_fixed, annual_energy, legs, d_km, cargo)
 
-    return _row(lcot, op_v_kn, d_km, cargo, legs, annual_fixed, annual_energy,
-                battery_slots=slots, battery_kwh=installed_kwh, motor_kw=motor_kw,
-                tender_reactor_kw=reactor_kw, tender_usd_per_kwh=tender_usd_per_kwh,
-                ships_per_tender=(sail_h + dt.operations.port_hours) / (tethered_h + route.idle_h),
-                **fixed)
+    return _finalize(mask, lcot, op_v_kn, d_km, cargo, legs, annual_fixed, annual_energy,
+                     battery_slots=slots, battery_kwh=installed_kwh, motor_kw=motor_kw,
+                     tender_reactor_kw=reactor_kw, tender_usd_per_kwh=tender_usd_per_kwh,
+                     ships_per_tender=(sail_h + dt.operations.port_hours) / (tethered_h + route.idle_h),
+                     **fixed)

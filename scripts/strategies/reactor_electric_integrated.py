@@ -8,11 +8,11 @@ import helpers
 import sources
 from units import KMH_PER_KNOT
 
-from ._shared import (_resolve_demand, _fixed_costs, _lcot, _row, _infeasible,
+from ._shared import (_resolve_demand, _fixed_costs, _lcot, _finalize,
                       legs_per_year, carried)
 
 
-def reactor_electric_integrated(case: schema.Case, point: dict) -> dict:
+def reactor_electric_integrated(case: schema.Case) -> dict:
     """Integrated-reactor ELECTRIC-drive ship (nuclear-int-el): reactor + generator + motor,
     all integrated (CAPEX on the Drivetrain, reactor+generator and motor amortized on their
     own lives). Energy is fission fuel (thermal $/kWh) or nothing. Both stages sized to the
@@ -20,7 +20,7 @@ def reactor_electric_integrated(case: schema.Case, point: dict) -> dict:
     """
     pl, dt = case.platform, case.drivetrain
     economics, margins, route = case.params.economics, case.params.margins, case.params.route
-    d_km, op_v_kn = point.get("d_km", route.d_km), point.get("op_v_kn", route.op_v_kn)
+    d_km, op_v_kn = route.d_km, route.op_v_kn
     fuels = [s for s in case.sources if isinstance(s, sources.FuelSource)]
     fuel = fuels[0] if fuels else None
 
@@ -33,8 +33,7 @@ def reactor_electric_integrated(case: schema.Case, point: dict) -> dict:
     legs = legs_per_year(op_v_kn, d_km, dt.operations.port_hours, dt.operations.availability)
     cargo = carried(pl, dt.overhead.slots, 0.0, 0.0,
                     route.load_factor, route.load_factor_imbalance)
-    if cargo <= 0:
-        return _infeasible(op_v_kn, d_km)
+    mask = cargo > 0        # reactor overhead swamps the ship -> infeasible
 
     # --- energy: thermal fuel over the leg (zero if fueled-for-life) -------------
     fuel_cost_leg = fuel_kwh_leg * fuel.usd_per_kwh() if fuel is not None else 0.0
@@ -52,6 +51,6 @@ def reactor_electric_integrated(case: schema.Case, point: dict) -> dict:
     annual_energy = fuel_cost_leg * legs
     lcot = _lcot(annual_fixed, annual_energy, legs, d_km, cargo)
 
-    return _row(lcot, op_v_kn, d_km, cargo, legs, annual_fixed, annual_energy,
-                reactor_elec_kw=reactor_elec_kw, motor_kw=motor_shaft_kw,
-                fuel_kwh_leg=fuel_kwh_leg, **fixed)
+    return _finalize(mask, lcot, op_v_kn, d_km, cargo, legs, annual_fixed, annual_energy,
+                     reactor_elec_kw=reactor_elec_kw, motor_kw=motor_shaft_kw,
+                     fuel_kwh_leg=fuel_kwh_leg, **fixed)

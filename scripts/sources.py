@@ -64,7 +64,10 @@ class BatterySource(EnergySource):
         """Pack life: the lesser of calendar life and cycle life at `legs` full cycles/year
         (the strategy cycles one full deliverable per leg)."""
         cap = self.capex
-        cycle_limited = cap.cycle_life / legs if legs > 0 else cap.calendar_life_yr
+        # legs is a varied quantity (a block axis), so the zero-guard is a np.where, not an
+        # `if`: where legs is 0 the cycle limit is undefined, so fall back to calendar life
+        # (which then wins the min anyway). The division is evaluated under errstate-ignore.
+        cycle_limited = np.where(legs > 0, cap.cycle_life / legs, cap.calendar_life_yr)
         return np.minimum(cap.calendar_life_yr, cycle_limited)
 
 

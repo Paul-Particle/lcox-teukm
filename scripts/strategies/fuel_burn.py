@@ -8,19 +8,19 @@ import helpers
 import sources
 from units import KMH_PER_KNOT
 
-from ._shared import (_resolve_demand, _fixed_costs, _lcot, _row, _infeasible,
+from ._shared import (_resolve_demand, _fixed_costs, _lcot, _finalize,
                       legs_per_year, carried)
 
 
-def fuel_burn(case: schema.Case, point: dict) -> dict:
+def fuel_burn(case: schema.Case) -> dict:
     """Fuel-burning ship (fossil / e-methanol): a mechanical drivetrain burns a commodity
     fuel over full D_max legs. The fuel is a THIN EnergySource — a normalized price + bunker
     mass, no sizing. Engine sized to the fixed design speed; burn scales with operating speed.
     """
     pl, dt = case.platform, case.drivetrain
     economics, margins, route = case.params.economics, case.params.margins, case.params.route
-    d_km, op_v_kn = point.get("d_km", route.d_km), point.get("op_v_kn", route.op_v_kn)
-    design_v_kn = point.get("design_v_kn", route.design_v_kn)
+    d_km, op_v_kn = route.d_km, route.op_v_kn
+    design_v_kn = route.design_v_kn
     fuel = next(s for s in case.sources if isinstance(s, sources.FuelSource))
 
     # --- fuel-energy INPUT demand at the operating speed (drive/hotel = chemical->shaft/hotel) ---
@@ -33,8 +33,7 @@ def fuel_burn(case: schema.Case, point: dict) -> dict:
     legs = legs_per_year(op_v_kn, d_km, dt.operations.port_hours, dt.operations.availability)
     cargo = carried(pl, dt.overhead.slots, 0.0, fuel.energy_mass_t,
                     route.load_factor, route.load_factor_imbalance)
-    if cargo <= 0:
-        return _infeasible(op_v_kn, d_km)
+    mask = cargo > 0        # store swamps the ship -> infeasible
 
     # --- energy: full-leg burn at the normalized fuel price ----------------------
     fuel_cost_leg = fuel_kwh_leg * fuel.usd_per_kwh()
@@ -49,5 +48,5 @@ def fuel_burn(case: schema.Case, point: dict) -> dict:
     annual_energy = fuel_cost_leg * legs
     lcot = _lcot(annual_fixed, annual_energy, legs, d_km, cargo)
 
-    return _row(lcot, op_v_kn, d_km, cargo, legs, annual_fixed, annual_energy,
-                engine_kw=engine_kw, fuel_kwh_leg=fuel_kwh_leg, **fixed)
+    return _finalize(mask, lcot, op_v_kn, d_km, cargo, legs, annual_fixed, annual_energy,
+                     engine_kw=engine_kw, fuel_kwh_leg=fuel_kwh_leg, **fixed)

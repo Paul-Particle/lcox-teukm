@@ -6,11 +6,17 @@ and the route arithmetic (legs/year, carried). Strategy-only, so here rather tha
 Every strategy walks the same phases in the same order: setup -> route & demand -> size the
 source -> throughput & feasibility (`carried <= 0` is infeasible) -> energy cost per leg ->
 capital + fixed O&M -> combine into `lcot`.
+
+The kernel is dimension-agnostic: config leaves may be scalars (one point, the debugging
+path) or arrays on named axes (a whole block, broadcast together). Feasibility is a boolean
+`mask` computed at the end rather than an early return, so an infeasible *cell* of a block
+doesn't abort the feasible cells around it: each strategy assembles its full row and hands it
+to `_finalize`, which sets `lcot = inf` and NaNs the strategy-specific fields where the mask
+is False — the same shape the old short infeasible row took after the column union.
 """
 
 from __future__ import annotations
 
-import math
 from typing import NamedTuple
 
 import numpy as np
@@ -66,17 +72,24 @@ def _lcot(annual_fixed: float, annual_energy: float,
     return (annual_fixed + annual_energy) / (legs * d_km * cargo)
 
 
-def _row(lcot: float, op_v_kn: float, d_km: float, cargo: float, legs: float,
-         annual_fixed: float, annual_energy: float, **extra) -> dict:
-    """The cost-row skeleton common to every strategy, plus the strategy-specific `extra`."""
-    return {"feasible": True, "lcot": lcot, "op_v_kn": op_v_kn, "d_km": d_km,
-            "carried": cargo, "legs": legs,
-            "annual_fixed": annual_fixed, "annual_energy": annual_energy,
-            "cost_energy": annual_energy, **extra}
+def _finalize(mask, lcot, op_v_kn, d_km, cargo, legs,
+              annual_fixed, annual_energy, **extra) -> dict:
+    """The cost-row skeleton common to every strategy, with feasibility applied as a mask.
 
+    `mask` is True where the cell is feasible. Where it is False, `lcot` becomes `inf` and
+    every strategy-specific field becomes `NaN`; the coordinates `op_v_kn`/`d_km` and the
+    `feasible` flag itself are always carried. `mask` and the field arrays broadcast together,
+    so a scalar mask (a strategy whose feasibility doesn't vary over the block, e.g. a fueled
+    ship) and a per-cell mask are handled the same way. Values may be scalars or arrays."""
+    def hide(value):
+        return np.where(mask, value, np.nan)
 
-def _infeasible(op_v_kn: float, d_km: float) -> dict:
-    return {"feasible": False, "lcot": math.inf, "op_v_kn": op_v_kn, "d_km": d_km}
+    return {"feasible": mask, "lcot": np.where(mask, lcot, np.inf),
+            "op_v_kn": op_v_kn, "d_km": d_km,
+            "carried": hide(cargo), "legs": hide(legs),
+            "annual_fixed": hide(annual_fixed), "annual_energy": hide(annual_energy),
+            "cost_energy": hide(annual_energy),
+            **{name: hide(value) for name, value in extra.items()}}
 
 
 # ============================ route arithmetic (strategy-only) ====
