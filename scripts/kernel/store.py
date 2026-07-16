@@ -17,10 +17,8 @@ import yaml
 import xarray as xr
 import pandas as pd
 
-import design as design_module
-
-REPO_ROOT = Path(__file__).resolve().parent.parent
-SOBOL_DIR = REPO_ROOT / "results" / "sobol"
+from common.paths import SOBOL_DIR
+from . import design as design_module
 
 
 def write(design: design_module.Design, datasets: dict[str, xr.Dataset],

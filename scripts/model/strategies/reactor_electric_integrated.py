@@ -3,10 +3,10 @@ reactor + generator + motor, all integrated onto the drivetrain."""
 
 from __future__ import annotations
 
-import schema
-import helpers
-import sources
-from units import KMH_PER_KNOT
+from common import schema
+from common import helpers
+from model import sources
+from common.units import KMH_PER_KNOT
 
 from ._shared import (_resolve_demand, _fixed_costs, _lcot, _finalize,
                       legs_per_year, carried)

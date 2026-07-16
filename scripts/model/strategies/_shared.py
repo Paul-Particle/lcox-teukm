@@ -21,9 +21,9 @@ from typing import NamedTuple
 
 import numpy as np
 
-import schema
-import helpers
-from units import KMH_PER_KNOT, HOURS_PER_YEAR
+from common import schema
+from common import helpers
+from common.units import KMH_PER_KNOT, HOURS_PER_YEAR
 
 
 class Demand(NamedTuple):

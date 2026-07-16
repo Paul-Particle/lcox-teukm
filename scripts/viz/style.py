@@ -4,7 +4,7 @@ Provides the FCA color palette, the discrete `colorway`, the `fca_template`
 layout, and the continuous `fca_colormap`.
 
 Usage:
-    from style import fca_template, fca_colormap, fca_colorway
+    from viz.style import fca_template, fca_colormap, fca_colorway
     fig.update_layout(template=fca_template)              # house look
     fig.update_traces(marker=dict(colorscale=fca_colormap))  # continuous scale
 
@@ -147,8 +147,8 @@ def fca_logo():
 
     Returns ``{"source": <base64 PNG data URI>, "aspect": width / height}`` for
     ``fig.add_layout_image(...)``. fca_logo.png is rasterised from fca_logo.svg:
-        magick -background none -density 600 scripts/assets/fca_logo.svg \\
-            -resize x300 -depth 8 -strip scripts/assets/fca_logo.png
+        magick -background none -density 600 scripts/viz/assets/fca_logo.svg \\
+            -resize x300 -depth 8 -strip scripts/viz/assets/fca_logo.png
     """
     if not _LOGO_PATH.exists():
         return None

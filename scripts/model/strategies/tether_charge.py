@@ -5,10 +5,10 @@ from __future__ import annotations
 
 import numpy as np
 
-import schema
-import helpers
-import sources
-from units import KM_PER_NM, KMH_PER_KNOT
+from common import schema
+from common import helpers
+from model import sources
+from common.units import KM_PER_NM, KMH_PER_KNOT
 
 from ._shared import (_resolve_demand, _fixed_costs, _lcot, _finalize,
                       legs_per_year, carried)

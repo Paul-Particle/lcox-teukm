@@ -19,7 +19,7 @@ Uses [uv](https://docs.astral.sh/uv/) (provisions Python 3.11+ automatically):
 uv sync                        # install deps (pinned in uv.lock)
 uv run scripts/run.py          # render the `fleet` study: 8 cases x speed lever x D_max sweep -> results/lcot.{parquet,csv}
 uv run scripts/study.py        # run the sensitivity studies in studies.yaml -> results/sobol/<study>/
-uv run scripts/plots.py        # LCOT/speed-vs-D_max + Sobol/lever figures from the artifacts -> results/*.{html,png}
+uv run scripts/viz/plots.py    # LCOT/speed-vs-D_max + Sobol/lever figures from the artifacts -> results/*.{html,png}
 uv run scripts/mrv/run_mrv.py  # (optional) ground config anchors in EU MRV fleet data
 ```
 
@@ -63,26 +63,36 @@ lever, `analyze` variance-decomposes per swept slice. No parameter is privileged
 
 ### Module map
 
-The model is flat modules under `scripts/`; nothing cross-imports beyond what is shown.
+`scripts/` is grouped into packages by role, with dependencies pointing downward
+(`common` ← `config`/`model` ← `kernel` ← `viz`). The two flat entry points (`run.py`,
+`study.py`) and `viz/plots.py` are run by path (the last via a `sys.path` shim); everything
+else is imported.
 
 | Module | Role |
 |---|---|
-| `units.py` | unit conversions, single source of truth |
-| `helpers.py` | shared only: `crf` + ship physics (`prop_power_kw`, `propulsion_factor`) |
-| `schema.py` | frozen config schema (Platform / Drivetrain / `EnergySource` base / Case / Params / Axis) — passive structure mirroring `config.yaml` |
-| `sources.py` | concrete `EnergySource` family (fuel / battery / reactor) + their cost methods (`size` / `levelize` / `usd_per_kwh` / `life_yr`) |
-| `load_config.py` | YAML library + `cases:` → built Cases (`dict[name → Case]`); harvests `{value, range}` sampling priors |
-| `studies.py` | parse `studies.yaml` into `Study` role assignments; resolve each sampled leaf's range from config |
-| `strategies/` | package: one module per strategy (6) + `_shared.py` (scaffolding + route math `legs_per_year`/`carried`) |
-| `design.py` | place a study's roles as array-valued config leaves → a `Design` (member cases + block layout + SALib problem) |
-| `evaluate.py` | one broadcast kernel call per case; argmin-collapse the lever dims → one xarray `Dataset` per case |
-| `analyze.py` | Sobol first-order/total indices (SALib) per swept slice + feasibility reporting |
-| `store.py` | persist block + samples + indices + feasibility + a spec snapshot under `results/sobol/<study>/` |
-| `run.py` | entry point → render the `fleet` study → `results/lcot.{parquet,csv}` |
-| `study.py` | entry point → run studies.yaml studies → Sobol indices under `results/sobol/` |
-| `plots.py` | LCOT/speed-vs-`D_max` lines, per-case cost-breakdown bars, Sobol-index bars, lever-landscape curves |
-| `style.py` | FCA house plotting style (template, palette, brand chrome) |
-| `mrv/` | standalone EU MRV fleet tooling (`mrv_unify`, `mrv_fleet`, `run_mrv`) — runs on its own, imports nothing from the model |
+| **`common/`** | shared vocabulary + math — the foundation everything imports |
+| `common/schema.py` | frozen config schema (Platform / Drivetrain / `EnergySource` base / Case / Params / Axis) — passive structure mirroring `config.yaml` |
+| `common/units.py` | unit conversions, single source of truth |
+| `common/helpers.py` | shared only: `crf` + ship physics (`prop_power_kw`, `propulsion_factor`) |
+| `common/paths.py` | canonical repo/input/output paths, derived once so no module counts `parents[...]` levels |
+| **`config/`** | the two YAML inputs → typed objects |
+| `config/load_config.py` | YAML library + `cases:` → built Cases (`dict[name → Case]`); harvests `{value, range}` sampling priors |
+| `config/studies.py` | parse `studies.yaml` into `Study` role assignments; resolve each sampled leaf's range from config |
+| **`model/`** | the cost / sizing model |
+| `model/sources.py` | concrete `EnergySource` family (fuel / battery / reactor) + their cost methods (`size` / `levelize` / `usd_per_kwh` / `life_yr`) |
+| `model/strategies/` | package: one module per strategy (6) + `_shared.py` (scaffolding + route math `legs_per_year`/`carried`) |
+| **`kernel/`** | the vectorized study → results pipeline |
+| `kernel/design.py` | place a study's roles as array-valued config leaves → a `Design` (member cases + block layout + SALib problem) |
+| `kernel/evaluate.py` | one broadcast kernel call per case; argmin-collapse the lever dims → one xarray `Dataset` per case |
+| `kernel/analyze.py` | Sobol first-order/total indices (SALib) per swept slice + feasibility reporting |
+| `kernel/store.py` | persist block + samples + indices + feasibility + a spec snapshot under `results/sobol/<study>/` |
+| **`viz/`** | presentation |
+| `viz/plots.py` | LCOT/speed-vs-`D_max` lines, per-case cost-breakdown bars, Sobol-index bars, lever-landscape curves |
+| `viz/style.py` | FCA house plotting style (template, palette, brand chrome) |
+| **entry points** (flat) | |
+| `run.py` | render the `fleet` study → `results/lcot.{parquet,csv}` |
+| `study.py` | run studies.yaml studies → Sobol indices under `results/sobol/` |
+| `mrv/` | standalone EU MRV fleet tooling (`mrv_unify`, `mrv_fleet`, `run_mrv`) — runs on its own, imports only `common.units` (+ best-effort `viz.style`), nothing from the model |
 
 The two inputs — **`config.yaml`** (component library + cases + shared scalars) and
 **`studies.yaml`** (role assignment) — still carry some placeholder values (crew/O&M, a few tender

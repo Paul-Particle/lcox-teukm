@@ -12,19 +12,14 @@ results/. The artifact is the argmin *view* over each case's block (the lever co
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import pandas as pd
 
-from load_config import read_raw
-from studies import load_studies
-from design import build_study
-from evaluate import evaluate_design
+from common.paths import CONFIG_PATH, STUDIES_PATH, RESULTS_DIR, LCOT_PARQUET, LCOT_CSV
+from config.load_config import read_raw
+from config.studies import load_studies
+from kernel.design import build_study
+from kernel.evaluate import evaluate_design
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
-CONFIG_PATH = REPO_ROOT / "config.yaml"
-STUDIES_PATH = REPO_ROOT / "studies.yaml"
-RESULTS_DIR = REPO_ROOT / "results"
 FLEET_STUDY = "fleet"       # the baseline fleet sweep -> results/lcot.csv
 
 # stable leading columns; everything else (strategy-specific) follows in first-seen order
@@ -50,11 +45,11 @@ def build_results(config_path=CONFIG_PATH, studies_path=STUDIES_PATH) -> pd.Data
 def main() -> None:
     results = build_results()
     RESULTS_DIR.mkdir(exist_ok=True)
-    results.to_parquet(RESULTS_DIR / "lcot.parquet", index=False)
-    results.to_csv(RESULTS_DIR / "lcot.csv", index=False)
+    results.to_parquet(LCOT_PARQUET, index=False)
+    results.to_csv(LCOT_CSV, index=False)
     feasible = results["feasible"].sum()
     print(f"{len(results)} rows across {results['case'].nunique()} cases "
-          f"({feasible} feasible) -> {RESULTS_DIR}/lcot.parquet")
+          f"({feasible} feasible) -> {LCOT_PARQUET}")
 
 
 if __name__ == "__main__":

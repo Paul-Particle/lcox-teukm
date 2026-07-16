@@ -26,9 +26,9 @@ import dataclasses
 import numpy as np
 from SALib.sample import sobol as sobol_sample
 
-import schema
-import studies
-import load_config
+from common import schema
+from config import studies
+from config import load_config
 
 
 def grid(axis: schema.Axis) -> np.ndarray:

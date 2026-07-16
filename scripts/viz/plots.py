@@ -15,24 +15,26 @@ shade (plotly's `marker.pattern` hatching renders inconsistently across versions
 used). Run after run.py; the sensitivity plots run their study if its store is missing.
 """
 
+import sys
 from pathlib import Path
+
+# plots.py still runs by path (`uv run scripts/viz/plots.py`), so put scripts/ on sys.path
+# for the absolute package imports below (the same shim mrv/ uses for run-by-path modules).
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import numpy as np
 import pandas as pd
 
-from units import CENTS_PER_USD
-from style import (
+from common.paths import RESULTS_DIR, SOBOL_DIR, CONFIG_PATH, STUDIES_PATH, LCOT_PARQUET
+from common.units import CENTS_PER_USD
+from viz.style import (
     fca_template, fca_blue, blue_black, dark_gray, highlight_blue, light_blue,
     sand_yellow, green, turquois, magenta_red,
     BRAND_FONT, lighten, contrast_shades, apply_header, save_figure,
 )
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
-ARTIFACT = REPO_ROOT / "results" / "lcot.parquet"
-OUT_DIR = REPO_ROOT / "results"
-SOBOL_DIR = REPO_ROOT / "results" / "sobol"
-CONFIG_PATH = REPO_ROOT / "config.yaml"
-STUDIES_PATH = REPO_ROOT / "studies.yaml"
+ARTIFACT = LCOT_PARQUET
+OUT_DIR = RESULTS_DIR
 
 # Battery LCOT curves are clipped here so the long-haul blow-up doesn't flatten the competitive
 # region (viewers can still zoom the interactive HTML). None -> no clip.
@@ -301,11 +303,11 @@ def plot_lever_landscape(cases=("fossil", "lfp", "nuclear-cont", "tender"),
     speed starred. Same data as the sweep plots with the axes' roles swapped: op_v_kn is retained
     (a `sweep`) instead of argmin-collapsed (`optimize`), evaluated fresh through the study path."""
     import plotly.graph_objects as go
-    from load_config import read_raw
-    import schema
-    from studies import Study
-    from design import build_study
-    from evaluate import evaluate_design
+    from config.load_config import read_raw
+    from common import schema
+    from config.studies import Study
+    from kernel.design import build_study
+    from kernel.evaluate import evaluate_design
 
     raw, _ranges = read_raw(CONFIG_PATH)
     fig = go.Figure()
@@ -348,8 +350,8 @@ def _ensure_sobol(study_name: str) -> None:
     if (SOBOL_DIR / study_name / "indices.csv").exists():
         return
     import study as study_module
-    from load_config import read_raw
-    from studies import load_studies
+    from config.load_config import read_raw
+    from config.studies import load_studies
     raw, ranges = read_raw(CONFIG_PATH)
     studies = load_studies(STUDIES_PATH, ranges, raw)
     if study_name in studies:
