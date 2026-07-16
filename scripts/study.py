@@ -11,20 +11,16 @@ slice, and persist block + samples + indices + feasibility + a spec snapshot.
 from __future__ import annotations
 
 import sys
-from pathlib import Path
 
 import pandas as pd
 
-from load_config import read_raw
-from studies import load_studies
-import design as design_module
-import evaluate
-import analyze
-import store
-
-REPO_ROOT = Path(__file__).resolve().parent.parent
-CONFIG_PATH = REPO_ROOT / "config.yaml"
-STUDIES_PATH = REPO_ROOT / "studies.yaml"
+from common.paths import REPO_ROOT, CONFIG_PATH, STUDIES_PATH
+from config.load_config import read_raw
+from config.studies import load_studies
+from kernel import design as design_module
+from kernel import evaluate
+from kernel import analyze
+from kernel import store
 
 
 def run_study(study, raw) -> None:

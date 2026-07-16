@@ -2,8 +2,8 @@
 mrv_fleet.py — turn the EU MRV (THETIS-MRV) fleet emissions data into grounded anchors for
 the config, plus the empirical size-scaling relations the scale-factor feature will rest on.
 
-A STANDALONE data utility — NOT imported by the model. It imports only `units` (conversion
-factors, shared with the model so the arithmetic agrees) and, best-effort, `style` (house
+A STANDALONE data utility — NOT imported by the model. It imports only `common.units` (conversion
+factors, shared with the model so the arithmetic agrees) and, best-effort, `viz.style` (house
 plot chrome). It reads nothing from the model and writes nothing into it: its job is to print
 a handful of fleet numbers you can compare against config.yaml by hand, and to fit the
 size-scaling exponents (power, speed) that ground a narrow-band ship scale factor.
@@ -40,11 +40,11 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-# This script lives in scripts/mrv/ but shares modules with the rest of scripts/ (units, style);
-# put the parent scripts/ dir on the path so those flat imports resolve when run by path.
+# This script lives in scripts/mrv/ but shares packages with the rest of scripts/ (common, viz);
+# put the parent scripts/ dir on the path so those package imports resolve when run by path.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from units import KM_PER_NM, KG_PER_TONNE
+from common.units import KM_PER_NM, KG_PER_TONNE
 
 REPO_ROOT = Path(__file__).resolve().parents[2]   # scripts/mrv/ -> scripts/ -> repo root
 DATA_DIR = REPO_ROOT / "data"
@@ -277,7 +277,7 @@ def plot_fleet(fleet: pd.DataFrame, out_dir: Path) -> list:
     try:
         import plotly.graph_objects as go
         from plotly.subplots import make_subplots
-        from style import fca_template, fca_blue, sand_yellow, green, inject_titillium_font
+        from viz.style import fca_template, fca_blue, sand_yellow, green, inject_titillium_font
     except Exception as e:
         print("plot skipped:", e)
         return []

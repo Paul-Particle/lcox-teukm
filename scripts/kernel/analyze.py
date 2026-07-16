@@ -26,7 +26,7 @@ from SALib.analyze import sobol as sobol_analyze
 
 import xarray as xr
 
-import design as design_module
+from . import design as design_module
 
 
 def sobol_indices(design: design_module.Design,

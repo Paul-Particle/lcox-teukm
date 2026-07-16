@@ -22,8 +22,8 @@ from __future__ import annotations
 import numpy as np
 import xarray as xr
 
-import strategies
-import design
+from model import strategies
+from . import design
 
 OBJECTIVE = "lcot"      # default objective the lever collapse minimizes (a study overrides it)
 

@@ -30,7 +30,7 @@ from dataclasses import dataclass
 
 import yaml
 
-import schema
+from common import schema
 
 DEFAULT_PERTURB = 0.20      # +/-fraction for a sampled config leaf with a value but no range
 

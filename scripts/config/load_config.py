@@ -25,8 +25,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-import schema
-import sources
+from common import schema
+from model import sources
 
 
 @dataclass(frozen=True)
