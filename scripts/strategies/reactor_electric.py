@@ -18,10 +18,10 @@ def reactor_electric(case: schema.Case) -> dict:
     slots (teu_per_mwe), adds an onboard hotel load, bills $/kWh over its fleet-pooled
     utilization. The bare motor is design-sized; the reactor sized to the operating bus.
     """
-    pl, dt = case.platform, case.drivetrain
-    economics, margins, route = case.params.economics, case.params.margins, case.params.route
+    pl, dt, params = case.platform, case.drivetrain, case.params
+    economics, margins, route = params.economics, params.margins, params.route
     d_km, op_v_kn = route.d_km, route.op_v_kn
-    design_v_kn = route.design_v_kn
+    design_v_kn = params.design_v_kn
     reactor = next(s for s in case.sources if isinstance(s, sources.ContainerizedReactor))
 
     # the containerized reactor sits onboard, so its crew/security hotel delta adds to the bus
@@ -36,7 +36,7 @@ def reactor_electric(case: schema.Case) -> dict:
     legs = legs_per_year(op_v_kn, d_km, dt.operations.port_hours, dt.operations.availability)
     # the reactor's slots displace cargo (like a battery's); drivetrain overhead is the bare motor
     cargo = carried(pl, dt.overhead.slots, reactor_slots, 0.0,
-                    route.load_factor, route.load_factor_imbalance)
+                    params.load_factor, params.load_factor_imbalance)
     mask = cargo > 0        # reactor slots swamp the ship -> infeasible
 
     # --- energy: pool-levelized reactor over the full-leg bus --------------------

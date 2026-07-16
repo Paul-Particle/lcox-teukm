@@ -18,8 +18,8 @@ def reactor_direct(case: schema.Case) -> dict:
     (thermal $/kWh) or NOTHING (fueled-for-life -> no energy cost, so the optimizer runs to
     v_max). Being expensive, the reactor is sized to the OPERATING speed, not a fixed design one.
     """
-    pl, dt = case.platform, case.drivetrain
-    economics, margins, route = case.params.economics, case.params.margins, case.params.route
+    pl, dt, params = case.platform, case.drivetrain, case.params
+    economics, margins, route = params.economics, params.margins, params.route
     d_km, op_v_kn = route.d_km, route.op_v_kn
     fuels = [s for s in case.sources if isinstance(s, sources.FuelSource)]
     fuel = fuels[0] if fuels else None                  # None => fueled-for-life (no energy cost)
@@ -33,7 +33,7 @@ def reactor_direct(case: schema.Case) -> dict:
     legs = legs_per_year(op_v_kn, d_km, dt.operations.port_hours, dt.operations.availability)
     # integrated reactor + shielding is a fixed slot overhead on the drivetrain; ~no carried mass
     cargo = carried(pl, dt.overhead.slots, 0.0, 0.0,
-                    route.load_factor, route.load_factor_imbalance)
+                    params.load_factor, params.load_factor_imbalance)
     mask = cargo > 0        # reactor overhead swamps the ship -> infeasible
 
     # --- energy: thermal fuel over the leg (zero if fueled-for-life) -------------

@@ -43,14 +43,15 @@ def write(design: design_module.Design, datasets: dict[str, xr.Dataset],
 
 
 def _snapshot(study) -> dict:
-    """A plain-dict snapshot of the study spec (ranges expanded to [lo, hi, dist])."""
+    """A plain-dict snapshot of the study spec (sample ranges as [lo, hi, dist]; axis grids as
+    {param: [lo, hi, n]})."""
     return {
         "name": study.name,
         "cases": list(study.cases) if study.cases is not None else None,
         "sample": {path: [r.lo, r.hi, r.dist] for path, r in study.sample.items()},
         "fix": study.fix,
-        "optimize": list(study.optimize) if study.optimize is not None else None,
-        "sweep": list(study.sweep) if study.sweep is not None else None,
+        "optimize": {a.param: [a.lo, a.hi, a.n] for a in study.optimize},
+        "sweep": {a.param: [a.lo, a.hi, a.n] for a in study.sweep},
         "objective": study.objective,
         "n": study.n,
         "second_order": study.second_order,

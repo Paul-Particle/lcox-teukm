@@ -37,17 +37,20 @@ import design
 OBJECTIVE = "lcot"      # the measure the lever collapse minimizes (study-chosen, later)
 
 
-def run_case(case: schema.Case) -> list[dict]:
-    """One optimized row per point on the case's swept grid. With no swept axes the case yields
-    a single row; with no lever axes the collapse is a no-op over a length-1 dimension."""
-    placed, order = design.place(case)
+def run_case(case: schema.Case, sweep_axes: tuple[schema.Axis, ...],
+             optimize_axes: tuple[schema.Axis, ...]) -> list[dict]:
+    """One optimized row per point on the study's swept grid. With no swept axes the case yields
+    a single row; with no lever axes the collapse is a no-op over a length-1 dimension. Axes come
+    from the study (block dim order: swept dims first, then lever dims)."""
+    order = (*sweep_axes, *optimize_axes)
+    placed = design.place(case, order)
     strategy = getattr(strategies, case.strategy)
     shape = tuple(axis.n for axis in order)
     with np.errstate(all="ignore"):     # masked cells may divide by zero etc.; hidden downstream
         row = strategy(placed)
     block = {name: np.broadcast_to(np.asarray(value), shape) for name, value in row.items()}
     _report_flat_axes(case, order, block)
-    reduced = _collapse(block, n_sweep=len(case.sweep), shape=shape)
+    reduced = _collapse(block, n_sweep=len(sweep_axes), shape=shape)
     return _to_rows(reduced)
 
 

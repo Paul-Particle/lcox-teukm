@@ -1,30 +1,29 @@
 """
-load_config.py — read the component library (config.yaml) + case table (cases.csv) into
+load_config.py — read config.yaml (the component library AND the cases that compose it) into
 the frozen schema, returning Cases keyed by name plus the harvested range library.
 
 Trusted input: no validation beyond what the dataclass constructors enforce (a bad key
-raises TypeError). Library loading is mechanical (`Block(**yaml_subdict)`, sources dispatch
-on `type`); cases are a tidy CSV read with pandas, one case per group of rows.
+raises TypeError). Loading is mechanical (`Block(**yaml_subdict)`, sources dispatch on `type`);
+a case names its platform/drivetrain/sources and carries a `route` sub-map — every field passed
+straight through, so a sampled array leaf flows into the frozen `Route` unchanged.
 
 A config leaf may be a bare scalar or a ranged wrapper `{value:, range: [lo, hi], dist:}`.
 `_unwrap` walks the parsed tree once: it replaces every wrapper with its scalar `value` (so
 the schema builds exactly as before) and records any declared range under its dotted path
-(`sources.lfp.capex.usd_per_kwh`, `shared.margins.sea`, ...). The range library is *data about
-the parameters*, consumed by studies to decide what to sample — never read here.
+(`sources.lfp.capex.usd_per_kwh`, `sources.tender-reactor.tether.detach_frac`, ...). The library is
+*data about the parameters*, consumed by studies to decide what to sample — never read here.
 
 Loading is decomposed so `design` can rebuild with sampled values placed: `read_raw` parses +
 unwraps, `build_library` turns an (already unwrapped) config dict into the component `Library`,
-and `build_cases` assembles Cases against a library. `design` places sampled/fixed leaves into a
-copy of the raw dict, rebuilds the library, and re-assembles the member cases — so array-valued
-leaves flow into the frozen components and the kernel broadcasts over them. `load_config` is the
-nominal composition of the three.
+and `build_cases` assembles Cases against a library. `design` places sampled/fixed leaves (a
+source capex, a route field) by dotted path into a copy of the raw dict, rebuilds, and
+re-assembles — so array-valued leaves flow into the frozen components and the kernel broadcasts
+over them. `load_config` is the nominal composition of the three.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-
-import pandas as pd
 
 import schema
 import sources
@@ -33,9 +32,13 @@ import sources
 @dataclass(frozen=True)
 class Library:
     """The built component library from config.yaml — everything a Case composes, keyed by
-    name, plus the cross-case economics/margins that keep cases comparable."""
+    name, plus the cross-case shared assumptions (economics/margins + market load + design speed)
+    that keep cases comparable."""
     economics: schema.Economics
     margins: schema.Margins
+    load_factor: float
+    load_factor_imbalance: float
+    design_v_kn: float | None
     platforms: dict[str, schema.Platform]
     drivetrains: dict[str, schema.Drivetrain]
     sources: dict[str, sources.EnergySource]
@@ -97,52 +100,34 @@ def _source(name: str, d: dict) -> sources.EnergySource:
         if "tether" in d:
             return sources.TenderReactor(name, capex, fuel_th, generation,
                                          d["parasitic_kw"], d["om_other_usd_yr"],
-                                         d["availability"], sources.Tether(**d["tether"]))
+                                         d["availability"], d["idle_h"],
+                                         sources.Tether(**d["tether"]))
         return sources.ContainerizedReactor(name, capex, fuel_th, generation,
                                             schema.Overhead(**d["overhead"]), d["hotel_delta_kw"],
                                             sources.Pool(**d["pool"]))
     raise ValueError(f"unknown source type {t!r} for source {name!r}")
 
 
-# ---- cases.csv: one case per group of rows sharing `name` ----
-# Case-level scalars (platform/drivetrain/strategy/route) repeat on every row; the
-# multi-valued fields (`source` + the optimize/sweep axes) are enumerated one per row, so an
-# extra source/axis is just a continuation row. We group by name, read scalars off the first
-# row, and collect every non-blank source/axis across the group. Blank cells arrive as NaN.
-_ROUTE_FIELDS = ("load_factor", "load_factor_imbalance", "design_v_kn",
-                 "detach_duration_h", "detach_frac", "standoff_nm", "idle_h")
+# ---- cases: config.yaml's `cases:` section, one entry per case ----
+# A case names its platform/drivetrain (by library key), its sources (a list of keys — empty for
+# a fueled-for-life converter), and its strategy (a function in the strategies package). It holds
+# no parameters of its own: the voyage operating point (d_km/op_v_kn) is study-owned (design fills
+# `Route`), and the market load + design speed are shared assumptions injected from the library.
 
 
-def _route(head) -> schema.Route:
-    """Route from the case's first row — only the fields present (blank/NaN ones omitted)."""
-    return schema.Route(**{f: float(head[f]) for f in _ROUTE_FIELDS if pd.notna(head[f])})
-
-
-def _axis(row, prefix: str) -> schema.Axis | None:
-    """An `optimize`/`sweep` axis from one row's `{prefix}_param/_lo/_hi/_n` cells, or None
-    if the row carries no axis of that kind (blank `param`)."""
-    if pd.isna(row[f"{prefix}_param"]):
-        return None
-    return schema.Axis(row[f"{prefix}_param"], float(row[f"{prefix}_lo"]),
-                   float(row[f"{prefix}_hi"]), int(row[f"{prefix}_n"]))
-
-
-def _case(group, library: Library) -> schema.Case:
-    """Build one Case from its group of rows: scalars off the first row, every non-blank
-    source/axis collected across the group. Economics/margins come from the shared library."""
-    head = group.iloc[0]
-    source_names = group["source"].dropna().tolist()       # "" sources -> fueled-for-life
-    optimize = tuple(a for _, r in group.iterrows() if (a := _axis(r, "optimize")))
-    sweep = tuple(a for _, r in group.iterrows() if (a := _axis(r, "sweep")))
+def _case(name: str, spec: dict, library: Library) -> schema.Case:
+    """Build one Case from its config entry. The shared assumptions (economics/margins + market
+    load + design speed) come from the library; `Route` starts at its nominal defaults for a
+    study to place axes onto."""
     return schema.Case(
-        name=head["name"],
-        sources=tuple(library.sources[s] for s in source_names),
-        platform=library.platforms[head["platform"]],
-        drivetrain=library.drivetrains[head["drivetrain"]],
-        strategy=head["strategy"],
-        params=schema.Params(library.economics, library.margins, _route(head)),
-        optimize=optimize,
-        sweep=sweep,
+        name=name,
+        sources=tuple(library.sources[s] for s in spec.get("sources", ())),
+        platform=library.platforms[spec["platform"]],
+        drivetrain=library.drivetrains[spec["drivetrain"]],
+        strategy=spec["strategy"],
+        params=schema.Params(library.economics, library.margins, schema.Route(),
+                             library.load_factor, library.load_factor_imbalance,
+                             library.design_v_kn),
     )
 
 
@@ -162,20 +147,23 @@ def build_library(raw: dict) -> Library:
     return Library(
         economics=_economics(s),
         margins=_margins(s),
+        load_factor=s["load_factor"],
+        load_factor_imbalance=s["load_factor_imbalance"],
+        design_v_kn=s.get("design_v_kn"),
         platforms={n: _platform(n, b) for n, b in raw["platforms"].items()},
         drivetrains={n: _drivetrain(n, b) for n, b in raw["drivetrains"].items()},
         sources={n: _source(n, b) for n, b in raw["sources"].items()},
     )
 
 
-def build_cases(cases_df, library: Library) -> dict[str, schema.Case]:
-    """Assemble Cases (keyed by name) from the cases.csv table against a built `library`."""
-    return {name: _case(group, library) for name, group in cases_df.groupby("name", sort=False)}
+def build_cases(raw: dict, library: Library) -> dict[str, schema.Case]:
+    """Assemble Cases (keyed by name, config order preserved) from `raw["cases"]` against a
+    built `library`."""
+    return {name: _case(name, spec, library) for name, spec in raw["cases"].items()}
 
 
-def load_config(config_path, cases_path) -> tuple[dict[str, schema.Case], dict[str, schema.Range]]:
-    """The nominal build: `(cases, ranges)` from config.yaml + cases.csv. `cases` keyed by name,
-    `ranges` maps each ranged leaf's dotted path to its `Range`."""
+def load_config(config_path) -> tuple[dict[str, schema.Case], dict[str, schema.Range]]:
+    """The nominal build: `(cases, ranges)` from config.yaml. `cases` keyed by name (config
+    order), `ranges` maps each ranged leaf's dotted path to its `Range`."""
     raw, ranges = read_raw(config_path)
-    cases_df = pd.read_csv(cases_path)
-    return build_cases(cases_df, build_library(raw)), ranges
+    return build_cases(raw, build_library(raw)), ranges

@@ -32,17 +32,17 @@ def tether_charge(case: schema.Case) -> dict:
     `availability`. Billed energy is what a leg consumes in expectation — the reserve and
     the detach buffer are never billed as throughput.
     """
-    pl, dt = case.platform, case.drivetrain
-    economics, margins, route = case.params.economics, case.params.margins, case.params.route
+    pl, dt, params = case.platform, case.drivetrain, case.params
+    economics, margins, route = params.economics, params.margins, params.route
     d_km, op_v_kn = route.d_km, route.op_v_kn
-    design_v_kn = route.design_v_kn
-    detach_frac = 0.0 if route.detach_frac is None else route.detach_frac   # unset route -> no detach
+    design_v_kn = params.design_v_kn
     # expects exactly one battery + one tender reactor source
     battery = next(s for s in case.sources if isinstance(s, sources.BatterySource))
     tender = next(s for s in case.sources if isinstance(s, sources.TenderReactor))
+    detach_frac = tender.tether.detach_frac     # expected fraction of tethered time the cable is dropped
 
     # --- route plan at the operating speed -------------------------------------
-    coastal_km = route.standoff_nm * KM_PER_NM          # one identical to/from-tender sub-leg
+    coastal_km = tender.tether.standoff_nm * KM_PER_NM  # one identical to/from-tender sub-leg
     tethered_km = d_km - 2 * coastal_km
     # no open-ocean leg, speed over the cable cap, or a route detached all the time -> infeasible.
     # Combined with the cargo check below into one end-of-function mask (computed anyway, hidden
@@ -62,8 +62,8 @@ def tether_charge(case: schema.Case) -> dict:
 
     # --- size the pack: max(coastal sub-leg + reserve, detach buffer) ------------
     coastal_kwh = bus_kw * coastal_h
-    detach_duration_h = 0.0 if route.detach_duration_h is None else route.detach_duration_h
-    detach_buffer_kwh = bus_kw * detach_duration_h   # unset route -> no detach buffer
+    detach_duration_h = tender.tether.detach_duration_h
+    detach_buffer_kwh = bus_kw * detach_duration_h   # 0 when no detach event is configured
     # energy reserve on the coastal sub-leg only; the detach buffer is itself a weather reserve
     deliverable_kwh = np.maximum(coastal_kwh * (1 + margins.energy_reserve), detach_buffer_kwh)
     installed_kwh, slots, mass_t = battery.size(
@@ -72,7 +72,7 @@ def tether_charge(case: schema.Case) -> dict:
     # --- annual legs + revenue cargo (pack slots + mass displace cargo) ---------
     legs = legs_per_year(op_v_kn, d_km, dt.operations.port_hours, dt.operations.availability)
     cargo = carried(pl, dt.overhead.slots, slots, mass_t,
-                    route.load_factor, route.load_factor_imbalance)
+                    params.load_factor, params.load_factor_imbalance)
     mask = feasible_route & (cargo > 0)     # pack swamps the ship -> also infeasible
 
     # --- energy per leg: expected consumption, not pack capacity ----------------
@@ -90,7 +90,7 @@ def tether_charge(case: schema.Case) -> dict:
     tender_bus_kwh = tender_bus_kw * attached_h
     # detached hours are non-delivering time for the tender, on top of the between-ship wait
     tender_usd_per_kwh, reactor_kw = tender.levelize(
-        tender_bus_kw, attached_h, route.idle_h + detach_h, economics.discount_rate)
+        tender_bus_kw, attached_h, tender.idle_h + detach_h, economics.discount_rate)
     tender_cost_leg = tender_bus_kwh * tender_usd_per_kwh
 
     # --- capital + fixed O&M (ship only; the tender's CAPEX is inside its $/kWh) -
@@ -110,5 +110,5 @@ def tether_charge(case: schema.Case) -> dict:
     return _finalize(mask, lcot, op_v_kn, d_km, cargo, legs, annual_fixed, annual_energy,
                      battery_slots=slots, battery_kwh=installed_kwh, motor_kw=motor_kw,
                      tender_reactor_kw=reactor_kw, tender_usd_per_kwh=tender_usd_per_kwh,
-                     ships_per_tender=(sail_h + dt.operations.port_hours) / (tethered_h + route.idle_h),
+                     ships_per_tender=(sail_h + dt.operations.port_hours) / (tethered_h + tender.idle_h),
                      **fixed)

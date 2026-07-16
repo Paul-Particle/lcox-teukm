@@ -1,13 +1,14 @@
 """
-run.py — entry point: load_config(config.yaml, cases.csv) -> evaluate.run_case(case) for each
-Case -> the results artifact.
+run.py — entry point: render the `fleet` study (config.yaml + studies.yaml) into the baseline
+results artifact.
 
-Each Case yields one optimized row per swept point; rows are tagged with the case name and
-concatenated into a tidy table (one row per (case, swept inputs), columns unioned across the
-heterogeneous strategy rows — absent fields are NaN). Written as Parquet (primary) and CSV
-(for eyeballing) under results/. The artifact is the argmin *view* over each case's block
-(`evaluate` builds the block and collapses the lever axis); it is no longer produced by a
-scalar sweep/optimize loop.
+The fleet sweep is a study like any other (all cases, the op_v_kn lever + d_km condition, no
+sampling); run.py evaluates its member cases with `evaluate.run_case` and assembles the tidy
+table. Each case yields one optimized row per swept point; rows are tagged with the case name
+and concatenated (one row per (case, swept inputs), columns unioned across the heterogeneous
+strategy rows — absent fields are NaN). Written as Parquet (primary) and CSV (for eyeballing)
+under results/. The artifact is the argmin *view* over each case's block (`evaluate` builds the
+block and collapses the lever axis).
 """
 
 from __future__ import annotations
@@ -16,25 +17,33 @@ from pathlib import Path
 
 import pandas as pd
 
-from load_config import load_config
+from load_config import read_raw, build_library, build_cases
+from studies import load_studies
 from evaluate import run_case
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 CONFIG_PATH = REPO_ROOT / "config.yaml"
-CASES_PATH = REPO_ROOT / "cases.csv"
+STUDIES_PATH = REPO_ROOT / "studies.yaml"
 RESULTS_DIR = REPO_ROOT / "results"
+FLEET_STUDY = "fleet"       # the baseline fleet sweep -> results/lcot.csv
 
 # stable leading columns; everything else (strategy-specific) follows in first-seen order
 _LEAD_COLUMNS = ["case", "feasible", "lcot", "op_v_kn", "d_km",
                  "carried", "legs", "annual_fixed", "annual_energy"]
 
 
-def build_results(config_path=CONFIG_PATH, cases_path=CASES_PATH) -> pd.DataFrame:
-    """Optimize every Case over its sweep and assemble the tidy results table."""
-    cases, _ranges = load_config(config_path, cases_path)
+def build_results(config_path=CONFIG_PATH, studies_path=STUDIES_PATH) -> pd.DataFrame:
+    """Optimize every fleet-study case over its sweep and assemble the tidy results table."""
+    raw, ranges = read_raw(config_path)
+    cases = build_cases(raw, build_library(raw))
+    studies = load_studies(studies_path, ranges, raw)
+    if FLEET_STUDY not in studies:
+        raise SystemExit(f"studies.yaml has no {FLEET_STUDY!r} study (the fleet sweep -> lcot.csv)")
+    fleet = studies[FLEET_STUDY]
+    names = fleet.cases if fleet.cases is not None else tuple(cases)
     rows = [{"case": name, **row}
-            for name, case in cases.items()
-            for row in run_case(case)]
+            for name in names
+            for row in run_case(cases[name], fleet.sweep, fleet.optimize)]
     frame = pd.DataFrame(rows)
     lead = [c for c in _LEAD_COLUMNS if c in frame.columns]
     rest = [c for c in frame.columns if c not in lead]

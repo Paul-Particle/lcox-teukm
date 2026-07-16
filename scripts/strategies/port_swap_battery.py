@@ -18,10 +18,10 @@ def port_swap_battery(case: schema.Case) -> dict:
     fixed design speed; pack to the operating-speed energy (and for iron-air the C/50 power
     floor in BatterySource.size pins the economic speed low). No new source interface.
     """
-    pl, dt = case.platform, case.drivetrain
-    economics, margins, route = case.params.economics, case.params.margins, case.params.route
+    pl, dt, params = case.platform, case.drivetrain, case.params
+    economics, margins, route = params.economics, params.margins, params.route
     d_km, op_v_kn = route.d_km, route.op_v_kn
-    design_v_kn = route.design_v_kn
+    design_v_kn = params.design_v_kn
     battery = next(s for s in case.sources if isinstance(s, sources.BatterySource))
 
     # --- route plan + power demand at the operating speed ----------------------
@@ -40,7 +40,7 @@ def port_swap_battery(case: schema.Case) -> dict:
     # --- annual legs + revenue cargo --------------------------------------------
     legs = legs_per_year(op_v_kn, d_km, dt.operations.port_hours, dt.operations.availability)
     cargo = carried(pl, dt.overhead.slots, slots, mass_t,
-                    route.load_factor, route.load_factor_imbalance)
+                    params.load_factor, params.load_factor_imbalance)
     mask = cargo > 0        # pack swamps the ship -> infeasible
 
     # --- energy: the swap refills what the leg consumed in expectation ------------

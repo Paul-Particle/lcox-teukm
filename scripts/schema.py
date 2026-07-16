@@ -3,11 +3,11 @@ schema.py — the config schema, as frozen dataclasses.
 
 The leaf sub-blocks mirror config.yaml one-to-one, so the loader builds them mechanically
 (`Block(**yaml_subdict)`); the top-level composites (Platform, Drivetrain, Case, Params) it
-assembles by hand from a name plus the nested blocks, and the per-case route/axes come from
-cases.csv. Three nouns — Platform, Drivetrain, EnergySource (fuel / battery / reactor); a
-`Case` composes them plus everything non-component (a `Params` block, a strategy name, axes in
-parameter space to optimize/sweep). Top-level structures first; the sub-blocks they compose at
-the bottom.
+assembles by hand from a name plus the nested blocks. Everything — the components AND the cases
+that compose them (each with its fixed `route`) — lives in config.yaml. Three nouns — Platform,
+Drivetrain, EnergySource (fuel / battery / reactor); a `Case` composes them plus everything
+non-component (a `Params` block, a strategy name). Top-level structures first; the sub-blocks
+they compose at the bottom.
 
 The `EnergySource` base lives here (it's the empty slot `Case.sources` composes); the concrete
 fuel/battery/reactor subclasses and their cost methods live in sources.py.
@@ -22,17 +22,15 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class Case:
-    """One composition plus how to explore it. Pure data: `design` reads `sweep`/`optimize` and
-    turns them into named block axes, which `evaluate` retains (sweep) or argmin-collapses
-    (optimize)."""
+    """One composition: the components plus its fixed route/economics. Pure data. Which axes to
+    sweep/optimize and which leaves to sample is NOT here — that is study design (studies.yaml),
+    applied to a case by `design`; a case is only the thing a study explores."""
     name: str
     sources: tuple[EnergySource, ...]   # zero or more (zero = fueled-for-life converter)
     platform: Platform
     drivetrain: Drivetrain
     strategy: str                       # names the function in the strategies package
     params: Params
-    optimize: tuple[Axis, ...]          # free axes: searched per swept point for min lcot
-    sweep: tuple[Axis, ...]             # swept axes: iterated to trace LCOT-vs-X (D_max…)
 
 
 @dataclass(frozen=True)
@@ -70,10 +68,15 @@ class Drivetrain:
 # ---- case ----
 @dataclass(frozen=True)
 class Params:
-    """The Case's non-component inputs. """
-    economics: Economics    # general economic assumptions, equal across cases to keep them comparable
-    margins: Margins        # design sizing margins (energy reserve + propulsion power margin)
-    route: Route            # per-case fixed route/condition params
+    """The Case's non-component inputs. economics/margins and the market load + design speed are
+    shared assumptions injected from `shared` (equal across cases, to keep them comparable); the
+    `route` is the per-case voyage operating point a study varies."""
+    economics: Economics            # general economic assumptions, equal across cases to keep them comparable
+    margins: Margins                # design sizing margins (energy reserve + propulsion power margin)
+    route: Route                    # voyage operating point (hop distance + operating speed)
+    load_factor: float              # shared: mean cargo load factor over the route/market
+    load_factor_imbalance: float    # shared: head/back-haul demand split (directions differ in demand)
+    design_v_kn: float | None = None  # shared: design speed the cheap converter is sized to (integrated-reactor cases size to op speed and ignore it)
 
 
 @dataclass(frozen=True)
@@ -93,23 +96,19 @@ class Margins:
 
 @dataclass(frozen=True)
 class Route:
-    """Per-case fixed route/condition params. Strategy-specific ones are optional (a fuel case needs no battery/tender field)."""
-    load_factor: float                      # mean cargo load factor (for the entire route/market)
-    load_factor_imbalance: float            # head/back-haul split (directions are not equal in demand for transportation)
-    d_km: float = 10000.0                    # nominal D_max hop; the swept axis overrides it in most cases
-    op_v_kn: float = 14.0                    # nominal operating speed; the optimized axis overrides it in most cases
-    design_v_kn: float | None = None        # nominal design speed the cheap converter is sized to; like d_km/op_v_kn an axis can override it, though it's usually fixed (the integrated-reactor cases size to op speed and ignore it)
-    detach_duration_h: float | None = None  # longest continuous cable-dropped stretch the tender case's pack must sail through unassisted (SIZING event, not an expected flow)
-    detach_frac: float | None = None        # expected fraction of tethered time with the floating tether dropped for weather (tender); an EXPECTED VALUE, to be calibrated from weather data / voyage simulation per route
-    standoff_nm: float | None = None        # coastal sub-leg each side of the tether (tender)
-    idle_h: float | None = None             # tender reposition-or-wait between escorts
+    """The voyage operating point a study varies: hop distance and operating speed, both
+    study-owned axes (`design` places their grids here). With no axis they sit at these nominal
+    defaults. Everything that used to live here moved to its owner — market load to `shared`
+    (Params.load_factor), the tether's geometry + weather to the tender source."""
+    d_km: float = 10000.0           # nominal D_max hop; the swept axis overrides it
+    op_v_kn: float = 14.0           # nominal operating speed; the optimized axis overrides it
 
 
 @dataclass(frozen=True)
 class Axis:
     """A parameter varied over a grid, becoming one block dimension. Same shape whether
     `optimize` (argmin-collapsed for min lcot) or `sweep` (retained as an LCOT-vs-X trace) —
-    the Case's list decides which."""
+    the study's block decides which."""
     param: str                      # the config leaf it replaces with a grid, e.g. "op_v_kn" or "d_km"
     lo: float
     hi: float
