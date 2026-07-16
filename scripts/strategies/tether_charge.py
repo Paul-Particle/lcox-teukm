@@ -36,7 +36,7 @@ def tether_charge(case: schema.Case) -> dict:
     economics, margins, route = case.params.economics, case.params.margins, case.params.route
     d_km, op_v_kn = route.d_km, route.op_v_kn
     design_v_kn = route.design_v_kn
-    detach_frac = route.detach_frac or 0.0   # unset route -> no detach weather
+    detach_frac = 0.0 if route.detach_frac is None else route.detach_frac   # unset route -> no detach
     # expects exactly one battery + one tender reactor source
     battery = next(s for s in case.sources if isinstance(s, sources.BatterySource))
     tender = next(s for s in case.sources if isinstance(s, sources.TenderReactor))
@@ -62,7 +62,8 @@ def tether_charge(case: schema.Case) -> dict:
 
     # --- size the pack: max(coastal sub-leg + reserve, detach buffer) ------------
     coastal_kwh = bus_kw * coastal_h
-    detach_buffer_kwh = bus_kw * (route.detach_duration_h or 0.0)   # unset -> no detach buffer
+    detach_duration_h = 0.0 if route.detach_duration_h is None else route.detach_duration_h
+    detach_buffer_kwh = bus_kw * detach_duration_h   # unset route -> no detach buffer
     # energy reserve on the coastal sub-leg only; the detach buffer is itself a weather reserve
     deliverable_kwh = np.maximum(coastal_kwh * (1 + margins.energy_reserve), detach_buffer_kwh)
     installed_kwh, slots, mass_t = battery.size(
