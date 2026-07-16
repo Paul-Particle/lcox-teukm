@@ -15,3 +15,20 @@ dependencies = [
     "salib>=1.5",
     "xarray>=2025.1",
 ]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+# The packages live under scripts/ (which acts as the source root), so declare them
+# explicitly. `uv sync` editable-installs them into .venv, which is what makes
+# `from common.paths import ...` resolve everywhere — at runtime from any directory
+# and for static tools (pyright, serena) — instead of relying on sys.path accidents.
+[tool.hatch.build.targets.wheel]
+packages = [
+    "scripts/common",
+    "scripts/assumptions",
+    "scripts/model",
+    "scripts/kernel",
+    "scripts/viz",
+]

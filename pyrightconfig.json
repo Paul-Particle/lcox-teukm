@@ -1,0 +1,7 @@
+{
+  "//": "scripts/ is the source root: common/, assumptions/, model/, kernel/, viz/ live here and are imported top-level (e.g. `from common.paths import ...`). The editable install (pyproject.toml) makes this resolve at runtime and for most tools; extraPaths declares it for static analyzers (pyright, serena) that read the source tree directly.",
+  "include": ["scripts"],
+  "extraPaths": ["scripts"],
+  "venvPath": ".",
+  "venv": ".venv"
+}

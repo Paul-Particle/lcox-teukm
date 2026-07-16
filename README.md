@@ -16,7 +16,7 @@ config in real ships.
 Uses [uv](https://docs.astral.sh/uv/) (provisions Python 3.11+ automatically):
 
 ```sh
-uv sync                        # install deps (pinned in uv.lock)
+uv sync                        # install deps (pinned in uv.lock) + the project itself (editable)
 uv run scripts/run.py          # render the `fleet` study: 8 cases x speed lever x D_max sweep -> results/lcot.{parquet,csv}
 uv run scripts/study.py        # run the sensitivity studies in studies.yaml -> results/sobol/<study>/
 uv run scripts/viz/plots.py    # LCOT/speed-vs-D_max + Sobol/lever figures from the artifacts -> results/*.{html,png}
@@ -65,9 +65,11 @@ lever, `analyze` variance-decomposes per swept slice. No parameter is privileged
 ### Module map
 
 `scripts/` is grouped into packages by role, with dependencies pointing downward
-(`common` ← `assumptions`/`model` ← `kernel` ← `viz`). The two flat entry points (`run.py`,
-`study.py`) and `viz/plots.py` are run by path (the last via a `sys.path` shim); everything
-else is imported.
+(`common` ← `assumptions`/`model` ← `kernel` ← `viz`). `scripts/` is the source root: `uv sync`
+editable-installs the packages (see `pyproject.toml`), so `from common.paths import ...` resolves
+at runtime from any directory and for static tooling — no `sys.path` manipulation. The flat
+entry points (`run.py`, `study.py`) and the by-path scripts (`viz/plots.py`, `mrv/`) are invoked
+with `uv run`; everything else is imported.
 
 | Module | Role |
 |---|---|

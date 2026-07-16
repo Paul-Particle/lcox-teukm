@@ -40,10 +40,6 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-# This script lives in scripts/mrv/ but shares packages with the rest of scripts/ (common, viz);
-# put the parent scripts/ dir on the path so those package imports resolve when run by path.
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-
 from common.units import KM_PER_NM, KG_PER_TONNE
 
 REPO_ROOT = Path(__file__).resolve().parents[2]   # scripts/mrv/ -> scripts/ -> repo root

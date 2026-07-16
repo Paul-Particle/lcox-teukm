@@ -15,13 +15,6 @@ shade (plotly's `marker.pattern` hatching renders inconsistently across versions
 used). Run after run.py; the sensitivity plots run their study if its store is missing.
 """
 
-import sys
-from pathlib import Path
-
-# plots.py still runs by path (`uv run scripts/viz/plots.py`), so put scripts/ on sys.path
-# for the absolute package imports below (the same shim mrv/ uses for run-by-path modules).
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-
 import numpy as np
 import pandas as pd
 
