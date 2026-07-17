@@ -4,7 +4,7 @@ strategies — the per-case strategy functions, one module each.
 A strategy is a plain function `(case) -> dict`: reads the case's setup, segments the route,
 decides which source supplies what, sizes the stores, and returns a row dict — `lcot` plus
 extra numbers for the artifact. It reads varied parameters straight off the config leaves
-(`route.op_v_kn`, `route.d_km`, …), which `ingest` has replaced with array values on named
+(`shared.op_v_kn`, `shared.d_km`, …), which `ingest` has replaced with array values on named
 axes; the arithmetic broadcasts, so one call evaluates a whole block. A leaf may equally be a
 scalar (one point — the debugging path). Feasibility is a boolean mask applied at the end
 (see `_shared._finalize`), not an early return, so an infeasible cell doesn't abort a block.

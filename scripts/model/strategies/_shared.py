@@ -12,7 +12,7 @@ path) or arrays on named axes (a whole block, broadcast together). Feasibility i
 `mask` computed at the end rather than an early return, so an infeasible *cell* of a block
 doesn't abort the feasible cells around it: each strategy assembles its full row and hands it
 to `_finalize`, which sets `lcot = inf` and NaNs the strategy-specific fields where the mask
-is False — the same shape the old short infeasible row took after the column union.
+is False, so every strategy's row shares the same columns regardless of feasibility.
 """
 
 from __future__ import annotations

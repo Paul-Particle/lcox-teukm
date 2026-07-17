@@ -26,7 +26,7 @@ not plumbing.
 - **Containerized-reactor pool utilization** — `ContainerizedReactor.size` levelizes over a
   route-independent fleet utilization (`pool.availability`), so `pool.idle_h` is still **unused**;
   it needs an estimated turnaround time like the tender's.
-- **Design speed as a live variable** — `design_v_kn` is now an ordinary config leaf
+- **Design speed as a live variable** — `design_v_kn` is an ordinary config leaf
   (`shared.design_v_kn`), so it can be sampled/swept/optimized like any other. But optimizing it
   only bites once the model has a counterforce — a peak-power / brief-sprint constraint (weather
   evasion, schedule recovery) that rewards a larger converter. Without one, minimizing converter

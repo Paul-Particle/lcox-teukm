@@ -32,8 +32,7 @@ from assumptions import load_assumptions
 
 
 def grid(axis: schema.Axis) -> np.ndarray:
-    """`axis.n` points evenly from `lo` to `hi` (inclusive); a single point sits at `lo`.
-    Reproduces the old scalar grid bit-for-bit (same `lo + step * i` arithmetic, vectorized)."""
+    """`axis.n` points evenly from `lo` to `hi` (inclusive); a single point sits at `lo`."""
     if axis.n <= 1:
         return np.array([float(axis.lo)])
     step = (axis.hi - axis.lo) / (axis.n - 1)

@@ -9,8 +9,8 @@ Drivetrain, EnergySource (fuel / battery / reactor); a `Case` composes them plus
 non-component (a `Params` block, a strategy name). Top-level structures first; the sub-blocks
 they compose at the bottom.
 
-The `EnergySource` base lives here (it's the empty slot `Case.sources` composes), and so now do
-its concrete fuel/battery/reactor subclasses — all pure data. The strategy-independent cost and
+The `EnergySource` base lives here (it's the empty slot `Case.sources` composes), along with its
+concrete fuel/battery/reactor subclasses — all pure data. The strategy-independent cost and
 sizing functions that operate on them live in `model/costing.py`.
 """
 
