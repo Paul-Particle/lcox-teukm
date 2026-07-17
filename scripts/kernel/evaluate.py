@@ -3,7 +3,7 @@ evaluate.py — run the kernel over each study case's block and collapse the lev
 
 One kernel call per case: `ingest` has already turned the study's axes into array leaves on the
 config, so the strategy is called ONCE and broadcasts over the whole (sample x swept x lever)
-block — what the old scalar sweep/grid-search loops did falls out of numpy broadcasting. Then:
+block via numpy broadcasting. Then:
 
 - optimized (lever) dims — the trailing block dims — collapse by an `argmin` of the objective,
   carrying every OTHER measure at that same index (`take_along_axis`), so the optimal speed and

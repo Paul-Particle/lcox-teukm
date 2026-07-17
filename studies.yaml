@@ -1,11 +1,11 @@
-# studies.yaml — role assignment over the parameters config.yaml describes. Each study names
-# which params vary and how; the ranges themselves live in config.yaml (declared on the value).
+# studies.yaml — role assignment over the parameters assumptions.yaml describes. Each study names
+# which params vary and how; the ranges themselves live in assumptions.yaml (declared on the value).
 #
 # Roles:
 #   sample   Saltelli-drawn on the shared sample axis, variance-decomposed. A list of config
 #            leaf paths or globs (a source capex `sources.lfp.capex.usd_per_kwh`, a tether field
 #            `sources.tender-reactor.tether.detach_frac`); omitted = every ranged config param
-#            (blast), `[]` = none. Each path's range is the one declared in config.yaml, else a
+#            (blast), `[]` = none. Each path's range is the one declared in assumptions.yaml, else a
 #            +/-20% screening default around the config value.
 #   optimize argmin-collapsed lever grid, `{path: [lo, hi, n]}` over any config leaf
 #   sweep    retained condition grid, `{path: [lo, hi, n]}` (one Sobol analysis per slice)
@@ -18,17 +18,17 @@
 studies:
 
   # --- the baseline fleet sweep: all cases, speed lever, distance condition, no sampling.
-  #     run.py renders this to results/lcot.csv (the seed artifact). --------------------------
+  #     `lcot run` renders this to results/lcot.csv (the seed artifact). ------------------------
   fleet:
     sample: []                          # a pure sweep — nothing decomposed
     optimize: {shared.op_v_kn: [5.0, 22.0, 18]}
     sweep:    {shared.d_km: [500.0, 18000.0, 36]}
-    # cases omitted -> every case in config.yaml, in config order
+    # cases omitted -> every case in assumptions.yaml, in assumptions order
 
   # --- validation: a single sampled param, nothing else varying -> S1 ~ ST ~ 1 -----------
   lfp-price-check:
     cases: [lfp]
-    sample: [sources.lfp.capex.usd_per_kwh]     # range [150, 400] declared in config.yaml
+    sample: [sources.lfp.capex.usd_per_kwh]     # range [150, 400] declared in assumptions.yaml
     n: 512
     # optimize/sweep omitted -> no axes; op_v_kn + d_km sit at their shared config nominals
 
@@ -36,8 +36,8 @@ studies:
   tender-screening:
     cases: [tender]
     sample:
-      - sources.tender-reactor.capex.usd_per_kw           # range [4000, 12000] in config.yaml
-      - sources.tender-reactor.tether.detach_frac         # range [0.0, 0.10]  in config.yaml
+      - sources.tender-reactor.capex.usd_per_kw           # range [4000, 12000] in assumptions.yaml
+      - sources.tender-reactor.tether.detach_frac         # range [0.0, 0.10]  in assumptions.yaml
     optimize: {shared.op_v_kn: [5.0, 22.0, 18]}   # lever: argmin over the speed grid
     sweep:    {shared.d_km: [500.0, 18000.0, 36]} # condition: one Sobol analysis per route length
     objective: lcot

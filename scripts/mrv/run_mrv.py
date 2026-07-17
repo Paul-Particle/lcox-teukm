@@ -8,7 +8,7 @@ A thin convenience entry point that imports both MRV utilities and runs them in 
 Each utility is still runnable on its own (`uv run scripts/mrv/mrv_unify.py`, etc.); this just
 chains them. They sit in scripts/mrv/ and are imported here as sibling modules — running this by
 path puts scripts/mrv/ on sys.path. The shared packages (common, viz) resolve via the editable
-install of the project (see pyproject.toml), not a path hack.
+install of the project (see pyproject.toml).
 
 Run:  uv run scripts/mrv/run_mrv.py [--no-plot]
 """

@@ -4,8 +4,9 @@ the frozen schema, returning Cases keyed by name plus the harvested range librar
 
 Trusted input: no validation beyond what the dataclass constructors enforce (a bad key
 raises TypeError). Loading is mechanical (`Block(**yaml_subdict)`, sources dispatch on `type`);
-a case names its platform/drivetrain/sources and carries a `route` sub-map — every field passed
-straight through, so a sampled array leaf flows into the frozen `Route` unchanged.
+a case names its platform/drivetrain/sources/strategy, and the voyage scalars (d_km/op_v_kn) plus
+the other shared params come from the library's `Params` block, not a per-case sub-map — every
+field passed straight through, so a sampled array leaf flows into the frozen `Params` unchanged.
 
 A config leaf may be a bare scalar or a ranged wrapper `{value:, range: [lo, hi], dist:}`.
 `_unwrap` walks the parsed tree once: it replaces every wrapper with its scalar `value` (so
@@ -16,7 +17,7 @@ the schema builds exactly as before) and records any declared range under its do
 Loading is decomposed so `ingest` can rebuild with sampled values placed: `read_raw` parses +
 unwraps, `build_library` turns an (already unwrapped) config dict into the component `Library`,
 and `build_cases` assembles Cases against a library. `ingest` places sampled/fixed leaves (a
-source capex, a route field) by dotted path into a copy of the raw dict, rebuilds, and
+source capex, a shared voyage scalar) by dotted path into a copy of the raw dict, rebuilds, and
 re-assembles — so array-valued leaves flow into the frozen components and the kernel broadcasts
 over them. `load_assumptions` is the nominal composition of the three.
 """
@@ -112,8 +113,9 @@ def _source(name: str, d: dict) -> schema.EnergySource:
 # ---- cases: assumptions.yaml's `cases:` section, one entry per case ----
 # A case names its platform/drivetrain (by library key), its sources (a list of keys — empty for
 # a fueled-for-life converter), and its strategy (a function in the strategies package). It holds
-# no parameters of its own: the voyage operating point (d_km/op_v_kn) is study-owned (design fills
-# `Route`), and the market load + design speed are shared assumptions injected from the library.
+# no parameters of its own: the voyage operating point (d_km/op_v_kn) is study-owned (ingest places
+# it before `Params` is built), and the market load + design speed are shared assumptions injected
+# from the library.
 
 
 def _case(name: str, spec: dict, library: Library) -> schema.Case:

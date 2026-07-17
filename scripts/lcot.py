@@ -6,8 +6,8 @@ lcot.py — single entry point for the LCOT model.
     uv run python scripts/lcot.py plot            # figures -> results/ (runs studies it needs)
     uv run python scripts/lcot.py all             # run, then plot
 
-Subsumes the former run.py and study.py. The evaluation renders live in pipeline.py; plotting
-in viz/plots.py (imported lazily so `run`/`study` don't pull in the plotting stack).
+The evaluation renders live in pipeline.py; plotting in viz/plots.py (imported lazily so
+`run`/`study` don't pull in the plotting stack).
 """
 
 from __future__ import annotations

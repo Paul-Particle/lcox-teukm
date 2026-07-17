@@ -5,7 +5,7 @@ A study is one line of role assignment over the parameters assumptions.yaml alre
 
 - **sample** — jointly Saltelli-drawn on the shared sample axis (variance-decomposed). Paths or
   globs over config leaves (a source capex `sources.lfp.capex.usd_per_kwh`, a tether field
-  `sources.tender-reactor.tether.detach_frac` — every param is an ordinary config leaf now);
+  `sources.tender-reactor.tether.detach_frac` — every param is an ordinary config leaf);
   omitted means *every ranged config param* (the blast default), `[]` means none. Each sampled
   path resolves a
   `Range`: the range harvested from assumptions.yaml (declared on the value), else — for a leaf with a
