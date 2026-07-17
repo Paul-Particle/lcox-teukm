@@ -43,6 +43,33 @@ not plumbing.
   append / partitioned writes once the case × sweep grid is big enough to want it.
 - **Config placeholders** — some crew/O&M values, the tender `idle_h` / `standoff_nm` / `detach_*`
   fields, and `design_v_kn` are placeholders pending real data (flagged in `assumptions.yaml`).
+- **Infeasibility/print noise** — trim the scattered `print()` calls to one summary location.
+  Candidates to drop: the per-slice note in `analyze.py:_objective_indices` (fires once per
+  infeasible slice with no `infeasible_value`, so a large sweep floods stdout) and the `[skip]`
+  notices in `plots.py:plot_sobol_indices`. Keep (or fold everything into) the one per-study line
+  in `pipeline.py:run_study` (`"N slice(s); worst infeasible fraction X%"`), which already
+  summarizes at the right granularity.
+- **`scripts/assumptions/` package name is over-scoped** — the intended rename was only the
+  *file* `config.yaml` → `assumptions.yaml` (it's the component-library input, read alongside
+  `studies.yaml`); the package directory `scripts/config/` got renamed to `scripts/assumptions/`
+  along with it. Rename the directory back to `scripts/config/`; keep `load_assumptions.py`,
+  `load_assumptions()`, `ASSUMPTIONS_PATH`, and `assumptions.yaml` exactly as they are — those
+  names already match the file they describe.
+- **Case composition belongs in `studies.yaml`, not `assumptions.yaml`** — move the `cases:`
+  block (`assumptions.yaml:176-217`: platform/drivetrain/sources/strategy per case — composition
+  only, no params of its own) to `studies.yaml`. `assumptions.yaml` becomes the pure parts catalog
+  (platforms/drivetrains/sources + the shared economics/voyage scalars); `studies.yaml` owns
+  everything about how a study composes and varies them — it already scopes *which* cases a study
+  runs (`cases: [tender]`), so the composition itself should live there too.
+- **Consolidate `shared:` under one schema block** — every other yaml sub-block mirrors 1:1 into
+  a schema dataclass (`Block(**yaml_subdict)`), but `shared:` (assumptions.yaml's `discount_rate`,
+  `crew_cost_usd_yr`, `load_factor`, `load_factor_imbalance`, `d_km`, `op_v_kn`, `design_v_kn`,
+  nested `margins:`) doesn't: `load_assumptions.build_library` splits it into two dataclasses
+  (`schema.Economics`, `schema.Margins`) plus five loose scalars carried as flat `Library` fields,
+  which `_case` then re-zips into `schema.Params` for every case (`load_assumptions.py:147-161`,
+  `:119-132`; noted in the code review as one prebuilt `params` field with a single consumer).
+  Give `shared` one schema block (economics/margins nested or flattened, whichever reads better)
+  built once on `Library` and passed straight through — no flatten-then-re-zip round trip.
 
 ## Speculative parameters
 
