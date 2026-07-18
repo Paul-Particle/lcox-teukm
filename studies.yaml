@@ -1,20 +1,19 @@
-# studies.yaml — role assignment over the parameters assumptions.yaml describes. Each study names
-# which params vary and how; the ranges themselves live in assumptions.yaml (declared on the value).
+# studies.yaml — the case catalog + the studies. Each study picks member cases and, per parameter,
+# how to probe the space and/or how to override that parameter's data.
 #
-# Roles:
-#   sample   Saltelli-drawn on the shared sample axis, variance-decomposed. A list of config
-#            leaf paths or globs (a source capex `sources.lfp.capex.usd_per_kwh`, a tether field
-#            `sources.tender-reactor.tether.detach_frac`); omitted = every ranged config param
-#            (blast), `[]` = none. Each path's range is the one declared in assumptions.yaml, else a
-#            +/-20% screening default around the config value.
-#   optimize argmin-collapsed lever grid, `{path: [lo, hi, n]}` over any config leaf
-#   sweep    retained condition grid, `{path: [lo, hi, n]}` (one Sobol analysis per slice)
-#   fix        pin a config leaf to a constant
-#   optimize_by  measure the lever argmin minimizes (default lcot)
-#   decompose    measure(s) Sobol targets; omitted -> the optimize_by measure
+# A study's `params:` maps a dotted config leaf to an entry with two independent parts:
+#   probe:  how to vary it — {kind: sample|sweep|optimize, n: <grid points>}. Omitted -> fixed.
+#           sample = Saltelli-drawn (variance-decomposed); sweep = retained condition grid;
+#           optimize = grid collapsed to the optimum of `optimize_by`. `n` is grid points
+#           (sweep/optimize); sampling uses `saltelli_sample_n`.
+#   range:  a data override, deep-merged onto the assumptions leaf — {value, lo, hi, dist}. Sets or
+#           overrides the nominal and/or the band + distribution. Bounds for any probe come from
+#           this band (assumptions' if not overridden); `dist` doubles as grid spacing (unif ->
+#           linear, loguniform -> geometric). A bare scalar == range: {value: scalar}.
 #
-# sample / fix / sweep / optimize all address the SAME dotted config leaves — any param can play
-# any role. op_v_kn/d_km are just leaves under `shared`, no more special than design_v_kn.
+# Study meta: optimize_by (measure the lever optimizes, default lcot), minimize (argmin vs argmax,
+# default true), decompose (Sobol targets; omitted -> optimize_by), saltelli_sample_n, second_order,
+# infeasible_value, cases (omitted -> every case, in catalog order).
 
 # ============================================================= cases ====
 # The composition catalog: which library parts (from assumptions.yaml) each ship concept combines.
@@ -67,29 +66,29 @@ cases:
 
 studies:
 
-  # --- the baseline fleet sweep: all cases, speed lever, distance condition, no sampling.
-  #     `lcot run` renders this to results/lcot.csv (the seed artifact). ------------------------
+  # --- fleet: all cases, speed lever, distance condition, no sampling -> a tidy comparison table.
   fleet:
-    sample: []                          # a pure sweep — nothing decomposed
-    optimize: {shared.op_v_kn: [5.0, 22.0, 18]}
-    sweep:    {shared.d_km: [500.0, 18000.0, 36]}
-    # cases omitted -> every case in assumptions.yaml, in assumptions order
+    optimize_by: lcot
+    params:
+      shared.op_v_kn: {probe: {kind: optimize, n: 18}, range: {lo: 5.0, hi: 22.0}}
+      shared.d_km:    {probe: {kind: sweep,    n: 36}, range: {lo: 500.0, hi: 18000.0}}
+    # cases omitted -> every case, in catalog order
 
   # --- validation: a single sampled param, nothing else varying -> S1 ~ ST ~ 1 -----------
   lfp-price-check:
     cases: [lfp]
-    sample: [sources.lfp.capex.usd_per_kwh]     # range [150, 400] declared in assumptions.yaml
-    n: 512
-    # optimize/sweep omitted -> no axes; op_v_kn + d_km sit at their shared config nominals
+    saltelli_sample_n: 512
+    params:
+      sources.lfp.capex.usd_per_kwh: {probe: {kind: sample}}   # band [150, 400] from assumptions
 
   # --- screening: tender reactor cost + weather detach fraction, as a function of route ----
   tender-screening:
     cases: [tender]
-    sample:
-      - sources.tender-reactor.capex.usd_per_kw           # range [4000, 12000] in assumptions.yaml
-      - sources.tender-reactor.tether.detach_frac         # range [0.0, 0.10]  in assumptions.yaml
-    optimize: {shared.op_v_kn: [5.0, 22.0, 18]}   # lever: argmin over the speed grid
-    sweep:    {shared.d_km: [500.0, 18000.0, 36]} # condition: one Sobol analysis per route length
     optimize_by: lcot                             # decompose omitted -> decomposes lcot too
-    n: 256
+    saltelli_sample_n: 256
     second_order: false
+    params:
+      sources.tender-reactor.capex.usd_per_kw:   {probe: {kind: sample}}   # band [4000, 12000] from assumptions
+      sources.tender-reactor.tether.detach_frac: {probe: {kind: sample}}   # band [0.0, 0.10]  from assumptions
+      shared.op_v_kn: {probe: {kind: optimize, n: 18}, range: {lo: 5.0, hi: 22.0}}
+      shared.d_km:    {probe: {kind: sweep,    n: 36}, range: {lo: 500.0, hi: 18000.0}}
