@@ -11,6 +11,7 @@ dependencies = [
     "pandas>=3.0.3",
     "plotly>=6.8.0",
     "pyarrow>=24.0.0",
+    "pydantic>=2.13.4",
     "pyyaml>=6.0.3",
     "salib>=1.5",
     "xarray>=2025.1",
