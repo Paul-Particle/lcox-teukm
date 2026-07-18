@@ -100,14 +100,17 @@ class Margins:
 @dataclass(frozen=True)
 class Axis:
     """A parameter varied over a grid, becoming one block dimension. Same shape whether
-    `optimize` (argmin-collapsed for min lcot) or `sweep` (retained as an LCOT-vs-X trace) —
+    `optimize` (collapsed by the optimizer method) or `sweep` (retained as an LCOT-vs-X trace) —
     the study's block decides which. `path` is the dotted config leaf the grid replaces (the
     SAME addressing `sample`/`fix` use), so ANY leaf can be an axis; `name` (its last segment)
-    labels the block dimension."""
+    labels the block dimension. `method` is the lever-collapse method (v6 §6): `none` for a
+    retained sweep, `exhaustive_search` for a lever (materialize the grid, argmin the objective).
+    The seam holds a future adaptive solver without a schema change."""
     path: str                       # dotted config leaf the grid replaces, e.g. "shared.op_v_kn"
     lo: float
     hi: float
     n: int                          # number of grid points
+    method: str = "none"            # "none" (sweep, retained) | "exhaustive_search" (lever)
 
     @property
     def name(self) -> str:
