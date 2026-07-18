@@ -9,8 +9,9 @@
 #            +/-20% screening default around the config value.
 #   optimize argmin-collapsed lever grid, `{path: [lo, hi, n]}` over any config leaf
 #   sweep    retained condition grid, `{path: [lo, hi, n]}` (one Sobol analysis per slice)
-#   fix      pin a config leaf to a constant
-#   objective  measure to optimize + decompose (default lcot)
+#   fix        pin a config leaf to a constant
+#   optimize_by  measure the lever argmin minimizes (default lcot)
+#   decompose    measure(s) Sobol targets; omitted -> the optimize_by measure
 #
 # sample / fix / sweep / optimize all address the SAME dotted config leaves — any param can play
 # any role. op_v_kn/d_km are just leaves under `shared`, no more special than design_v_kn.
@@ -40,6 +41,6 @@ studies:
       - sources.tender-reactor.tether.detach_frac         # range [0.0, 0.10]  in assumptions.yaml
     optimize: {shared.op_v_kn: [5.0, 22.0, 18]}   # lever: argmin over the speed grid
     sweep:    {shared.d_km: [500.0, 18000.0, 36]} # condition: one Sobol analysis per route length
-    objective: lcot
+    optimize_by: lcot                             # decompose omitted -> decomposes lcot too
     n: 256
     second_order: false

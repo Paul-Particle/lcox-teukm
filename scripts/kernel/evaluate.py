@@ -26,16 +26,14 @@ import xarray as xr
 from model import strategies
 from . import ingest
 
-OBJECTIVE = "lcot"      # default objective the lever collapse minimizes (a study overrides it)
-
 
 def evaluate_design(design_: ingest.Design) -> dict[str, xr.Dataset]:
     """Evaluate every member case of a study over its block and collapse the lever dims, one
     xarray `Dataset` per case. The kernel runs once per case; xarray broadcasts the named leaves
     (sample x swept x lever) with no manual reshape. The lever dims are argmin-collapsed by the
-    study objective, carrying every measure at the optimum; the retained dims are `sample`
-    (if sampled) + the swept conditions."""
-    objective = design_.study.objective
+    study's `optimize_by` measure, carrying every measure at the optimum; the retained dims are
+    `sample` (if sampled) + the swept conditions."""
+    objective = design_.study.optimize_by
     lever_dims = list(design_.optimize_dims)
     # retained-axis echoes (a strategy re-emits d_km / the sample column as measures) are dropped;
     # those axes survive as coordinates via every measure that depends on them.

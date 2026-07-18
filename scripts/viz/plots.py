@@ -310,8 +310,8 @@ def plot_lever_landscape(cases=("fossil", "lfp", "nuclear-cont", "tender"),
             continue
         label, color, _clip = _DISPLAY[case]
         study = Study(name=f"_landscape-{case}", sample={}, fix={"shared.d_km": float(d_km)},
-                      optimize=(), sweep=(schema.Axis("shared.op_v_kn", 5.0, 22.0, n),),
-                      objective="lcot", n=0, second_order=False, cases=(case,),
+                      optimize=(), sweep=(schema.Axis("shared.op_v_kn", 5.0, 22.0, n, "none"),),
+                      optimize_by="lcot", decompose=(), n=0, second_order=False, cases=(case,),
                       infeasible_value=None)
         ds = evaluate_design(build_study(study, raw))[case]
         speed = ds["op_v_kn"].values

@@ -35,10 +35,10 @@ def sobol_indices(design: ingest_module.Design,
     index_rows: list[dict] = []
     feasibility_rows: list[dict] = []
     study = design.study
+    targets = study.decompose or (study.optimize_by,)   # () -> decompose what we optimize
     for case_name, ds in datasets.items():
         for slice_isel in _slices(design, ds):
             coords = {dim: float(design.coords[dim][i]) for dim, i in slice_isel.items()}
-            objective = np.asarray(ds[study.objective].isel(slice_isel).values, dtype=float)
             feasible = np.asarray(ds["feasible"].isel(slice_isel).values, dtype=bool)
             infeasible_fraction = float(1.0 - feasible.mean())
             feasibility_rows.append({"case": case_name, **coords,
@@ -46,25 +46,31 @@ def sobol_indices(design: ingest_module.Design,
                                      "n_samples": int(feasible.size)})
             if design.problem is None:      # a pure sweep study — nothing to decompose
                 continue
-            index_rows += _objective_indices(design, case_name, coords, objective,
-                                             infeasible_fraction)
+            for measure in targets:
+                # the optimize-by measure keeps the "objective" target label (stable indices
+                # schema + plots); any additional decompose measure is labelled by its name.
+                label = "objective" if measure == study.optimize_by else measure
+                y = np.asarray(ds[measure].isel(slice_isel).values, dtype=float)
+                index_rows += _objective_indices(design, case_name, coords, y,
+                                                 infeasible_fraction, label)
             index_rows += _feasibility_indices(design, case_name, coords, feasible,
                                                infeasible_fraction)
     return pd.DataFrame(index_rows), pd.DataFrame(feasibility_rows)
 
 
-def _objective_indices(design, case_name, coords, objective, infeasible_fraction) -> list[dict]:
-    """Objective Sobol for one slice: normal when fully feasible; penalized if the study declares
-    `infeasible_value`; skipped (with a note) otherwise."""
+def _objective_indices(design, case_name, coords, objective, infeasible_fraction,
+                       label: str = "objective") -> list[dict]:
+    """Sobol for one measure over one slice: normal when fully feasible; penalized if the study
+    declares `infeasible_value`; skipped (with a note) otherwise."""
     if infeasible_fraction == 0.0:
         Y = objective
     elif design.study.infeasible_value is not None:
         Y = np.where(np.isfinite(objective), objective, design.study.infeasible_value)
     else:
         print(f"  [note] {case_name} {coords}: {infeasible_fraction:.0%} infeasible and no "
-              "infeasible_value — objective indices skipped for this slice")
+              f"infeasible_value — {label} indices skipped for this slice")
         return []
-    return _analyze(design, case_name, coords, "objective", Y)
+    return _analyze(design, case_name, coords, label, Y)
 
 
 def _feasibility_indices(design, case_name, coords, feasible, infeasible_fraction) -> list[dict]:
