@@ -11,8 +11,8 @@ lever) by dim name — no manual reshape. Then:
 - the sample dim (if any) and the swept dims are retained.
 
 Feasibility masking lives in the strategies (`_finalize`). Each case becomes one xarray `Dataset`
-over the retained dims — `build_results` (pipeline) renders the fleet study's datasets to the flat
-artifact, `analyze` variance-decomposes them.
+over the retained dims — `store` renders the datasets to the tidy per-study table, `analyze`
+variance-decomposes them (a no-op when the study has no `sample` axis).
 """
 
 from __future__ import annotations
