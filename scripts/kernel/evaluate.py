@@ -31,37 +31,36 @@ OBJECTIVE = "lcot"      # default objective the lever collapse minimizes (a stud
 
 def evaluate_design(design_: ingest.Design) -> dict[str, xr.Dataset]:
     """Evaluate every member case of a study over its block and collapse the lever dims, one
-    xarray `Dataset` per case. The kernel runs once per case (broadcasting over sample x swept x
-    lever); the trailing lever dims are argmin-collapsed by the study objective, carrying every
-    measure at the optimum; the retained dims are `sample` (if sampled) + the swept conditions."""
+    xarray `Dataset` per case. The kernel runs once per case; xarray broadcasts the named leaves
+    (sample x swept x lever) with no manual reshape. The lever dims are argmin-collapsed by the
+    study objective, carrying every measure at the optimum; the retained dims are `sample`
+    (if sampled) + the swept conditions."""
     objective = design_.study.objective
-    n_keep = len(design_.dims) - len(design_.optimize_dims)
-    kept_dims = design_.dims[:n_keep]
+    lever_dims = list(design_.optimize_dims)
+    # retained-axis echoes (a strategy re-emits d_km / the sample column as measures) are dropped;
+    # those axes survive as coordinates via every measure that depends on them.
+    retained = set(design_.sweep_dims) | ({"sample"} if design_.sample_paths else set())
     datasets: dict[str, xr.Dataset] = {}
     for name, case in design_.cases.items():
         strategy = getattr(strategies, case.strategy)
         with np.errstate(all="ignore"):
             row = strategy(case)
-        block = {measure: np.broadcast_to(np.asarray(value), design_.shape)
-                 for measure, value in row.items()}
-        reduced = _collapse(block, n_sweep=n_keep, shape=design_.shape, objective=objective)
-        coords = {d: design_.coords[d] for d in kept_dims if d in design_.coords}
-        # a swept param (e.g. d_km) is a kept coordinate; the strategy also echoes it as a
-        # measure with identical values — keep the coordinate, drop the duplicate data variable.
-        datasets[name] = xr.Dataset(
-            {measure: (kept_dims, np.asarray(values))
-             for measure, values in reduced.items() if measure not in coords},
-            coords=coords)
+        row = {measure: value for measure, value in row.items() if measure not in retained}
+        datasets[name] = _collapse(row, objective, lever_dims)
     return datasets
 
 
-def _collapse(block: dict, n_sweep: int, shape: tuple[int, ...], objective: str = OBJECTIVE) -> dict:
-    """Argmin the objective over the trailing (lever) dims and carry every measure at that
-    index. Returns each measure reduced to the leading swept dims."""
-    sweep_shape = shape[:n_sweep]
-    lever_size = int(np.prod(shape[n_sweep:], dtype=int))       # 1 when there are no lever dims
-    objective_grid = block[objective].reshape(sweep_shape + (lever_size,))
-    winner = np.argmin(objective_grid, axis=-1)                 # first minimum on ties
-    return {name: np.take_along_axis(value.reshape(sweep_shape + (lever_size,)),
-                                     winner[..., None], axis=-1)[..., 0]
-            for name, value in block.items()}
+def _as_da(value) -> xr.DataArray:
+    """A measure as a DataArray (a scalar becomes 0-d), so the block broadcasts uniformly."""
+    return value if isinstance(value, xr.DataArray) else xr.DataArray(value)
+
+
+def _collapse(row: dict, objective: str, lever_dims: list) -> xr.Dataset:
+    """Broadcast every measure to the shared block dims, then argmin the objective over the lever
+    dims and carry each measure at that index (`isel`). With no lever dims it's just the block."""
+    das = dict(zip(row, xr.broadcast(*(_as_da(v) for v in row.values()))))
+    if not lever_dims:
+        return xr.Dataset(das)
+    winner = das[objective].argmin(dim=lever_dims)              # {lever_dim: index}, first-min ties
+    reduced = {measure: da.isel(winner) for measure, da in das.items()}
+    return xr.Dataset(reduced)

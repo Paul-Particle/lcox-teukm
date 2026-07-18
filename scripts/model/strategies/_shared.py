@@ -20,6 +20,7 @@ from __future__ import annotations
 from typing import NamedTuple
 
 import numpy as np
+import xarray as xr
 
 from common import schema
 from common import helpers
@@ -80,11 +81,12 @@ def _finalize(mask, lcot, op_v_kn, d_km, cargo, legs,
     every strategy-specific field becomes `NaN`; the coordinates `op_v_kn`/`d_km` and the
     `feasible` flag itself are always carried. `mask` and the field arrays broadcast together,
     so a scalar mask (a strategy whose feasibility doesn't vary over the block, e.g. a fueled
-    ship) and a per-cell mask are handled the same way. Values may be scalars or arrays."""
+    ship) and a per-cell mask are handled the same way. Values may be scalars or DataArrays;
+    `xr.where` (not `np.where`) keeps named dims so the block aligns by axis name."""
     def hide(value):
-        return np.where(mask, value, np.nan)
+        return xr.where(mask, value, np.nan)
 
-    return {"feasible": mask, "lcot": np.where(mask, lcot, np.inf),
+    return {"feasible": mask, "lcot": xr.where(mask, lcot, np.inf),
             "op_v_kn": op_v_kn, "d_km": d_km,
             "carried": hide(cargo), "legs": hide(legs),
             "annual_fixed": hide(annual_fixed), "annual_energy": hide(annual_energy),
