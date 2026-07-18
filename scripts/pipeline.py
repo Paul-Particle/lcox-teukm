@@ -28,11 +28,11 @@ def build_results(assumptions_path=ASSUMPTIONS_PATH, studies_path=STUDIES_PATH) 
     """Render the fleet study into the tidy results table: evaluate each case's block, collapse
     the lever, flatten the per-case datasets, and concatenate (columns unioned)."""
     raw, ranges = load_assumptions(assumptions_path)
-    studies_raw = load_studies(studies_path)
+    case_specs, studies_raw = load_studies(studies_path)
     if FLEET_STUDY not in studies_raw:
         raise SystemExit(f"studies.yaml has no {FLEET_STUDY!r} study (the fleet sweep -> lcot.csv)")
     study = apply_schema((raw, ranges), FLEET_STUDY, studies_raw[FLEET_STUDY])
-    datasets = evaluate.evaluate_design(compose.build_study(study, raw))
+    datasets = evaluate.evaluate_design(compose.build_study(study, raw, case_specs))
     frame = pd.concat([ds.to_dataframe().reset_index().assign(case=name)
                        for name, ds in datasets.items()], ignore_index=True)
     lead = [c for c in _LEAD_COLUMNS if c in frame.columns]
@@ -40,10 +40,10 @@ def build_results(assumptions_path=ASSUMPTIONS_PATH, studies_path=STUDIES_PATH) 
     return frame[lead + rest]
 
 
-def run_study(study, raw) -> None:
+def run_study(study, raw, case_specs) -> None:
     """Evaluate one study as Saltelli blocks, variance-decompose per swept slice, and persist the
     store (block + samples + indices + feasibility + spec)."""
-    design = compose.build_study(study, raw)
+    design = compose.build_study(study, raw, case_specs)
     datasets = evaluate.evaluate_design(design)
     indices, feasibility = analyze.sobol_indices(design, datasets)
     out = store.write(design, datasets, indices, feasibility)
