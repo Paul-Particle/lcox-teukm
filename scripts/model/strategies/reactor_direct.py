@@ -4,24 +4,24 @@ drivetrain converter, heat straight to shaft."""
 from __future__ import annotations
 
 import schema
-import helpers
-import sources
-from units import KMH_PER_KNOT
+from common import helpers
+from model import costing
+from common.units import KMH_PER_KNOT
 
-from ._shared import (_resolve_demand, _fixed_costs, _lcot, _row, _infeasible,
+from ._shared import (_resolve_demand, _fixed_costs, _lcot, _finalize,
                       legs_per_year, carried)
 
 
-def reactor_direct(case: schema.Case, point: dict) -> dict:
+def reactor_direct(case: schema.Case) -> dict:
     """Integrated-reactor DIRECT-drive ship (nuclear-direct). The reactor IS the drivetrain
     converter (CAPEX on the Drivetrain), heat straight to shaft. Source is THIN — fission fuel
     (thermal $/kWh) or NOTHING (fueled-for-life -> no energy cost, so the optimizer runs to
     v_max). Being expensive, the reactor is sized to the OPERATING speed, not a fixed design one.
     """
-    pl, dt = case.platform, case.drivetrain
-    economics, margins, route = case.params.economics, case.params.margins, case.params.route
-    d_km, op_v_kn = point.get("d_km", route.d_km), point.get("op_v_kn", route.op_v_kn)
-    fuels = [s for s in case.sources if isinstance(s, sources.FuelSource)]
+    pl, dt, params = case.platform, case.drivetrain, case.params
+    economics, margins = params.economics, params.margins
+    d_km, op_v_kn = params.d_km, params.op_v_kn
+    fuels = [s for s in case.sources if isinstance(s, schema.FuelSource)]
     fuel = fuels[0] if fuels else None                  # None => fueled-for-life (no energy cost)
 
     # reactor thermal input demand (drive/hotel = thermal->shaft/hotel, both off reactor heat)
@@ -33,12 +33,11 @@ def reactor_direct(case: schema.Case, point: dict) -> dict:
     legs = legs_per_year(op_v_kn, d_km, dt.operations.port_hours, dt.operations.availability)
     # integrated reactor + shielding is a fixed slot overhead on the drivetrain; ~no carried mass
     cargo = carried(pl, dt.overhead.slots, 0.0, 0.0,
-                    route.load_factor, route.load_factor_imbalance)
-    if cargo <= 0:
-        return _infeasible(op_v_kn, d_km)
+                    params.load_factor, params.load_factor_imbalance)
+    mask = cargo > 0        # reactor overhead swamps the ship -> infeasible
 
     # --- energy: thermal fuel over the leg (zero if fueled-for-life) -------------
-    fuel_cost_leg = fuel_kwh_leg * fuel.usd_per_kwh() if fuel is not None else 0.0
+    fuel_cost_leg = fuel_kwh_leg * costing.fuel_usd_per_kwh(fuel) if fuel is not None else 0.0
 
     discount_rate = economics.discount_rate
     # reactor sized to the OPERATING speed; converter_usd_per_kw is the reactor+steam+shaft plant
@@ -50,5 +49,5 @@ def reactor_direct(case: schema.Case, point: dict) -> dict:
     annual_energy = fuel_cost_leg * legs
     lcot = _lcot(annual_fixed, annual_energy, legs, d_km, cargo)
 
-    return _row(lcot, op_v_kn, d_km, cargo, legs, annual_fixed, annual_energy,
-                reactor_shaft_kw=reactor_shaft_kw, fuel_kwh_leg=fuel_kwh_leg, **fixed)
+    return _finalize(mask, lcot, op_v_kn, d_km, cargo, legs, annual_fixed, annual_energy,
+                     reactor_shaft_kw=reactor_shaft_kw, fuel_kwh_leg=fuel_kwh_leg, **fixed)

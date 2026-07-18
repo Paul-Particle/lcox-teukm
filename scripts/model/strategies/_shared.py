@@ -6,16 +6,25 @@ and the route arithmetic (legs/year, carried). Strategy-only, so here rather tha
 Every strategy walks the same phases in the same order: setup -> route & demand -> size the
 source -> throughput & feasibility (`carried <= 0` is infeasible) -> energy cost per leg ->
 capital + fixed O&M -> combine into `lcot`.
+
+The kernel is dimension-agnostic: config leaves may be scalars (one point, the debugging
+path) or arrays on named axes (a whole block, broadcast together). Feasibility is a boolean
+`mask` computed at the end rather than an early return, so an infeasible *cell* of a block
+doesn't abort the feasible cells around it: each strategy assembles its full row and hands it
+to `_finalize`, which sets `lcot = inf` and NaNs the strategy-specific fields where the mask
+is False, so every strategy's row shares the same columns regardless of feasibility.
 """
 
 from __future__ import annotations
 
-import math
 from typing import NamedTuple
 
+import numpy as np
+import xarray as xr
+
 import schema
-import helpers
-from units import KMH_PER_KNOT, HOURS_PER_YEAR
+from common import helpers
+from common.units import KMH_PER_KNOT, HOURS_PER_YEAR
 
 
 class Demand(NamedTuple):
@@ -64,17 +73,25 @@ def _lcot(annual_fixed: float, annual_energy: float,
     return (annual_fixed + annual_energy) / (legs * d_km * cargo)
 
 
-def _row(lcot: float, op_v_kn: float, d_km: float, cargo: float, legs: float,
-         annual_fixed: float, annual_energy: float, **extra) -> dict:
-    """The cost-row skeleton common to every strategy, plus the strategy-specific `extra`."""
-    return {"feasible": True, "lcot": lcot, "op_v_kn": op_v_kn, "d_km": d_km,
-            "carried": cargo, "legs": legs,
-            "annual_fixed": annual_fixed, "annual_energy": annual_energy,
-            "cost_energy": annual_energy, **extra}
+def _finalize(mask, lcot, op_v_kn, d_km, cargo, legs,
+              annual_fixed, annual_energy, **extra) -> dict:
+    """The cost-row skeleton common to every strategy, with feasibility applied as a mask.
 
+    `mask` is True where the cell is feasible. Where it is False, `lcot` becomes `inf` and
+    every strategy-specific field becomes `NaN`; the coordinates `op_v_kn`/`d_km` and the
+    `feasible` flag itself are always carried. `mask` and the field arrays broadcast together,
+    so a scalar mask (a strategy whose feasibility doesn't vary over the block, e.g. a fueled
+    ship) and a per-cell mask are handled the same way. Values may be scalars or DataArrays;
+    `xr.where` (not `np.where`) keeps named dims so the block aligns by axis name."""
+    def hide(value):
+        return xr.where(mask, value, np.nan)
 
-def _infeasible(op_v_kn: float, d_km: float) -> dict:
-    return {"feasible": False, "lcot": math.inf, "op_v_kn": op_v_kn, "d_km": d_km}
+    return {"feasible": mask, "lcot": xr.where(mask, lcot, np.inf),
+            "op_v_kn": op_v_kn, "d_km": d_km,
+            "carried": hide(cargo), "legs": hide(legs),
+            "annual_fixed": hide(annual_fixed), "annual_energy": hide(annual_energy),
+            "cost_energy": hide(annual_energy),
+            **{name: hide(value) for name, value in extra.items()}}
 
 
 # ============================ route arithmetic (strategy-only) ====
@@ -103,9 +120,9 @@ def carried(pl: schema.Platform, overhead_slots: float, storage_units: float, en
     def carried_dir(lf: float) -> float:
         demand = lf * cargo_cap
         free_empty = pl.slot_limits.batt_empty_usable_frac * (cargo_cap - demand)
-        vol_carried = demand - max(0.0, storage_units - free_empty)
-        return min(vol_carried, mass_limited)
+        vol_carried = demand - np.maximum(0.0, storage_units - free_empty)
+        return np.minimum(vol_carried, mass_limited)
 
-    lf_head = min(1.0, load_factor * (1.0 + load_factor_imbalance))
+    lf_head = np.minimum(1.0, load_factor * (1.0 + load_factor_imbalance))
     lf_back = load_factor * (1.0 - load_factor_imbalance)
     return 0.5 * (carried_dir(lf_head) + carried_dir(lf_back))

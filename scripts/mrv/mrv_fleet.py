@@ -2,10 +2,10 @@
 mrv_fleet.py — turn the EU MRV (THETIS-MRV) fleet emissions data into grounded anchors for
 the config, plus the empirical size-scaling relations the scale-factor feature will rest on.
 
-A STANDALONE data utility — NOT imported by the model. It imports only `units` (conversion
-factors, shared with the model so the arithmetic agrees) and, best-effort, `style` (house
+A STANDALONE data utility — NOT imported by the model. It imports only `common.units` (conversion
+factors, shared with the model so the arithmetic agrees) and, best-effort, `viz.style` (house
 plot chrome). It reads nothing from the model and writes nothing into it: its job is to print
-a handful of fleet numbers you can compare against config.yaml by hand, and to fit the
+a handful of fleet numbers you can compare against assumptions.yaml by hand, and to fit the
 size-scaling exponents (power, speed) that ground a narrow-band ship scale factor.
 
 What it extracts for the container subset:
@@ -40,23 +40,19 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-# This script lives in scripts/mrv/ but shares modules with the rest of scripts/ (units, style);
-# put the parent scripts/ dir on the path so those flat imports resolve when run by path.
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-
-from units import KM_PER_NM, KG_PER_TONNE
+from common.units import KM_PER_NM, KG_PER_TONNE
 
 REPO_ROOT = Path(__file__).resolve().parents[2]   # scripts/mrv/ -> scripts/ -> repo root
 DATA_DIR = REPO_ROOT / "data"
 RESULTS_DIR = REPO_ROOT / "results"
 
-# Burner assumptions for the energy/power back-calc — VLSFO, mirrors config.yaml's
+# Burner assumptions for the energy/power back-calc — VLSFO, mirrors assumptions.yaml's
 # vlsfo.price.lhv_kwh_per_kg and mechanical-fossil.efficiency.drive. Stated here (not
 # imported) to keep the utility decoupled from the model; printed so they're auditable.
 LHV_KWH_PER_KG = 11.1     # VLSFO lower heating value
 DRIVE_EFFICIENCY = 0.48   # chemical -> shaft (2-stroke)
 
-# Config anchors this utility cross-checks against (read off config.yaml by hand, not imported).
+# Config anchors this utility cross-checks against (read off assumptions.yaml by hand, not imported).
 CONFIG_P_REF_KW = 20000.0
 CONFIG_V_REF_KN = 18.0
 CONFIG_GROSS_TEU = 3000.0
@@ -277,7 +273,7 @@ def plot_fleet(fleet: pd.DataFrame, out_dir: Path) -> list:
     try:
         import plotly.graph_objects as go
         from plotly.subplots import make_subplots
-        from style import fca_template, fca_blue, sand_yellow, green, inject_titillium_font
+        from viz.style import fca_template, fca_blue, sand_yellow, green, inject_titillium_font
     except Exception as e:
         print("plot skipped:", e)
         return []
