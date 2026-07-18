@@ -58,8 +58,14 @@ def _unwrap(node, prefix: str, ranges: dict[str, schema.Range]):
                 raise ValueError(f"ranged leaf {prefix!r} has unexpected keys {sorted(extra)}; "
                                  "a ranged value is {value:, range: [lo, hi], dist:}")
             if "range" in node:
-                lo, hi = node["range"]
-                ranges[prefix] = schema.Range(float(lo), float(hi), node.get("dist", "unif"))
+                lo, hi = float(node["range"][0]), float(node["range"][1])
+                dist = node.get("dist", "unif")
+                if dist not in KNOWN_DISTS:
+                    raise ValueError(f"ranged leaf {prefix!r}: unknown dist {dist!r} "
+                                     f"(known: {sorted(KNOWN_DISTS)})")
+                if not lo < hi:
+                    raise ValueError(f"ranged leaf {prefix!r}: range lo {lo} must be < hi {hi}")
+                ranges[prefix] = schema.Range(lo, hi, dist)
             return node["value"]
         return {key: _unwrap(value, f"{prefix}.{key}" if prefix else key, ranges)
                 for key, value in node.items()}
@@ -169,6 +175,7 @@ def build_cases(raw: dict, library: Library) -> dict[str, schema.Case]:
 
 
 DEFAULT_PERTURB = 0.20      # +/-fraction for a sampled config leaf with a value but no range
+KNOWN_DISTS = {"unif", "norm", "lognorm", "triang", "truncnorm"}    # SALib-supported dists
 
 
 @dataclass(frozen=True)
@@ -186,19 +193,21 @@ class Study:
     infeasible_value: float | None      # objective penalty for infeasible samples (else skip that slice)
 
 
-def load_studies(studies_path, ranges: dict[str, schema.Range],
-                 raw_config: dict) -> dict[str, Study]:
-    """Parse studies.yaml and resolve every study against the harvested `ranges` and the config
-    leaf values (needed for the +/-20% default and to validate paths)."""
+def load_studies(studies_path) -> dict[str, dict]:
+    """Parse studies.yaml into raw per-study specs (name -> body). Resolving a study's roles and
+    validating them against the assumptions is `apply_schema`'s job, one study at a time."""
     with open(studies_path) as f:
         spec = yaml.safe_load(f)["studies"]
-    leaves = _flatten(raw_config)
-    return {name: _resolve(name, body or {}, ranges, leaves)
-            for name, body in spec.items()}
+    return {name: (body or {}) for name, body in spec.items()}
 
 
-def _resolve(name, body: dict, ranges: dict[str, schema.Range],
-             leaves: dict[str, float]) -> Study:
+def apply_schema(assumptions: tuple[dict, dict[str, schema.Range]], name: str, body: dict) -> Study:
+    """Resolve one study's role assignment (`body`) against the assumptions and validate it
+    (v6 T1+T2): every referenced path resolves to a real config leaf, sampled ranges are
+    well-formed, dists are known, and no path plays two roles. `assumptions` is the
+    `(raw_config, ranges)` pair from `load_assumptions`. Returns the validated `Study`."""
+    raw, ranges = assumptions
+    leaves = _flatten(raw)
     if "ranges" in body:
         raise ValueError(f"study {name!r} declares `ranges:` — parameter ranges now live in "
                          "assumptions.yaml on the value ({value:, range: [lo, hi]}); a study only "
@@ -210,20 +219,49 @@ def _resolve(name, body: dict, ranges: dict[str, schema.Range],
     optimize_by = body.get("optimize_by", body.get("objective", "lcot"))
     decompose = body.get("decompose", ())
     decompose = (decompose,) if isinstance(decompose, str) else tuple(decompose)
+    sample = _resolve_sample(name, body.get("sample"), ranges, leaves)
+    fix = {path: float(value) for path, value in body.get("fix", {}).items()}
+    optimize = _axes(body.get("optimize"), "exhaustive_search")
+    sweep = _axes(body.get("sweep"), "none")
+    _validate_role_paths(name, fix, optimize, sweep, leaves)
+    _validate_one_role_per_path(name, sample, fix, optimize, sweep)
     return Study(
-        name=name,
-        sample=_resolve_sample(name, body.get("sample"), ranges, leaves),
-        fix={path: float(value) for path, value in body.get("fix", {}).items()},
-        optimize=_axes(body.get("optimize"), "exhaustive_search"),
-        sweep=_axes(body.get("sweep"), "none"),
-        optimize_by=optimize_by,
-        decompose=decompose,
+        name=name, sample=sample, fix=fix, optimize=optimize, sweep=sweep,
+        optimize_by=optimize_by, decompose=decompose,
         n=int(body.get("n", 1024)),
         second_order=bool(body.get("second_order", False)),
         cases=tuple(body["cases"]) if body.get("cases") is not None else None,
         infeasible_value=(float(body["infeasible_value"])
                           if body.get("infeasible_value") is not None else None),
     )
+
+
+def _role_paths(fix, optimize, sweep):
+    """(role, path) pairs for the non-sample roles, whose paths address a single config leaf."""
+    yield from (("fix", path) for path in fix)
+    yield from (("optimize", axis.path) for axis in optimize)
+    yield from (("sweep", axis.path) for axis in sweep)
+
+
+def _validate_role_paths(name, fix, optimize, sweep, leaves) -> None:
+    """Every fix/optimize/sweep path must address a real config leaf (T2) — checked here, loud and
+    early, rather than surfacing as an obscure KeyError (or a silently-created dead key) at
+    placement time in `compose`."""
+    for role, path in _role_paths(fix, optimize, sweep):
+        if path not in leaves:
+            raise ValueError(f"study {name!r}: {role} path {path!r} is not a config leaf — "
+                             "check the dotted path against assumptions.yaml")
+
+
+def _validate_one_role_per_path(name, sample, fix, optimize, sweep) -> None:
+    """A config leaf plays at most one role in a study (T2): sampling a param you also fix/sweep,
+    or two grids on one leaf, would silently clobber (the last placement wins)."""
+    seen: dict[str, str] = {}
+    for role, path in (*(("sample", p) for p in sample), *_role_paths(fix, optimize, sweep)):
+        if path in seen:
+            raise ValueError(f"study {name!r}: path {path!r} plays two roles "
+                             f"({seen[path]} and {role}); each param plays exactly one role")
+        seen[path] = role
 
 
 def _resolve_sample(name, entries, ranges, leaves) -> dict[str, schema.Range]:
@@ -245,13 +283,21 @@ def _resolve_sample(name, entries, ranges, leaves) -> dict[str, schema.Range]:
 
 
 def _range_for(name, path, ranges, leaves) -> schema.Range:
-    """The Range for a sampled path: config-harvested (declared on the value), else +/-20% of the
-    config nominal. A path that is no config leaf at all errors."""
+    """The Range for a sampled path: config-harvested (declared on the value), else a +/-20%
+    screening band around the config nominal. The band is symmetric on |nominal| so it stays
+    ordered for negative nominals (`nominal * (1 +/- p)` would invert), and a zero nominal has no
+    scale to perturb, so it errors rather than handing SALib a degenerate [0, 0]. A path that is
+    no config leaf at all errors."""
     if path in ranges:
         return ranges[path]
     if path in leaves:
         nominal = leaves[path]
-        return schema.Range(nominal * (1 - DEFAULT_PERTURB), nominal * (1 + DEFAULT_PERTURB))
+        half = abs(nominal) * DEFAULT_PERTURB
+        if half == 0.0:
+            raise ValueError(f"study {name!r}: sampled path {path!r} has nominal 0 and no declared "
+                             f"range — a +/-{DEFAULT_PERTURB:.0%} screening default is degenerate; "
+                             "declare a range on the value in assumptions.yaml")
+        return schema.Range(nominal - half, nominal + half)
     raise ValueError(f"study {name!r}: sampled path {path!r} is not a config leaf — check the "
                      "dotted path against assumptions.yaml")
 

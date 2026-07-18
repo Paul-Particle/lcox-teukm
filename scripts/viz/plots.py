@@ -344,13 +344,12 @@ def _ensure_sobol(study_name: str) -> None:
     if (SOBOL_DIR / study_name / "indices.csv").exists():
         return
     from pipeline import run_study
-    from config import load_assumptions
-    from config import load_studies
+    from config import load_assumptions, load_studies, apply_schema
     raw, ranges = load_assumptions(ASSUMPTIONS_PATH)
-    studies = load_studies(STUDIES_PATH, ranges, raw)
-    if study_name in studies:
+    studies_raw = load_studies(STUDIES_PATH)
+    if study_name in studies_raw:
         print(f"[study] computing {study_name!r} (no store yet)")
-        run_study(studies[study_name], raw)
+        run_study(apply_schema((raw, ranges), study_name, studies_raw[study_name]), raw)
 
 
 def main() -> None:

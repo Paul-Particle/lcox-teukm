@@ -14,8 +14,7 @@ from __future__ import annotations
 import pandas as pd
 
 from common.paths import ASSUMPTIONS_PATH, STUDIES_PATH, REPO_ROOT
-from config import load_assumptions
-from config import load_studies
+from config import load_assumptions, load_studies, apply_schema
 import compose, evaluate, analyze, store
 
 FLEET_STUDY = "fleet"       # the baseline fleet sweep -> results/lcot.csv
@@ -29,10 +28,11 @@ def build_results(assumptions_path=ASSUMPTIONS_PATH, studies_path=STUDIES_PATH) 
     """Render the fleet study into the tidy results table: evaluate each case's block, collapse
     the lever, flatten the per-case datasets, and concatenate (columns unioned)."""
     raw, ranges = load_assumptions(assumptions_path)
-    studies = load_studies(studies_path, ranges, raw)
-    if FLEET_STUDY not in studies:
+    studies_raw = load_studies(studies_path)
+    if FLEET_STUDY not in studies_raw:
         raise SystemExit(f"studies.yaml has no {FLEET_STUDY!r} study (the fleet sweep -> lcot.csv)")
-    datasets = evaluate.evaluate_design(compose.build_study(studies[FLEET_STUDY], raw))
+    study = apply_schema((raw, ranges), FLEET_STUDY, studies_raw[FLEET_STUDY])
+    datasets = evaluate.evaluate_design(compose.build_study(study, raw))
     frame = pd.concat([ds.to_dataframe().reset_index().assign(case=name)
                        for name, ds in datasets.items()], ignore_index=True)
     lead = [c for c in _LEAD_COLUMNS if c in frame.columns]
