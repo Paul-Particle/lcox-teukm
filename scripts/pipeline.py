@@ -11,6 +11,8 @@ point so viz/plots.py can compute a missing study store on demand without import
 
 from __future__ import annotations
 
+import pandas as pd
+
 from common.paths import REPO_ROOT
 import compose, evaluate, analyze, store
 
