@@ -1,319 +1,284 @@
 """
-schema.py — the config schema, as frozen dataclasses.
+schema.py — the typed config schema (pydantic models), mirroring assumptions.yaml 1:1.
 
-The leaf sub-blocks mirror assumptions.yaml one-to-one, so the loader builds them mechanically
-(`Block(**yaml_subdict)`); the top-level composites (Platform, Drivetrain, Case, Params) it
-assembles by hand from a name plus the nested blocks. Everything — the components AND the cases
-that compose them (each with its fixed `route`) — lives in assumptions.yaml. Three nouns — Platform,
-Drivetrain, EnergySource (fuel / battery / reactor); a `Case` composes them plus everything
-non-component (a `Params` block, a strategy name). Top-level structures first; the sub-blocks
-they compose at the bottom.
+Every numeric leaf is a `Range`: a nominal `value` plus an optional sampling band
+(`lo`/`hi`/`dist`). A bare YAML scalar becomes `Range(value=x)`; a `{value, lo, hi, dist}` mapping
+is a ranged leaf. `Library.model_validate(assumptions_dict)` builds and validates the whole nested
+tree in one call — a malformed leaf, a bad band, an unknown source `type`, or a stray key all raise
+a precise error.
 
-The `EnergySource` base lives here (it's the empty slot `Case.sources` composes), along with its
-concrete fuel/battery/reactor subclasses — all pure data. The strategy-independent cost and
-sizing functions that operate on them live in `model/costing.py`.
+The source family is a discriminated union on `type` (fuel / battery / containerized-reactor /
+tender-reactor). Components are keyed by name in their catalogs, so the models carry no `name`
+field. Layout is big-picture-first (`Library` → components → sub-blocks → `Range`); forward
+references are resolved by `model_rebuild()` at the bottom, once every model exists.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from typing import Annotated, Literal
+
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+Distribution = Literal["unif", "loguniform"]     # sampling draw / grid spacing (linear vs geometric)
 
 
-# ================================================ top-level structures ====
-
-@dataclass(frozen=True)
-class Case:
-    """One composition: the components plus its fixed route/economics. Pure data. Which axes to
-    sweep/optimize and which leaves to sample is NOT here — that is study design (studies.yaml),
-    applied to a case by `ingest`; a case is only the thing a study explores."""
-    name: str
-    sources: tuple[EnergySource, ...]   # zero or more (zero = fueled-for-life converter)
-    platform: Platform
-    drivetrain: Drivetrain
-    strategy: str                       # names the function in the strategies package
-    params: Params
+class Node(BaseModel):
+    """Base for every config node: reject unknown keys, so a typo in the YAML is an error rather
+    than a silently-ignored field."""
+    model_config = ConfigDict(extra="forbid")
 
 
-@dataclass(frozen=True)
-class EnergySource:
-    """Base for the energy-supplying technologies (concrete subclasses below)."""
-    name: str
+# ============================================================= library ====
+
+class Library(Node):
+    """The whole assumptions.yaml, typed: the shared scalars plus the component catalogs (keyed by
+    name). Built and validated in one `Library.model_validate(assumptions_dict)` call."""
+    shared: Shared
+    platforms: dict[str, Platform]
+    drivetrains: dict[str, Drivetrain]
+    sources: dict[str, EnergySource]
 
 
-@dataclass(frozen=True)
-class Platform:
-    name: str
-    cargo_unit: str         # "TEU" | "tonne" — capacity & LCOT denominator, and the discriminator
+# ======================================================== shared scalars ====
+
+class Shared(Node):
+    """The cross-case assumptions from `shared:` — equal across cases to keep them comparable. The
+    voyage scalars (d_km / op_v_kn / design_v_kn) are ordinary leaves a study may vary."""
+    discount_rate: Range
+    crew_cost_usd_yr: Range          # loaded annual cost per crew member
+    load_factor: Range               # mean cargo load factor over the route/market
+    load_factor_imbalance: Range     # head/back-haul demand split
+    d_km: Range                      # nominal D_max hop
+    op_v_kn: Range                   # nominal operating speed
+    design_v_kn: Range               # design speed the cheap converter is sized to
+    margins: Margins
+
+
+# ============================================================ platform ====
+
+class Platform(Node):
+    cargo_unit: str                  # "TEU" | "tonne" — capacity & LCOT denominator, and the discriminator
     capacity: Capacity
     capex: HullCapex
     resistance: Resistance
-    hotel_base_kw: float
+    hotel_base_kw: Range
     slot_limits: SlotLimits
 
 
-@dataclass(frozen=True)
-class Drivetrain:
-    """Energy -> shaft, including the integral powerplant's CAPEX (the separable sources are on
-    the Case; what's fixed to the drivetrain is here)."""
-    name: str
-    type: str                           # "mechanical" | "electric"; selects the electric-only propulsion factors
-    efficiency: DriveEfficiency         # conversion losses source output -> shaft / hotel (and reactor thermal -> electricity)
-    capex: DrivetrainCapex              # converter (+ integrated reactor) capital cost and life
-    overhead: Overhead                  # fixed slot footprint of the drivetrain (displaces cargo)
-    operations: Operations              # port/voyage ops: crew, availability, port time, tug, O&M, hotel delta
-    propulsion_factor: PropulsionFactor # itemized hull/propeller multipliers scaling propulsion power
+# ============================================================ drivetrain ====
+
+class Drivetrain(Node):
+    """Energy -> shaft, including the integral powerplant's CAPEX (separable sources sit on the
+    Case; what's fixed to the drivetrain is here)."""
+    type: str                        # "mechanical" | "electric"; selects the electric-only propulsion factors
+    efficiency: DriveEfficiency
+    capex: DrivetrainCapex
+    overhead: Overhead
+    operations: Operations
+    propulsion_factor: PropulsionFactor
 
 
-# ================= sub-blocks (detail; mostly mirror assumptions.yaml's sub-blocks) ====
+# ==================================== energy sources (discriminated on `type`) ====
 
-# ---- case ----
-@dataclass(frozen=True)
-class Params:
-    """The Case's non-component inputs — the shared assumptions injected from `shared` (equal
-    across cases, to keep them comparable). economics/margins stay grouped; the voyage scalars
-    are flat, and a study varies any of them (op_v_kn is the usual lever, d_km the usual sweep,
-    but design_v_kn or the load factors are just as reachable — all are ordinary config leaves)."""
-    economics: Economics            # general economic assumptions, equal across cases to keep them comparable
-    margins: Margins                # design sizing margins (energy reserve + propulsion power margin)
-    load_factor: float              # mean cargo load factor over the route/market
-    load_factor_imbalance: float    # head/back-haul demand split (directions differ in demand)
-    d_km: float = 10000.0           # nominal D_max hop; a sweep axis overrides it
-    op_v_kn: float = 14.0           # nominal operating speed; an optimize axis overrides it
-    design_v_kn: float | None = None  # design speed the cheap converter is sized to (integrated-reactor cases size to op speed and ignore it)
-
-
-@dataclass(frozen=True)
-class Economics:
-    """Economic factors that should be the same across cases to keep them
-    comparable"""
-    discount_rate: float
-    crew_cost_usd_yr: float         # loaded annual cost per crew member
-
-
-@dataclass(frozen=True)
-class Margins:
-    """Design margins applied during sizing."""
-    energy_reserve: float           # spare energy on a battery ship's pack (weather/contingency)
-    sea: float                      # "sea margin" (maritime term): power margin on installed propulsion for added resistance from weather/waves and hull fouling/aging
-
-
-@dataclass(frozen=True)
-class Axis:
-    """A parameter varied over a grid, becoming one block dimension. Same shape whether
-    `optimize` (collapsed by the optimizer method) or `sweep` (retained as an LCOT-vs-X trace) —
-    the study's block decides which. `path` is the dotted config leaf the grid replaces (the
-    SAME addressing `sample`/`fix` use), so ANY leaf can be an axis; `name` (its last segment)
-    labels the block dimension. `method` is the lever-collapse method (v6 §6): `none` for a
-    retained sweep, `exhaustive_search` for a lever (materialize the grid, argmin the objective).
-    The seam holds a future adaptive solver without a schema change."""
-    path: str                       # dotted config leaf the grid replaces, e.g. "shared.op_v_kn"
-    lo: float
-    hi: float
-    n: int                          # number of grid points
-    method: str = "none"            # "none" (sweep, retained) | "exhaustive_search" (lever)
-
-    @property
-    def name(self) -> str:
-        return self.path.rsplit(".", 1)[-1]
-
-
-@dataclass(frozen=True)
-class Range:
-    """A parameter's plausible range, declared ON its value in assumptions.yaml (a leaf written as
-    `{value:, range: [lo, hi], dist:}`) and harvested by the loader into a path-keyed library.
-    This is *data about the parameter* (a prior); which params actually vary in a run is study
-    design, decided against these ranges in the study file — never here."""
-    lo: float
-    hi: float
-    dist: str = "unif"              # sampling distribution; only "unif" is wired today
-
-
-# ---- platform ----
-@dataclass(frozen=True)
-class Capacity:
-    gross: float            # hull capacity in cargo_unit (TEU slots / DWT tonnes)
-    unit_mass_t: float      # mass per cargo unit (t/TEU laden mix)
-    deadweight_t: float     # cargo + onboard-energy mass budget
-
-
-@dataclass(frozen=True)
-class HullCapex:
-    hull_usd: float
-    life_yr: float
-
-
-@dataclass(frozen=True)
-class Resistance:
-    p_ref_kw: float         # propulsion power at v_ref (admiralty P~v^3 curve)
-    v_ref_kn: float
-
-
-@dataclass(frozen=True)
-class SlotLimits:
-    batt_empty_usable_frac: float   # slack a battery may take free before displacing cargo. Not all is usable due to safety & practicality
-    container_max_gross_t: float    # effective per-TEU mass cap (ISO limit + margin; assumes demand pushes container standards/handling to allow heavier marinized units where worth the effort)
-
-
-# ---- drivetrain ----
-@dataclass(frozen=True)
-class DriveEfficiency:
-    drive: float                    # source output -> shaft
-    hotel: float                    # source output -> hotel bus
-    generation: float | None = None # reactor thermal -> electricity (integrated reactor only; the source reactors carry their own in ReactorSource)
-
-
-@dataclass(frozen=True)
-class DrivetrainCapex:
-    """Capital cost of the integral powerplant, $/kW of rated useful (output-side) power.
-    `converter_usd_per_kw` is the FINAL converter to shaft/electric; what it physically buys
-    depends on the drivetrain — the engine (fossil mechanical), the reactor+steam+shaft plant
-    (nuclear direct-drive: the reactor IS the converter), or just the electric motor (any electric
-    drive). `reactor_usd_per_kw` is the SEPARATE reactor+generator stage feeding the motor, which
-    exists only on the integrated-electric drivetrain; a direct-drive reactor has no separate line,
-    and a reactor that lives off the drivetrain is an EnergySource instead. The strategy sizes the
-    kW to the design or operating speed."""
-    converter_usd_per_kw: float     # final converter to shaft/electric (see class doc for the per-drivetrain meaning)
-    life_yr: float                  # converter amortization life
-    reactor_usd_per_kw: float | None = None   # integrated-electric only: the reactor + generator stage ahead of the motor
-    reactor_life_yr: float | None = None       # integrated-electric only: reactor+generator amortization life
-
-
-@dataclass(frozen=True)
-class Overhead:
-    """Footprint that displaces cargo: a fixed count or a per-MWe rate (sized from power). Shared by
-    drivetrains and reactor sources. Slots/TEU today; the tonne-based fields are placeholders for
-    future bulk (DWT) platforms and are unused for now."""
-    slots: float | None = None              # fixed TEU-slot footprint
-    teu_per_mwe: float | None = None        # TEU slots per MWe (sized from power)
-    mass_t: float | None = None             # FUTURE (unused): fixed deadweight footprint for bulk (tonne) platforms
-    mass_t_per_mwe: float | None = None     # FUTURE (unused): deadweight per MWe for bulk platforms
-
-
-@dataclass(frozen=True)
-class Operations:
-    port_hours: float
-    availability: float
-    tug_usd_per_call: float
-    hotel_delta_kw: float           # this drivetrain's adjustment to platform.hotel_base_kw (e.g. negative for electric)
-    crew_count: float               # complement, x crew_cost_usd_yr -> annual crew cost; different number of crew required based on technology
-    om_other_usd_yr: float          # other fixed O&M (maintenance, insurance, stores, admin)
-
-
-@dataclass(frozen=True)
-class PropulsionFactor:
-    """Itemized efficiency multipliers; their product scales required propulsion power. Most reduce
-    the power the hull DEMANDS (hull_form/coating/routing/propeller). wider_eff is the electric
-    motor's edge: DriveEfficiency.drive is a voyage-average (estimated from a single marine-engine
-    figure), and an electric motor stays nearer its optimum across the speed/sea-state range — a
-    gain that average misses. propeller/wider_eff are electric-only (1.0 on mechanicals). A
-    sea-state-resolved model would eventually supersede these constants (see TODO)."""
-    hull_form: float        # optimized hull form
-    coating: float          # anti-fouling coatings
-    propeller: float        # pods / large low-RPM props (electric only)
-    wider_eff: float        # electric motor stays near optimum across speeds/sea states (electric only)
-    routing: float          # weather routing, trim/draft optimization, on-time (no rush) speed
-
-
-# ==================================== energy sources (concrete EnergySource family) ====
-# Pure data mirroring assumptions.yaml's source blocks; the cost/sizing functions are in
-# model/costing.py. Strategies pick a source by its concrete subclass, then call the matching
-# function.
-
-@dataclass(frozen=True)
-class FuelSource(EnergySource):
+class FuelSource(Node):
+    """Thin commodity source — just a price (folded in), plus onboard carrier mass."""
+    type: Literal["fuel"]
     price: FuelPrice
-    energy_mass_t: float            # onboard energy-carrier mass (bunkers; 0 for fission fuel)
+    energy_mass_t: Range             # onboard energy-carrier mass (bunkers; 0 for fission fuel)
 
 
-@dataclass(frozen=True)
-class BatterySource(EnergySource):
+class BatterySource(Node):
+    type: Literal["battery"]
     capex: BatteryCapex
     energy: BatteryEnergy
     efficiency: BatteryEfficiency
-    min_discharge_h: float          # power limit (max kW = installed kWh / this); 0 = none
-    charge_usd_per_kwh: float       # grid/shore charge price, folded in
+    min_discharge_h: Range           # power limit (max kW = installed kWh / this); 0 = none
+    charge_usd_per_kwh: Range        # grid/shore charge price, folded in
 
 
-@dataclass(frozen=True)
-class ReactorSource(EnergySource):
-    """Base for the two reactor-as-source variants. Holds only the shared reactor block;
-    each subtype adds its integration-specific fields and has its own cost function (in
-    model/costing.py), so strategies match on the SUBTYPE, not this base."""
+class ContainerizedReactor(Node):
+    """A reactor module that replaces cargo containers on an electric ship: occupies slots, adds an
+    onboard hotel load, bills $/kWh levelized over its fleet-pooled utilization."""
+    type: Literal["containerized-reactor"]
     capex: ReactorCapex
-    fuel_usd_per_kwh_th: float
-    generation: float               # reactor thermal -> electricity
+    fuel_usd_per_kwh_th: Range
+    generation: Range                # reactor thermal -> electricity
+    overhead: Overhead               # slot footprint (teu_per_mwe, sized from power)
+    hotel_delta_kw: Range            # extra onboard hotel a containerized reactor adds
+    pool: Pool                       # fleet-pooled utilization
 
 
-@dataclass(frozen=True)
-class ContainerizedReactor(ReactorSource):
-    """A reactor module that replaces cargo containers on an electric ship: occupies slots,
-    adds an onboard hotel load, bills $/kWh levelized over its fleet-pooled utilization."""
-    overhead: Overhead              # slot footprint (teu_per_mwe, sized from power)
-    hotel_delta_kw: float           # extra onboard hotel (crew/security) a containerized reactor adds, on top of the drivetrain's
-    pool: Pool                      # fleet-pooled utilization
+class TenderReactor(Node):
+    """A separate uncrewed vessel that tethers an electric ship and feeds it over a cable; $/kWh
+    levelized over a tethered/idle duty cycle, not a slot footprint."""
+    type: Literal["tender-reactor"]
+    capex: ReactorCapex              # capex.hull_usd is the tender vessel ex-reactor
+    fuel_usd_per_kwh_th: Range
+    generation: Range
+    parasitic_kw: Range              # uncrewed DP station-keeping + cooling
+    om_other_usd_yr: Range           # uncrewed remote ops + asset-loss insurance
+    availability: Range
+    idle_h: Range                    # reposition-or-wait between escorts (a non-delivering hour)
+    tether: Tether
 
 
-@dataclass(frozen=True)
-class TenderReactor(ReactorSource):
-    """A separate uncrewed vessel (capex.hull_usd is the ship ex-reactor) that tethers an
-    electric ship and feeds it over a cable; $/kWh levelized over a tethered/idle duty
-    cycle, not a slot footprint."""
-    parasitic_kw: float             # uncrewed DP station-keeping + cooling
-    om_other_usd_yr: float          # uncrewed remote ops + asset-loss insurance
-    availability: float
-    idle_h: float                   # reposition-or-wait between escorts (a non-delivering hour)
-    tether: Tether                  # cable efficiency + speed cap + coastal geometry + weather detach
+EnergySource = Annotated[
+    FuelSource | BatterySource | ContainerizedReactor | TenderReactor,
+    Field(discriminator="type"),
+]
 
 
-# ---- source sub-blocks (mirror assumptions.yaml's source sub-blocks) ----
-@dataclass(frozen=True)
-class FuelPrice:
+# ==================================================== sub-blocks (detail) ====
+
+class Margins(Node):
+    """Design margins applied during sizing."""
+    energy_reserve: Range            # spare energy on a battery ship's pack (weather/contingency)
+    sea: Range                       # power margin on installed propulsion (weather/fouling vs calm trials)
+
+
+# ---- platform ----
+class Capacity(Node):
+    gross: Range                     # hull capacity in cargo_unit (TEU slots / DWT tonnes)
+    unit_mass_t: Range               # mass per cargo unit (t/TEU laden mix)
+    deadweight_t: Range              # cargo + onboard-energy mass budget
+
+
+class HullCapex(Node):
+    hull_usd: Range
+    life_yr: Range
+
+
+class Resistance(Node):
+    p_ref_kw: Range                  # propulsion power at v_ref (admiralty P~v^3 curve)
+    v_ref_kn: Range
+
+
+class SlotLimits(Node):
+    batt_empty_usable_frac: Range    # slack a battery may take free before displacing cargo
+    container_max_gross_t: Range     # effective per-TEU mass cap
+
+
+# ---- drivetrain ----
+class DriveEfficiency(Node):
+    drive: Range                     # source output -> shaft
+    hotel: Range                     # source output -> hotel bus
+    generation: Range | None = None  # reactor thermal -> electricity (integrated reactor only)
+
+
+class DrivetrainCapex(Node):
+    """Capital cost of the integral powerplant, $/kW of rated useful power. `converter_usd_per_kw`
+    is the final converter to shaft/electric (engine / direct-drive reactor / electric motor);
+    `reactor_usd_per_kw` is the separate reactor+generator stage that exists only on the
+    integrated-electric drivetrain."""
+    converter_usd_per_kw: Range
+    life_yr: Range
+    reactor_usd_per_kw: Range | None = None
+    reactor_life_yr: Range | None = None
+
+
+class Overhead(Node):
+    """Cargo-displacing footprint: a fixed count or a per-MWe rate. Shared by drivetrains and
+    reactor sources; the tonne-based fields are placeholders for future bulk platforms."""
+    slots: Range | None = None
+    teu_per_mwe: Range | None = None
+    mass_t: Range | None = None
+    mass_t_per_mwe: Range | None = None
+
+
+class Operations(Node):
+    port_hours: Range
+    availability: Range
+    tug_usd_per_call: Range
+    hotel_delta_kw: Range            # this drivetrain's adjustment to platform.hotel_base_kw
+    crew_count: Range                # complement, x crew_cost_usd_yr -> annual crew cost
+    om_other_usd_yr: Range           # other fixed O&M (maintenance, insurance, stores, admin)
+
+
+class PropulsionFactor(Node):
+    """Itemized efficiency multipliers; their product scales required propulsion power.
+    propeller/wider_eff are electric-only (1.0 on mechanicals)."""
+    hull_form: Range
+    coating: Range
+    propeller: Range
+    wider_eff: Range
+    routing: Range
+
+
+# ---- sources ----
+class FuelPrice(Node):
     # different fuels quote differently; the cost model reads whichever is set
-    usd_per_t: float | None = None
-    lhv_kwh_per_kg: float | None = None
-    usd_per_kwh_chem: float | None = None
-    usd_per_kwh_th: float | None = None
+    usd_per_t: Range | None = None
+    lhv_kwh_per_kg: Range | None = None
+    usd_per_kwh_chem: Range | None = None
+    usd_per_kwh_th: Range | None = None
 
 
-@dataclass(frozen=True)
-class BatteryCapex:
-    usd_per_kwh: float
-    cycle_life: float
-    calendar_life_yr: float
+class BatteryCapex(Node):
+    usd_per_kwh: Range
+    cycle_life: Range
+    calendar_life_yr: Range
 
 
-@dataclass(frozen=True)
-class BatteryEnergy:
-    kwh_per_teu: float
-    pack_wh_per_kg: float           # system density -> battery mass (deadweight)
-    dod: float                      # usable depth of discharge
+class BatteryEnergy(Node):
+    kwh_per_teu: Range
+    pack_wh_per_kg: Range            # system density -> battery mass (deadweight)
+    dod: Range                       # usable depth of discharge
 
 
-@dataclass(frozen=True)
-class BatteryEfficiency:
-    charge: float
-    discharge: float
+class BatteryEfficiency(Node):
+    charge: Range
+    discharge: Range
 
 
-@dataclass(frozen=True)
-class ReactorCapex:
-    usd_per_kw: float
-    life_yr: float
-    hull_usd: float | None = None   # tender only: the vessel ex-reactor
+class ReactorCapex(Node):
+    usd_per_kw: Range
+    life_yr: Range
+    hull_usd: Range | None = None    # tender only: the vessel ex-reactor
 
 
-@dataclass(frozen=True)
-class Pool:
-    idle_h: float                   # wait in the shared pool between assignments
-    availability: float
+class Pool(Node):
+    idle_h: Range                    # wait in the shared pool between assignments
+    availability: Range
 
 
-@dataclass(frozen=True)
-class Tether:
-    cable_efficiency: float
-    cable_v_cap_kn: float                   # max speed while tethered (source-imposed speed cap)
-    standoff_nm: float                      # coastal sub-leg each side of the tether
-    detach_duration_h: float = 0.0          # longest continuous cable-dropped stretch the pack must sail unassisted (SIZING event, not an expected flow)
-    detach_frac: float = 0.0                # expected fraction of tethered time with the floating tether dropped for weather; an EXPECTED VALUE, calibrated from weather data / voyage simulation per route
+class Tether(Node):
+    cable_efficiency: Range
+    cable_v_cap_kn: Range            # max speed while tethered (source-imposed speed cap)
+    standoff_nm: Range               # coastal sub-leg each side of the tether
+    detach_duration_h: Range         # longest continuous cable-dropped stretch the pack sails unassisted (sizing event)
+    detach_frac: Range               # expected fraction of tethered time the tether is dropped for weather
 
 
+# =============================================================== the leaf ====
+
+class Range(Node):
+    """The universal numeric leaf: a nominal `value` the model reads when the param is fixed, plus
+    an optional sampling band (`lo`/`hi`/`dist`) — a prior a study samples/sweeps/optimizes against.
+    Accepts a bare scalar (`value` only) or a `{value, lo, hi, dist}` mapping. `dist` doubles as the
+    grid spacing for sweeps/optimizes (`unif` -> linear, `loguniform` -> geometric)."""
+    value: float
+    lo: float | None = None
+    hi: float | None = None
+    dist: Distribution = "unif"
+
+    @model_validator(mode="before")
+    @classmethod
+    def _coerce_scalar(cls, data):
+        if isinstance(data, bool):
+            raise ValueError("a numeric leaf cannot be a bool")
+        if isinstance(data, (int, float)):
+            return {"value": float(data)}
+        return data
+
+    @model_validator(mode="after")
+    def _check_band(self):
+        if self.lo is not None or self.hi is not None:
+            if self.lo is None or self.hi is None:
+                raise ValueError(f"a sampling band needs both lo and hi (got lo={self.lo}, hi={self.hi})")
+            if not self.lo < self.hi:
+                raise ValueError(f"sampling band lo {self.lo} must be < hi {self.hi}")
+        return self
+
+
+# resolve the forward references now that every model above exists (big-picture-first layout).
+Library.model_rebuild()

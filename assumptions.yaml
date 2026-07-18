@@ -127,7 +127,7 @@ sources:
   # ---- full separable-hardware sources (carry CAPEX + sizing; price folded in) ----
   lfp:
     type: battery
-    capex:      {usd_per_kwh: {value: 250.0, range: [150.0, 400.0]}, cycle_life: 4000.0, calendar_life_yr: 12.0}   # cost (ranged prior) + amortization life (mirrors hull capex)
+    capex:      {usd_per_kwh: {value: 250.0, lo: 150.0, hi: 400.0}, cycle_life: 4000.0, calendar_life_yr: 12.0}   # cost (ranged prior) + amortization life (mirrors hull capex)
     energy:     {kwh_per_teu: 3000.0, pack_wh_per_kg: 130.0, dod: 0.90}   # 3 MWh/TEU ; system density ; usable depth
     efficiency: {charge: 0.97, discharge: 0.98}
     min_discharge_h: 0.0           # no power limit
@@ -140,18 +140,18 @@ sources:
     min_discharge_h: 50.0          # C/50 power limit -> can cap speed below the drivetrain's design (speed cap via source)
     charge_usd_per_kwh: 0.09
   containerized-reactor:           # replaces containers; electric drivetrain
-    type: reactor
+    type: containerized-reactor
     capex:      {usd_per_kw: 5000.0, life_yr: 15.0}
-    fuel:       {usd_per_kwh_th: 0.012}
-    efficiency: {generation: 0.30}    # thermal -> electricity
+    fuel_usd_per_kwh_th: 0.012
+    generation: 0.30                  # thermal -> electricity
     overhead:   {teu_per_mwe: 1.2}    # slot footprint, scales with optimizer-sized power, rounds up to 0.5 TEU
     hotel_delta_kw: 250.0             # reactor crew/security (onboard)
     pool:       {idle_h: 8.0, availability: 0.92}   # fleet-pooled utilization (owned == leased under this assumption)
   tender-reactor:                  # separate uncrewed vessel; tethers an electric ship
-    type: reactor
-    capex:      {usd_per_kw: {value: 7000.0, range: [4000.0, 12000.0]}, hull_usd: 50.0e+6, life_yr: 25.0}   # per-kW reactor (ranged prior) + the tender vessel (ex-reactor)
-    fuel:       {usd_per_kwh_th: 0.012}   # ? thorium ~one-time — candidate to fold into capex (fueled-for-life)
-    efficiency: {generation: 0.45}        # sCO2
+    type: tender-reactor
+    capex:      {usd_per_kw: {value: 7000.0, lo: 4000.0, hi: 12000.0}, hull_usd: 50.0e+6, life_yr: 25.0}   # per-kW reactor (ranged prior) + the tender vessel (ex-reactor)
+    fuel_usd_per_kwh_th: 0.012            # ? thorium ~one-time — candidate to fold into capex (fueled-for-life)
+    generation: 0.45                      # sCO2
     parasitic_kw: 2500.0           # uncrewed DP station-keeping + cooling
     om_other_usd_yr: 4.0e+6         # uncrewed remote ops + asset-loss insurance
     availability: 0.95
@@ -161,6 +161,6 @@ sources:
       cable_v_cap_kn: 16.0          # source-imposed speed cap while tethered
       standoff_nm: 200.0            # PLACEHOLDER: coastal sub-leg each side of the tether
       detach_duration_h: 12.0       # PLACEHOLDER: longest continuous cable-dropped stretch the pack sails unassisted (sizing event)
-      detach_frac: {value: 0.02, range: [0.0, 0.10]}   # PLACEHOLDER: expected fraction of tethered time the tether is dropped for weather (ranged prior; awaits weather-driven voyage sim)
+      detach_frac: {value: 0.02, lo: 0.0, hi: 0.10}   # PLACEHOLDER: expected fraction of tethered time the tether is dropped for weather (ranged prior; awaits weather-driven voyage sim)
     # reactor power optimizer-sized like the others; no ship-slot overhead (separate vessel);
     # ship-side hotel handled by the plain electric drivetrain (tender is uncrewed)
