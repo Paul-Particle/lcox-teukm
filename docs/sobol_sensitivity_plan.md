@@ -1,5 +1,10 @@
 # Exploration architecture — vectorize-first
 
+> A v6 restructuring delta (`restructuring_target.md`, 2026-07-18) builds on this: it records where
+> the current code diverged from this plan and the per-case-role / cases-in-studies / optimize-vs-
+> decompose / xarray-native / naming decisions made since. This doc stands as the architecture and
+> rationale; read the delta for the concrete code target.
+
 Status: **proposal**, revised 2026-07-15 (v5). v4 promoted the numpy-safe kernel from
 "deferred optimization" to the architectural basis. v5 folds in the taxonomy that fell out
 of working the shapes through: **three parameter roles** (fixed / sampled / search) with
