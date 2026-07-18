@@ -42,7 +42,8 @@ class Study:
     fix: dict[str, float]               # config path -> constant override (source or route field)
     optimize: tuple[schema.Axis, ...]   # study-owned lever grids ((): none)
     sweep: tuple[schema.Axis, ...]      # study-owned condition grids ((): none)
-    objective: str
+    optimize_by: str                    # measure the lever argmin minimizes (v6 §7)
+    decompose: tuple[str, ...]          # measure(s) Sobol targets; () -> default to (optimize_by,)
     n: int
     second_order: bool
     cases: tuple[str, ...] | None       # None -> every case
@@ -66,13 +67,21 @@ def _resolve(name, body: dict, ranges: dict[str, schema.Range],
         raise ValueError(f"study {name!r} declares `ranges:` — parameter ranges now live in "
                          "assumptions.yaml on the value ({value:, range: [lo, hi]}); a study only "
                          "chooses which params to sample, not how wide they are")
+    # optimize-by (the lever's argmin measure) and decompose (Sobol's target measures) are
+    # separate (v6 §7); `objective:` is still accepted as an alias for optimize_by. `decompose`
+    # defaults to () -> the analyzer falls back to (optimize_by,), so an unspecified study
+    # decomposes exactly the measure it optimizes, as before.
+    optimize_by = body.get("optimize_by", body.get("objective", "lcot"))
+    decompose = body.get("decompose", ())
+    decompose = (decompose,) if isinstance(decompose, str) else tuple(decompose)
     return Study(
         name=name,
         sample=_resolve_sample(name, body.get("sample"), ranges, leaves),
         fix={path: float(value) for path, value in body.get("fix", {}).items()},
-        optimize=_axes(body.get("optimize")),
-        sweep=_axes(body.get("sweep")),
-        objective=body.get("objective", "lcot"),
+        optimize=_axes(body.get("optimize"), "exhaustive_search"),
+        sweep=_axes(body.get("sweep"), "none"),
+        optimize_by=optimize_by,
+        decompose=decompose,
         n=int(body.get("n", 1024)),
         second_order=bool(body.get("second_order", False)),
         cases=tuple(body["cases"]) if body.get("cases") is not None else None,
@@ -111,14 +120,15 @@ def _range_for(name, path, ranges, leaves) -> schema.Range:
                      "dotted path against assumptions.yaml")
 
 
-def _axes(spec) -> tuple[schema.Axis, ...]:
+def _axes(spec, method: str) -> tuple[schema.Axis, ...]:
     """Parse an optimize/sweep block `{path: [lo, hi, n]}` into `Axis` grids ((): omitted/none).
     `path` is the dotted config leaf the grid replaces (`shared.op_v_kn`, `shared.d_km`, or any
     other leaf) — the same addressing `sample`/`fix` use; a bad path surfaces as a KeyError when
-    `ingest` places it."""
+    `ingest` places it. `method` is the lever-collapse method carried on each axis: `none` for a
+    retained sweep, `exhaustive_search` for a lever."""
     if not spec:
         return ()
-    return tuple(schema.Axis(path, float(lo), float(hi), int(n))
+    return tuple(schema.Axis(path, float(lo), float(hi), int(n), method)
                  for path, (lo, hi, n) in spec.items())
 
 
