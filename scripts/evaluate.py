@@ -1,21 +1,18 @@
 """
 evaluate.py — run the kernel over each study case's block and collapse the lever axes.
 
-One kernel call per case: `ingest` has already turned the study's axes into array leaves on the
-config, so the strategy is called ONCE and broadcasts over the whole (sample x swept x lever)
-block via numpy broadcasting. Then:
+One kernel call per case: `compose` has already turned the study's axes into named `xr.DataArray`
+leaves on the config, so the strategy is called ONCE and xarray broadcasts them (sample x swept x
+lever) by dim name — no manual reshape. Then:
 
-- optimized (lever) dims — the trailing block dims — collapse by an `argmin` of the objective,
-  carrying every OTHER measure at that same index (`take_along_axis`), so the optimal speed and
-  the whole itemization at the optimum survive.
-- the sample dim (if any) and the swept dims — the leading block dims — are retained.
+- the lever dims are collapsed to the optimum by `optimize.collapse` (dispatched on the axis
+  method; `exhaustive_search` argmins `optimize_by` and carries every measure at that index), so
+  the optimal speed and the whole itemization at the optimum survive.
+- the sample dim (if any) and the swept dims are retained.
 
-The argmin flattens the lever dims in C-order (last axis fastest) and numpy's argmin keeps the
-first minimum on ties, so an all-infeasible slice (every lever `inf`) collapses to lever index 0.
-Feasibility masking lives in the strategies (`_finalize`); the objective is the study's (default
-`lcot`). Each case becomes one xarray `Dataset` over the retained dims — `build_results`
-(pipeline) renders the fleet study's datasets to the flat artifact, `analyze` variance-decomposes
-them.
+Feasibility masking lives in the strategies (`_finalize`). Each case becomes one xarray `Dataset`
+over the retained dims — `build_results` (pipeline) renders the fleet study's datasets to the flat
+artifact, `analyze` variance-decomposes them.
 """
 
 from __future__ import annotations
@@ -25,16 +22,16 @@ import xarray as xr
 
 from model import strategies
 import compose
+import optimize
 
 
 def evaluate_design(design_: compose.Design) -> dict[str, xr.Dataset]:
     """Evaluate every member case of a study over its block and collapse the lever dims, one
-    xarray `Dataset` per case. The kernel runs once per case; xarray broadcasts the named leaves
-    (sample x swept x lever) with no manual reshape. The lever dims are argmin-collapsed by the
-    study's `optimize_by` measure, carrying every measure at the optimum; the retained dims are
-    `sample` (if sampled) + the swept conditions."""
+    xarray `Dataset` per case. The lever collapse is delegated to `optimize` (per the axis
+    method); the retained dims are `sample` (if sampled) + the swept conditions."""
     objective = design_.study.optimize_by
     lever_dims = list(design_.optimize_dims)
+    method = _lever_method(design_.study.optimize)
     # retained-axis echoes (a strategy re-emits d_km / the sample column as measures) are dropped;
     # those axes survive as coordinates via every measure that depends on them.
     retained = set(design_.sweep_dims) | ({"sample"} if design_.sample_paths else set())
@@ -44,7 +41,8 @@ def evaluate_design(design_: compose.Design) -> dict[str, xr.Dataset]:
         with np.errstate(all="ignore"):
             row = strategy(case)
         row = {measure: value for measure, value in row.items() if measure not in retained}
-        datasets[name] = _collapse(row, objective, lever_dims)
+        block = dict(zip(row, xr.broadcast(*(_as_da(v) for v in row.values()))))
+        datasets[name] = optimize.collapse(block, objective, lever_dims, method)
     return datasets
 
 
@@ -53,12 +51,10 @@ def _as_da(value) -> xr.DataArray:
     return value if isinstance(value, xr.DataArray) else xr.DataArray(value)
 
 
-def _collapse(row: dict, objective: str, lever_dims: list) -> xr.Dataset:
-    """Broadcast every measure to the shared block dims, then argmin the objective over the lever
-    dims and carry each measure at that index (`isel`). With no lever dims it's just the block."""
-    das = dict(zip(row, xr.broadcast(*(_as_da(v) for v in row.values()))))
-    if not lever_dims:
-        return xr.Dataset(das)
-    winner = das[objective].argmin(dim=lever_dims)              # {lever_dim: index}, first-min ties
-    reduced = {measure: da.isel(winner) for measure, da in das.items()}
-    return xr.Dataset(reduced)
+def _lever_method(optimize_axes) -> str:
+    """The single collapse method shared by a study's lever axes (mixed methods aren't supported
+    yet). Defaults to `exhaustive_search` when there are no lever axes (the method is unused then)."""
+    methods = {axis.method for axis in optimize_axes}
+    if len(methods) > 1:
+        raise ValueError(f"a study's optimize axes must share one method; got {sorted(methods)}")
+    return methods.pop() if methods else optimize.EXHAUSTIVE_SEARCH
