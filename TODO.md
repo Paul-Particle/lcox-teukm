@@ -1,15 +1,15 @@
 # TODO / known limitations
 
-The model runs end-to-end on a vectorized kernel. Two inputs feed it: **`assumptions.yaml`** (the
-component library + `cases:` compositions + `shared` voyage scalars, with sampling ranges declared
-on the values) and **`studies.yaml`** (role assignment — which config leaves are sampled / fixed /
-swept / optimized). A study becomes array-valued config leaves (`design`), one broadcast kernel
-call per case with the lever argmin-collapsed (`evaluate`), a per-slice variance decomposition
-(`analyze`), and a persisted store (`store`). The single entry point `lcot.py` drives all of it:
-`lcot run` renders the baseline `fleet` study to `results/lcot.{parquet,csv}`, `lcot study` runs
-the sensitivity studies into `results/sobol/`, and `lcot plot` draws the fleet and sensitivity
-figures (`lcot all` = run + plot). The two evaluation renders behind the CLI live in `pipeline.py`. `docs/sobol_sensitivity_plan.md` records the
-design and the alternatives weighed at each decision point.
+The model runs end-to-end on a vectorized xarray kernel. Two inputs feed it: **`assumptions.yaml`**
+(the component library + `shared` voyage scalars, with sampling ranges declared on the values) and
+**`studies.yaml`** (the `cases:` compositions + role assignment — which config leaves are sampled /
+fixed / swept / optimized). A study becomes array-valued config leaves (`compose`), one broadcast
+kernel call per case with the lever argmin-collapsed (`evaluate` → `optimize`), a per-slice
+variance decomposition (`analyze`), and a persisted store (`store`). The single entry point
+`run.py` drives all of it: `lcot run [names]` runs studies into `results/studies/<name>/` (a tidy
+table always, Sobol indices when the study samples), and `lcot plot` draws the fleet and
+sensitivity figures (`lcot all` = run + plot). One study end-to-end lives in `pipeline.run_study`.
+`docs/architecture_v6.md` records the design and the alternatives weighed at each decision point.
 
 The rebuild, the "any parameter can play any role" generalization, the vectorized kernel, and the
 Sobol machinery are all done. What remains is model fidelity plus a few open modelling decisions —
@@ -39,8 +39,8 @@ not plumbing.
 
 ## Deferred / future plumbing
 
-- **Incremental artifact** — `lcot run` rebuilds `results/lcot.{parquet,csv}` whole each run; add
-  append / partitioned writes once the case × sweep grid is big enough to want it.
+- **Incremental artifact** — `lcot run` rebuilds each study's `results/studies/<name>/table.{parquet,csv}`
+  whole each run; add append / partitioned writes once the case × sweep grid is big enough to want it.
 - **Config placeholders** — some crew/O&M values, the tender `idle_h` / `standoff_nm` / `detach_*`
   fields, and `design_v_kn` are placeholders pending real data (flagged in `assumptions.yaml`).
 - **Infeasibility/print noise** — trim the scattered `print()` calls to one summary location.
@@ -49,27 +49,14 @@ not plumbing.
   notices in `plots.py:plot_sobol_indices`. Keep (or fold everything into) the one per-study line
   in `pipeline.py:run_study` (`"N slice(s); worst infeasible fraction X%"`), which already
   summarizes at the right granularity.
-- **`scripts/assumptions/` package name is over-scoped** — the intended rename was only the
-  *file* `config.yaml` → `assumptions.yaml` (it's the component-library input, read alongside
-  `studies.yaml`); the package directory `scripts/config/` got renamed to `scripts/assumptions/`
-  along with it. Rename the directory back to `scripts/config/`; keep `load_assumptions.py`,
-  `load_assumptions()`, `ASSUMPTIONS_PATH`, and `assumptions.yaml` exactly as they are — those
-  names already match the file they describe.
-- **Case composition belongs in `studies.yaml`, not `assumptions.yaml`** — move the `cases:`
-  block (`assumptions.yaml:176-217`: platform/drivetrain/sources/strategy per case — composition
-  only, no params of its own) to `studies.yaml`. `assumptions.yaml` becomes the pure parts catalog
-  (platforms/drivetrains/sources + the shared economics/voyage scalars); `studies.yaml` owns
-  everything about how a study composes and varies them — it already scopes *which* cases a study
-  runs (`cases: [tender]`), so the composition itself should live there too.
-- **Consolidate `shared:` under one schema block** — every other yaml sub-block mirrors 1:1 into
-  a schema dataclass (`Block(**yaml_subdict)`), but `shared:` (assumptions.yaml's `discount_rate`,
-  `crew_cost_usd_yr`, `load_factor`, `load_factor_imbalance`, `d_km`, `op_v_kn`, `design_v_kn`,
-  nested `margins:`) doesn't: `load_assumptions.build_library` splits it into two dataclasses
-  (`schema.Economics`, `schema.Margins`) plus five loose scalars carried as flat `Library` fields,
-  which `_case` then re-zips into `schema.Params` for every case (`load_assumptions.py:147-161`,
-  `:119-132`; noted in the code review as one prebuilt `params` field with a single consumer).
-  Give `shared` one schema block (economics/margins nested or flattened, whichever reads better)
-  built once on `Library` and passed straight through — no flatten-then-re-zip round trip.
+- **Consolidate `shared:` under one schema block** — the `shared:` block is now grouped in
+  `assumptions.yaml`, but the *schema* side still doesn't mirror it 1:1 the way every other yaml
+  sub-block does (`Block(**yaml_subdict)`): `config.build_library` splits `shared` into two
+  dataclasses (`schema.Economics`, `schema.Margins`) plus five loose scalars carried as flat
+  `Library` fields, which `_case` then re-zips into `schema.Params` for every case (noted in the
+  code review as one prebuilt `params` field with a single consumer). Give `shared` one schema
+  block (economics/margins nested or flattened, whichever reads better) built once on `Library`
+  and passed straight through — no flatten-then-re-zip round trip.
 
 ## Speculative parameters
 
