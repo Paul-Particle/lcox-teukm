@@ -5,27 +5,28 @@ cargo-unit·km — US¢/TEU·km for the container platform) of ship-technology *
 of **`D_max`**, the longest port-to-port hop on a route, so powertrains and energy strategies
 compare on an absolute basis, not just as ratios.
 
-The pipeline runs end-to-end: a component library + case compositions in `assumptions.yaml`, a study
-in `studies.yaml` naming which parameters vary and how → a vectorized kernel that evaluates a
-whole block per case in one broadcast call and collapses the cost-optimal speed lever → a tidy
-results artifact / Sobol indices → figures. A standalone EU MRV fleet-data toolchain grounds the
-config in real ships.
+The pipeline runs end-to-end: a component library in `assumptions.yaml`, and in `studies.yaml` the
+case compositions + a study naming which parameters vary and how → a vectorized xarray kernel that
+evaluates a whole block per case in one broadcast call and collapses the cost-optimal speed lever →
+a per-study store (a tidy table always, plus Sobol indices when the study samples) → figures. A
+standalone EU MRV fleet-data toolchain grounds the config in real ships.
 
 ## Quick start
 
 Uses [uv](https://docs.astral.sh/uv/) (provisions Python 3.11+ automatically):
 
 ```sh
-uv sync                        # install deps (pinned in uv.lock) + the project itself (editable)
-uv run scripts/lcot.py run     # render the `fleet` study: 8 cases x speed lever x D_max sweep -> results/lcot.{parquet,csv}
-uv run scripts/lcot.py study   # run the sensitivity studies in studies.yaml -> results/sobol/<study>/ (name some, or all)
-uv run scripts/lcot.py plot    # LCOT/speed-vs-D_max + Sobol/lever figures from the artifacts -> results/*.{html,png}
-uv run scripts/lcot.py all     # run, then plot
-uv run scripts/mrv/run_mrv.py  # (optional) ground config anchors in EU MRV fleet data
+uv sync                          # install deps (pinned in uv.lock) + the project itself (editable)
+uv run scripts/run.py run        # run every study in studies.yaml -> results/studies/<name>/
+uv run scripts/run.py run fleet  # or name studies (here: 8 cases x speed lever x D_max sweep)
+uv run scripts/run.py plot       # LCOT/speed-vs-D_max + Sobol/lever figures -> results/*.{html,png}
+uv run scripts/run.py all        # run all studies, then plot
+uv run scripts/mrv/run_mrv.py    # (optional) ground config anchors in EU MRV fleet data
 ```
 
-`lcot run` reports e.g. `288 rows across 8 cases (261 feasible)`. The MRV step needs the public
-data files in `data/` — see [Grounding in real data](#grounding-in-real-data-eu-mrv).
+Each study prints a one-line report (cases, block dims/shape, worst infeasible fraction) as it
+lands under `results/studies/<name>/`. The MRV step needs the public data files in `data/` — see
+[Grounding in real data](#grounding-in-real-data-eu-mrv).
 
 ## Architecture — three axes, a verb, a behavior
 
@@ -58,49 +59,51 @@ one module per strategy.
 
 **Study** — the driver, in `studies.yaml`. A study assigns each parameter a **role** over any
 config leaf: `fix` (a scalar), `sample` (a Saltelli column on the shared sample dim), `sweep` (a
-retained condition grid), `optimize` (an argmin-collapsed lever grid). `ingest` places those as
-array leaves on the config, `evaluate` runs one broadcast kernel call per case and collapses the
-lever, `analyze` variance-decomposes per swept slice. No parameter is privileged: `op_v_kn` and
-`d_km` are ordinary leaves that the `fleet` study happens to optimize and sweep.
+retained condition grid), `optimize` (an argmin-collapsed lever grid minimizing `optimize_by`).
+`compose` places those as array leaves on the config, `evaluate` runs one broadcast kernel call
+per case and collapses the lever, `analyze` variance-decomposes the sample axis per swept slice
+(the measures named by `decompose`, defaulting to `optimize_by`). Nothing is privileged: `op_v_kn`
+and `d_km` are ordinary leaves the `fleet` study happens to optimize and sweep, and a study's
+output type falls out of what it declares — a pure sweep yields a table, a sampling study
+additionally yields Sobol indices. Running any study is the same operation.
 
 ### Module map
 
-`scripts/` is grouped into packages by role, with dependencies pointing downward
-(`common` ← `assumptions`/`model` ← `kernel` ← `viz`). `scripts/` is the source root: `uv sync`
-editable-installs the packages (see `pyproject.toml`), so `from common.paths import ...` resolves
-at runtime from any directory and for static tooling — no `sys.path` manipulation. The single
-entry point (`lcot.py`, with `run`/`study`/`plot`/`all` subcommands) and the by-path `mrv/` tools
-are invoked with `uv run`; everything else is imported.
+`scripts/` keeps the shared foundations in packages (`common/`, `model/`, `viz/`) and the
+study→results stages as flat modules at the root (`config` → `compose` → `evaluate`/`optimize` →
+`analyze` → `store`, orchestrated by `pipeline`/`run`), dependencies pointing downward. `scripts/`
+is the source root: `uv sync` editable-installs it (see `pyproject.toml`), so `from common.paths
+import ...` resolves at runtime from any directory and for static tooling — no `sys.path`
+manipulation. The single entry point (`run.py`, with `run`/`plot`/`all` subcommands) and the
+by-path `mrv/` tools are invoked with `uv run`; everything else is imported.
 
 | Module | Role |
 |---|---|
 | **`common/`** | shared vocabulary + math — the foundation everything imports |
-| `common/schema.py` | frozen config schema (Platform / Drivetrain / the `EnergySource` family: fuel / battery / reactor / Case / Params / Axis) — passive structure mirroring `assumptions.yaml` |
+| `common/schema.py` | frozen config schema (Platform / Drivetrain / the `EnergySource` family: fuel / battery / reactor / Case / Params / Axis / Range) — passive structure mirroring `assumptions.yaml` |
 | `common/units.py` | unit conversions, single source of truth |
 | `common/helpers.py` | shared only: `crf` + ship physics (`prop_power_kw`, `propulsion_factor`) |
 | `common/paths.py` | canonical repo/input/output paths, derived once so no module counts `parents[...]` levels |
-| **`assumptions/`** | the two YAML inputs → typed objects |
-| `assumptions/load_assumptions.py` | YAML library + `cases:` → built Cases (`dict[name → Case]`); harvests `{value, range}` sampling priors |
-| `assumptions/studies.py` | parse `studies.yaml` into `Study` role assignments; resolve each sampled leaf's range from config |
 | **`model/`** | the cost / sizing model |
 | `model/costing.py` | per-source cost/sizing **functions** (`battery_size` / `battery_life_yr` / `fuel_usd_per_kwh` / `containerized_reactor_size` / `tender_levelize`) over the schema source records |
 | `model/strategies/` | package: one module per strategy (6) + `_shared.py` (scaffolding + route math `legs_per_year`/`carried`) |
-| **`kernel/`** | the vectorized study → results pipeline |
-| `kernel/ingest.py` | place a study's roles as array-valued config leaves → a `Design` (member cases + block layout + SALib problem) |
-| `kernel/evaluate.py` | one broadcast kernel call per case; argmin-collapse the lever dims → one xarray `Dataset` per case |
-| `kernel/analyze.py` | Sobol first-order/total indices (SALib) per swept slice + feasibility reporting |
-| `kernel/store.py` | persist block + samples + indices + feasibility + a spec snapshot under `results/sobol/<study>/` |
+| **study → results** (flat modules) | the vectorized pipeline |
+| `config.py` | parse both YAMLs → typed config: `load_assumptions` (library + `{value, range}` priors), `load_studies` (case catalog + study bodies), `apply_schema` (resolve + validate one study → `Study`; T1 leaf/dist/range checks, T2 role-path/collision checks) |
+| `compose.py` | place a study's roles as array-valued config leaves → a `Design` (member cases + block layout + SALib problem); T3 rejects a varied path no member case consumes |
+| `evaluate.py` | one broadcast kernel call per case; delegates the lever collapse → one xarray `Dataset` per case |
+| `optimize.py` | the lever-collapse seam — `exhaustive_search` argmins `optimize_by` over the lever dims, carrying every measure at the optimum |
+| `analyze.py` | Sobol first-order/total indices (SALib) per swept slice + feasibility reporting (a no-op decomposition when the study has no sample axis) |
+| `store.py` | persist per-case block + tidy table + feasibility + spec snapshot under `results/studies/<study>/` (+ Sobol indices when the study samples) |
+| `pipeline.py` | `run_study` — one study end to end (compose → evaluate → analyze → store); shared by the CLI and `viz/plots.py` |
+| `run.py` | single CLI — `run [names]` (studies → `results/studies/<name>/`), `plot` (figures), `all` (run all + plot) |
 | **`viz/`** | presentation |
 | `viz/plots.py` | LCOT/speed-vs-`D_max` lines, per-case cost-breakdown bars, Sobol-index bars, lever-landscape curves |
 | `viz/style.py` | FCA house plotting style (template, palette, brand chrome) |
-| **entry point** (flat) | |
-| `lcot.py` | single CLI — `run` (fleet → `results/lcot.{parquet,csv}`), `study` (→ Sobol under `results/sobol/`), `plot` (figures), `all` (run + plot) |
-| `pipeline.py` | the two evaluation renders behind the CLI — `build_results` (fleet table) + `run_study` (one study → store); shared with `viz/plots.py` |
 | `mrv/` | standalone EU MRV fleet tooling (`mrv_unify`, `mrv_fleet`, `run_mrv`) — runs on its own, imports only `common.units` (+ best-effort `viz.style`), nothing from the model |
 
-The two inputs — **`assumptions.yaml`** (component library + cases + shared scalars) and
-**`studies.yaml`** (role assignment) — still carry some placeholder values (crew/O&M, a few tender
-parameters) pending grounding; see [`docs/mrv_grounding.md`](docs/mrv_grounding.md) and **TODO.md**.
+The two inputs — **`assumptions.yaml`** (component library + shared scalars) and **`studies.yaml`**
+(the case compositions + role assignments) — still carry some placeholder values (crew/O&M, a few
+tender parameters) pending grounding; see [`docs/mrv_grounding.md`](docs/mrv_grounding.md) and **TODO.md**.
 
 ## The cases & the integration rule
 
@@ -128,18 +131,20 @@ hardware.
 ## Control flow
 
 ```
-lcot run / lcot study ─ pick a study from studies.yaml
-  └─ load_assumptions (assumptions.yaml ─> frozen dataclasses + sampling ranges)
-       └─ ingest.build_study(study, raw)
+lcot run [names] ─ pick studies from studies.yaml (all, by default)
+  └─ config.load_assumptions (assumptions.yaml ─> frozen dataclasses + sampling ranges)
+     config.load_studies     (studies.yaml ─> case catalog + study bodies)
+     config.apply_schema     (resolve + validate one study ─> Study; tiers T1/T2)
+       └─ compose.build_study(study, raw, case_specs)     # T3: every varied path is consumed
             ├─ draw the Saltelli sample matrix (if any leaf is sampled)
-            └─ place every role as an array leaf on the config, rebuild once ─> Design
+            └─ place every role as an array leaf on the config, rebuild the library once ─> Design
                  └─ evaluate.evaluate_design(design)      # one broadcast call per case
                       strategy(case) ─> block of measures over (sample x swept x lever)
                         ├─ segment the route; sources own their cost models
                         ├─ route math (carried, legs/yr) + helpers (crf, physics) ─> LCOT
-                        └─ argmin the objective over the lever dims, carry every measure
-                 ├─ lcot run:   flatten the fleet datasets ─> results/lcot.{parquet,csv}
-                 └─ lcot study: analyze.sobol_indices per swept slice ─> store ─> results/sobol/
+                        └─ optimize.collapse: argmin optimize_by over the lever dims, carry every measure
+                 └─ analyze.sobol_indices per swept slice (skipped with no sample axis)
+                    ─> store.write ─> results/studies/<name>/  (tidy table always; indices when sampled)
 ```
 
 ## Cargo accounting (`carried`)
@@ -153,16 +158,18 @@ infeasible.
 
 Two inputs, cleanly split between *what exists* and *what varies*:
 
-- **`assumptions.yaml`** — the component library + the model's parameters. `shared` (cross-case
+- **`assumptions.yaml`** — the component library + the model's parameters: `shared` (cross-case
   economics, margins, load factors, and the voyage scalars `d_km` / `op_v_kn` / `design_v_kn`),
-  `platforms`, `drivetrains`, `sources`, and `cases:` (pure compositions — platform + drivetrain +
-  sources + strategy, no route). `type:` is the loader's cost-model discriminator. A value may be
-  wrapped `{value:, range: [lo, hi], dist:}` to declare a sampling prior; the model reads only the
-  `value`, and a study samples against the `range`.
-- **`studies.yaml`** — role assignment over those parameters. Each study names which config leaves
-  are `sample`d / `fix`ed / `sweep`t / `optimize`d (all addressing the same dotted paths, e.g.
-  `shared.op_v_kn`, `sources.lfp.capex.usd_per_kwh`). The `fleet` study is the baseline sweep
-  (all cases, speed lever, D_max condition, no sampling) that `lcot run` renders to `lcot.csv`.
+  `platforms`, `drivetrains`, `sources`. `type:` is the loader's cost-model discriminator. A value
+  may be wrapped `{value:, range: [lo, hi], dist:}` to declare a sampling prior; the model reads
+  only the `value`, and a study samples against the `range`.
+- **`studies.yaml`** — the case compositions + role assignment. `cases:` is the composition
+  catalog (each case = platform + drivetrain + sources + strategy, no parameters of its own);
+  `studies:` names, per study, which config leaves are `sample`d / `fix`ed / `sweep`t /
+  `optimize`d (all addressing the same dotted paths, e.g. `shared.op_v_kn`,
+  `sources.lfp.capex.usd_per_kwh`), plus `optimize_by` / `decompose`. No study is privileged: the
+  `fleet` study is just an all-case speed-lever × D_max sweep with no sampling, so it renders a
+  table; a study that samples additionally decomposes it.
 
 Units throughout: energy kWh, power kW, time h, distance km, speed kn, mass kg, money US$.
 
@@ -178,9 +185,11 @@ expensive capital push them to maximum speed.
 
 ## Output artifact
 
-`lcot run` writes a tidy table (`results/lcot.parquet` + `results/lcot.csv`), one row per (case,
-`D_max`, any other swept input): LCOT, optimal speed, reactor/store size, the
-energy/capital/O&M breakdown, and a feasibility flag. The annualized cost is itemized into
+Every study writes a store under `results/studies/<name>/`: a tidy table (`table.parquet` +
+`table.csv`), one row per (case, `D_max`, any other retained input), plus the per-case N-D block
+(`<case>.block.nc`, lossless), a `feasibility` table, and a `study.yaml` spec snapshot — and, when
+the study samples, `indices.{parquet,csv}` (Sobol). The tidy table carries LCOT, optimal speed,
+reactor/store size, the energy/capital/O&M breakdown, and a feasibility flag. The annualized cost is itemized into
 `cost_hull` / `cost_powerplant` / `cost_store` / `cost_crew` / `cost_om` / `cost_energy`
 (US$/yr; the first five sum to `annual_fixed`, the last equals `annual_energy`) — these drive
 the cost-breakdown bars. The modular reactors (nuclear-cont, tender) levelize their reactor
@@ -194,7 +203,7 @@ stacked bars of absolute LCOT by case at a fixed hop distance (a medium 2,000 km
 shade (lighter up the stack). The two share a y-axis so they compare directly; a case whose LCOT
 exceeds the cap (long-haul LFP) overflows the frame and is labelled with its off-scale total.
 
-From the sensitivity studies it draws two more (reading `results/sobol/<study>/`): **Sobol-index
+From the sensitivity studies it draws two more (reading `results/studies/<study>/`): **Sobol-index
 bars** (`sobol_<study>.{html,png}`) — grouped horizontal S1/ST bars with bootstrap-CI whiskers,
 small-multipled across the swept slices — and a **lever landscape** (`lever_landscape.{html,png}`)
 — LCOT vs. the operating-speed lever per case at a fixed hop, with each case's optimum starred.
