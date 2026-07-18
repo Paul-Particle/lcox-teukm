@@ -1,6 +1,10 @@
 # Restructuring target — v6 delta on `sobol_sensitivity_plan.md`
 
-Status: **proposal**, drafted 2026-07-18. The v5 exploration-architecture plan
+> **SUPERSEDED by `architecture_v6.md` (2026-07-18).** This "delta on v5" framing structurally
+> privileged the prior-agent v5 design as the baseline, which is the anchoring the standalone v6
+> was written to avoid. Read `architecture_v6.md` instead; this is kept for history only.
+
+Status: **superseded**, drafted 2026-07-18. The v5 exploration-architecture plan
 (`sobol_sensitivity_plan.md`) stands as the architecture and its rationale. This doc records
 (a) where the **current code diverged** from v5 and must change to realize it, and (b) the
 **deltas beyond v5** decided in the 2026-07-17/18 restructuring discussion. Read v5 first for
