@@ -15,6 +15,6 @@ ASSUMPTIONS_PATH = REPO_ROOT / "assumptions.yaml"
 STUDIES_PATH = REPO_ROOT / "studies.yaml"
 
 RESULTS_DIR = REPO_ROOT / "results"
-LCOT_PARQUET = RESULTS_DIR / "lcot.parquet"     # written by `lcot run`, read by the plots
-LCOT_CSV = RESULTS_DIR / "lcot.csv"
-SOBOL_DIR = RESULTS_DIR / "sobol"               # per-study stores from `lcot study`
+STUDIES_DIR = RESULTS_DIR / "studies"           # one store dir per study in studies.yaml
+                                                # (results/studies/<name>/): tidy table always,
+                                                # Sobol indices when the study samples

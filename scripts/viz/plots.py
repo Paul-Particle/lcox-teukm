@@ -3,23 +3,24 @@ plots.py — Plotly figures for the LCOT model (interactive HTML + static PNG).
 
 Two families, two data sources:
 
-- **Fleet views** read the tidy artifact `lcot run` writes (results/lcot.parquet): LCOT and optimal
-  speed vs D_max (a line per case, crossovers where they cross), and cost-stack breakdowns.
-- **Sensitivity views** read a study's store (results/sobol/<study>/): the Sobol S1/ST index bars
-  with bootstrap CI whiskers. The lever landscape (LCOT vs speed, optimum starred) is evaluated
-  on the fly — it is the sweep plot with op_v_kn retained instead of argmin-collapsed, which the
-  unified axis model makes a one-line change.
+- **Fleet views** read the `fleet` study's tidy table (results/studies/fleet/table.parquet): LCOT
+  and optimal speed vs D_max (a line per case, crossovers where they cross), and cost-stack
+  breakdowns.
+- **Sensitivity views** read a study's store (results/studies/<study>/indices.csv): the Sobol
+  S1/ST index bars with bootstrap CI whiskers. The lever landscape (LCOT vs speed, optimum
+  starred) is evaluated on the fly — it is the sweep plot with op_v_kn retained instead of
+  argmin-collapsed, which the unified axis model makes a one-line change.
 
 The brand chrome (header dot, logo, font embedding) comes from style.py; every fill is a SOLID
 shade (plotly's `marker.pattern` hatching renders inconsistently across versions, so it is not
-used). Driven by `lcot plot` (runs `lcot run` first, or use `lcot all`); the sensitivity plots
-run their study if its store is missing.
+used). Each plot runs the study it needs if that store is missing, so `lcot plot` is
+self-contained (or use `lcot all`).
 """
 
 import numpy as np
 import pandas as pd
 
-from common.paths import RESULTS_DIR, SOBOL_DIR, ASSUMPTIONS_PATH, STUDIES_PATH, LCOT_PARQUET
+from common.paths import RESULTS_DIR, STUDIES_DIR, ASSUMPTIONS_PATH, STUDIES_PATH
 from common.units import CENTS_PER_USD
 from viz.style import (
     fca_template, fca_blue, blue_black, dark_gray, highlight_blue, light_blue,
@@ -27,7 +28,8 @@ from viz.style import (
     BRAND_FONT, lighten, contrast_shades, apply_header, save_figure,
 )
 
-ARTIFACT = LCOT_PARQUET
+FLEET_STUDY = "fleet"                           # the study the fleet views visualize
+ARTIFACT = STUDIES_DIR / FLEET_STUDY / "table.parquet"
 OUT_DIR = RESULTS_DIR
 
 # Battery LCOT curves are clipped here so the long-haul blow-up doesn't flatten the competitive
@@ -241,11 +243,11 @@ def plot_sobol_indices(study_name: str, out_dir=OUT_DIR, max_panels: int = 4) ->
     """First-order (S1) and total (ST) Sobol indices per parameter as horizontal bars with
     bootstrap-CI whiskers — the correct-Sobol tornado (a one-at-a-time tornado is the wrong idiom
     here). With a swept axis, small-multiples across a few of its slices show how the sensitivity
-    shifts with the condition. Reads results/sobol/<study>/indices.csv (run the study first)."""
+    shifts with the condition. Reads results/studies/<study>/indices.csv (run the study first)."""
     from plotly.subplots import make_subplots
     import plotly.graph_objects as go
 
-    path = SOBOL_DIR / study_name / "indices.csv"
+    path = STUDIES_DIR / study_name / "indices.csv"
     if not path.exists():
         print(f"[skip] no indices for {study_name!r} at {path}")
         return []
@@ -339,10 +341,11 @@ def plot_lever_landscape(cases=("fossil", "lfp", "nuclear-cont", "tender"),
     return save_figure(fig, out_dir, "lever_landscape")
 
 
-def _ensure_sobol(study_name: str) -> None:
-    """Run `study_name` into results/sobol/ if its indices are missing, so `plots.py` is
-    self-contained (the sensitivity views need a study's store)."""
-    if (SOBOL_DIR / study_name / "indices.csv").exists():
+def _ensure_study(study_name: str) -> None:
+    """Run `study_name` into results/studies/ if its store is missing, so `plots.py` is
+    self-contained. Gated on the tidy `table.parquet` (which every study writes) rather than the
+    Sobol `indices.csv` (which a pure-sweep study never has)."""
+    if (STUDIES_DIR / study_name / "table.parquet").exists():
         return
     from pipeline import run_study
     from config import load_assumptions, load_studies, apply_schema
@@ -354,6 +357,7 @@ def _ensure_sobol(study_name: str) -> None:
 
 
 def main() -> None:
+    _ensure_study(FLEET_STUDY)
     df = pd.read_parquet(ARTIFACT)
     saved = plot_lcot_vs_dmax(df) + plot_speed_vs_dmax(df)
     saved += plot_cost_stack(
@@ -366,7 +370,7 @@ def main() -> None:
         subtitle=f"US cents per TEU·km  ·  D_max = {OCEAN_CROSSING_KM/1000:.0f},000 km")
     saved += plot_lever_landscape()
     for study_name in ("tender-screening", "lfp-price-check"):
-        _ensure_sobol(study_name)
+        _ensure_study(study_name)
         saved += plot_sobol_indices(study_name)
     for path in saved:
         print("wrote", path)

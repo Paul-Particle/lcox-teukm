@@ -1,48 +1,24 @@
 """
-pipeline.py — the two top-level evaluation renders, shared by the CLI (lcot.py) and the plots.
+pipeline.py — run one study end to end, shared by the CLI (run.py) and the plots.
 
-    build_results()        the baseline `fleet` study -> tidy LCOT table (results/lcot.{parquet,csv})
-    run_study(study, raw)  one sensitivity study -> Sobol store under results/sobol/<name>/
+    run_study(study, raw, case_specs)  one study -> its store under results/studies/<name>/
 
-Both drive the same kernel stages (ingest -> evaluate [-> analyze -> store]). They live here
-rather than in the entry point so viz/plots.py can compute a missing study store on demand
-without importing the CLI.
+There is a SINGLE path, whether or not the study samples: compose -> evaluate -> analyze ->
+store. A study with a `sample` axis additionally yields a Sobol decomposition; a pure sweep
+just has none (`analyze` skips it) — nothing else forks. It lives here rather than in the entry
+point so viz/plots.py can compute a missing study store on demand without importing the CLI.
 """
 
 from __future__ import annotations
 
-import pandas as pd
-
-from common.paths import ASSUMPTIONS_PATH, STUDIES_PATH, REPO_ROOT
-from config import load_assumptions, load_studies, apply_schema
+from common.paths import REPO_ROOT
 import compose, evaluate, analyze, store
-
-FLEET_STUDY = "fleet"       # the baseline fleet sweep -> results/lcot.csv
-
-# stable leading columns; everything else (strategy-specific) follows in first-seen order
-_LEAD_COLUMNS = ["case", "feasible", "lcot", "op_v_kn", "d_km",
-                 "carried", "legs", "annual_fixed", "annual_energy"]
-
-
-def build_results(assumptions_path=ASSUMPTIONS_PATH, studies_path=STUDIES_PATH) -> pd.DataFrame:
-    """Render the fleet study into the tidy results table: evaluate each case's block, collapse
-    the lever, flatten the per-case datasets, and concatenate (columns unioned)."""
-    raw, ranges = load_assumptions(assumptions_path)
-    case_specs, studies_raw = load_studies(studies_path)
-    if FLEET_STUDY not in studies_raw:
-        raise SystemExit(f"studies.yaml has no {FLEET_STUDY!r} study (the fleet sweep -> lcot.csv)")
-    study = apply_schema((raw, ranges), FLEET_STUDY, studies_raw[FLEET_STUDY])
-    datasets = evaluate.evaluate_design(compose.build_study(study, raw, case_specs))
-    frame = pd.concat([ds.to_dataframe().reset_index().assign(case=name)
-                       for name, ds in datasets.items()], ignore_index=True)
-    lead = [c for c in _LEAD_COLUMNS if c in frame.columns]
-    rest = [c for c in frame.columns if c not in lead]
-    return frame[lead + rest]
 
 
 def run_study(study, raw, case_specs) -> None:
-    """Evaluate one study as Saltelli blocks, variance-decompose per swept slice, and persist the
-    store (block + samples + indices + feasibility + spec)."""
+    """Run one study end to end: compose the block, evaluate + collapse the lever, decompose the
+    sample axis (a no-op for a pure sweep), and persist the store (block + tidy table +
+    feasibility + spec, plus Sobol indices when it sampled)."""
     design = compose.build_study(study, raw, case_specs)
     datasets = evaluate.evaluate_design(design)
     indices, feasibility = analyze.sobol_indices(design, datasets)
