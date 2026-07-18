@@ -15,8 +15,7 @@ from __future__ import annotations
 import argparse
 
 from common.paths import RESULTS_DIR, LCOT_PARQUET, LCOT_CSV, ASSUMPTIONS_PATH, STUDIES_PATH
-from config import load_assumptions
-from config import load_studies
+from config import load_assumptions, load_studies, apply_schema
 from pipeline import build_results, run_study
 
 
@@ -32,12 +31,12 @@ def _cmd_run(args: argparse.Namespace) -> None:
 
 def _cmd_study(args: argparse.Namespace) -> None:
     raw, ranges = load_assumptions(ASSUMPTIONS_PATH)
-    studies = load_studies(STUDIES_PATH, ranges, raw)
-    names = args.names or list(studies)
+    studies_raw = load_studies(STUDIES_PATH)
+    names = args.names or list(studies_raw)
     for name in names:
-        if name not in studies:
-            raise SystemExit(f"unknown study {name!r}; known: {list(studies)}")
-        run_study(studies[name], raw)
+        if name not in studies_raw:
+            raise SystemExit(f"unknown study {name!r}; known: {list(studies_raw)}")
+        run_study(apply_schema((raw, ranges), name, studies_raw[name]), raw)
 
 
 def _cmd_plot(args: argparse.Namespace) -> None:
