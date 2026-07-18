@@ -13,7 +13,7 @@ from __future__ import annotations
 import numpy as np
 import xarray as xr
 
-from common import schema
+import schema
 from common.helpers import crf
 from common.units import HOURS_PER_YEAR, KG_PER_TONNE, KWH_PER_MWH, WH_PER_KWH
 

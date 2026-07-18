@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from common import schema
+import schema
 from common import helpers
 from model import costing
 from common.units import KM_PER_NM, KMH_PER_KNOT

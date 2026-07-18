@@ -24,10 +24,10 @@ import numpy as np
 import xarray as xr
 
 from model import strategies
-from . import ingest
+import compose
 
 
-def evaluate_design(design_: ingest.Design) -> dict[str, xr.Dataset]:
+def evaluate_design(design_: compose.Design) -> dict[str, xr.Dataset]:
     """Evaluate every member case of a study over its block and collapse the lever dims, one
     xarray `Dataset` per case. The kernel runs once per case; xarray broadcasts the named leaves
     (sample x swept x lever) with no manual reshape. The lever dims are argmin-collapsed by the

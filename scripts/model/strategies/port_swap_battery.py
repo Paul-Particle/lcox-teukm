@@ -3,7 +3,7 @@ leg and the grid refills it at each port swap."""
 
 from __future__ import annotations
 
-from common import schema
+import schema
 from common import helpers
 from model import costing
 from common.units import KMH_PER_KNOT

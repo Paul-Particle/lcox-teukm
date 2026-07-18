@@ -297,13 +297,13 @@ def plot_lever_landscape(cases=("fossil", "lfp", "nuclear-cont", "tender"),
     speed starred. Same data as the sweep plots with the axes' roles swapped: op_v_kn is retained
     (a `sweep`) instead of argmin-collapsed (`optimize`), evaluated fresh through the study path."""
     import plotly.graph_objects as go
-    from assumptions.load_assumptions import read_raw
-    from common import schema
-    from assumptions.studies import Study
-    from kernel.ingest import build_study
-    from kernel.evaluate import evaluate_design
+    from config import load_assumptions
+    import schema
+    from config import Study
+    from compose import build_study
+    from evaluate import evaluate_design
 
-    raw, _ranges = read_raw(ASSUMPTIONS_PATH)
+    raw, _ranges = load_assumptions(ASSUMPTIONS_PATH)
     fig = go.Figure()
     for case in cases:
         if case not in _DISPLAY:
@@ -344,9 +344,9 @@ def _ensure_sobol(study_name: str) -> None:
     if (SOBOL_DIR / study_name / "indices.csv").exists():
         return
     from pipeline import run_study
-    from assumptions.load_assumptions import read_raw
-    from assumptions.studies import load_studies
-    raw, ranges = read_raw(ASSUMPTIONS_PATH)
+    from config import load_assumptions
+    from config import load_studies
+    raw, ranges = load_assumptions(ASSUMPTIONS_PATH)
     studies = load_studies(STUDIES_PATH, ranges, raw)
     if study_name in studies:
         print(f"[study] computing {study_name!r} (no store yet)")

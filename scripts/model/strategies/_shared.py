@@ -22,7 +22,7 @@ from typing import NamedTuple
 import numpy as np
 import xarray as xr
 
-from common import schema
+import schema
 from common import helpers
 from common.units import KMH_PER_KNOT, HOURS_PER_YEAR
 

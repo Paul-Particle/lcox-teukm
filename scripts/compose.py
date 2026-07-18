@@ -29,9 +29,9 @@ import numpy as np
 import xarray as xr
 from SALib.sample import sobol as sobol_sample
 
-from common import schema
-from assumptions import studies
-from assumptions import load_assumptions
+import schema
+import config
+
 
 
 def grid(axis: schema.Axis) -> np.ndarray:
@@ -62,7 +62,7 @@ class Design:
     `cases` are ready for the kernel (every varied leaf is an array on its block dimension).
     `dims`/`shape`/`coords` describe the block BEFORE the lever collapse (sample, swept, lever);
     `problem` + `sample_paths` + `X` are what `analyze` feeds to SALib per swept slice."""
-    study: studies.Study
+    study: config.Study
     cases: dict[str, schema.Case]
     dims: tuple[str, ...]                   # block dim order: sample?, swept..., lever...
     shape: tuple[int, ...]
@@ -78,7 +78,7 @@ class Design:
         return 0 if self.X is None else self.X.shape[0]
 
 
-def build_study(study: studies.Study, raw: dict) -> Design:
+def build_study(study: config.Study, raw: dict) -> Design:
     """Materialize a study into placed member cases + the shared block layout."""
     names = study.cases if study.cases is not None else tuple(raw["cases"])
 
@@ -124,7 +124,7 @@ def _place_case(name, study, raw, sample_paths, X, sweep_axes, optimize_axes) ->
         _set_path(cfg, axis.path, _axis_da(grid(axis), axis.name, coord=True))
     for axis in optimize_axes:
         _set_path(cfg, axis.path, _axis_da(grid(axis), axis.name, coord=False))
-    return load_assumptions.build_cases(cfg, load_assumptions.build_library(cfg))[name]
+    return config.build_cases(cfg, config.build_library(cfg))[name]
 
 
 def _set_path(node: dict, path: str, value) -> None:
