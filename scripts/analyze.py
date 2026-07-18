@@ -26,10 +26,10 @@ from SALib.analyze import sobol as sobol_analyze
 
 import xarray as xr
 
-from . import ingest as ingest_module
+import compose
 
 
-def sobol_indices(design: ingest_module.Design,
+def sobol_indices(design: compose.Design,
                   datasets: dict[str, xr.Dataset]) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Return `(indices, feasibility)` long-form tables over every member case and swept slice."""
     index_rows: list[dict] = []
@@ -90,7 +90,7 @@ def _analyze(design, case_name, coords, target, Y) -> list[dict]:
             for i, path in enumerate(design.sample_paths)]
 
 
-def _slices(design: ingest_module.Design, ds: xr.Dataset):
+def _slices(design: compose.Design, ds: xr.Dataset):
     """Yield an `.isel` selector per swept slice (the empty selector when nothing is swept)."""
     if not design.sweep_dims:
         yield {}
