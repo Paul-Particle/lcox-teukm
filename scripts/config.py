@@ -10,9 +10,10 @@ Two halves, one per input file:
   array leaves. A leaf is a bare scalar or a ranged wrapper `{value:, range: [lo, hi], dist:}`;
   `_unwrap` replaces each wrapper with its `value` and records the range as *data about the
   parameter* (which studies read to decide what to sample — never the kernel).
-- **studies.yaml** (compositions selected + roles): `load_studies` parses and `_resolve`s each
-  study's role assignment (`sample`/`fix`/`sweep`/`optimize`, `optimize_by`/`decompose`) against
-  the harvested ranges and the config leaves, returning `Study` objects.
+- **studies.yaml** (the `cases:` composition catalog + the `studies:` role assignments):
+  `load_studies` parses it into `(case catalog, per-study bodies)`; `apply_schema` then resolves
+  one study's role assignment (`sample`/`fix`/`sweep`/`optimize`, `optimize_by`/`decompose`)
+  against the harvested ranges and the config leaves, returning a validated `Study`.
 
 Loading is decomposed so `compose` can rebuild with sampled/fixed/swept/lever leaves placed by
 dotted path, then re-assemble — so array-valued leaves flow into the frozen components and the
@@ -117,10 +118,10 @@ def _source(name: str, d: dict) -> schema.EnergySource:
     raise ValueError(f"unknown source type {t!r} for source {name!r}")
 
 
-# ---- cases: assumptions.yaml's `cases:` section, one entry per case ----
+# ---- cases: studies.yaml's `cases:` catalog, one entry per case ----
 # A case names its platform/drivetrain (by library key), its sources (a list of keys — empty for
 # a fueled-for-life converter), and its strategy (a function in the strategies package). It holds
-# no parameters of its own: the voyage operating point (d_km/op_v_kn) is study-owned (ingest places
+# no parameters of its own: the voyage operating point (d_km/op_v_kn) is study-owned (compose places
 # it before `Params` is built), and the market load + design speed are shared assumptions injected
 # from the library.
 
@@ -168,10 +169,10 @@ def build_library(raw: dict) -> Library:
     )
 
 
-def build_cases(raw: dict, library: Library) -> dict[str, schema.Case]:
-    """Assemble Cases (keyed by name, config order preserved) from `raw["cases"]` against a
-    built `library`."""
-    return {name: _case(name, spec, library) for name, spec in raw["cases"].items()}
+def build_cases(case_specs: dict, library: Library) -> dict[str, schema.Case]:
+    """Assemble Cases (keyed by name, catalog order preserved) from the studies.yaml `cases:`
+    catalog against a built `library`."""
+    return {name: _case(name, spec, library) for name, spec in case_specs.items()}
 
 
 DEFAULT_PERTURB = 0.20      # +/-fraction for a sampled config leaf with a value but no range
@@ -193,12 +194,16 @@ class Study:
     infeasible_value: float | None      # objective penalty for infeasible samples (else skip that slice)
 
 
-def load_studies(studies_path) -> dict[str, dict]:
-    """Parse studies.yaml into raw per-study specs (name -> body). Resolving a study's roles and
-    validating them against the assumptions is `apply_schema`'s job, one study at a time."""
+def load_studies(studies_path) -> tuple[dict, dict[str, dict]]:
+    """Parse studies.yaml into `(case catalog, per-study bodies)`. `cases:` is the composition
+    catalog (which library parts each ship concept combines); `studies:` maps each study name to
+    its raw role body. Resolving+validating a study against the assumptions is `apply_schema`'s
+    job, one study at a time."""
     with open(studies_path) as f:
-        spec = yaml.safe_load(f)["studies"]
-    return {name: (body or {}) for name, body in spec.items()}
+        doc = yaml.safe_load(f)
+    cases = doc.get("cases") or {}
+    studies = {name: (body or {}) for name, body in doc["studies"].items()}
+    return cases, studies
 
 
 def apply_schema(assumptions: tuple[dict, dict[str, schema.Range]], name: str, body: dict) -> Study:

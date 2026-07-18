@@ -31,12 +31,12 @@ def _cmd_run(args: argparse.Namespace) -> None:
 
 def _cmd_study(args: argparse.Namespace) -> None:
     raw, ranges = load_assumptions(ASSUMPTIONS_PATH)
-    studies_raw = load_studies(STUDIES_PATH)
+    case_specs, studies_raw = load_studies(STUDIES_PATH)
     names = args.names or list(studies_raw)
     for name in names:
         if name not in studies_raw:
             raise SystemExit(f"unknown study {name!r}; known: {list(studies_raw)}")
-        run_study(apply_schema((raw, ranges), name, studies_raw[name]), raw)
+        run_study(apply_schema((raw, ranges), name, studies_raw[name]), raw, case_specs)
 
 
 def _cmd_plot(args: argparse.Namespace) -> None:

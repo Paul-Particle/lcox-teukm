@@ -297,13 +297,14 @@ def plot_lever_landscape(cases=("fossil", "lfp", "nuclear-cont", "tender"),
     speed starred. Same data as the sweep plots with the axes' roles swapped: op_v_kn is retained
     (a `sweep`) instead of argmin-collapsed (`optimize`), evaluated fresh through the study path."""
     import plotly.graph_objects as go
-    from config import load_assumptions
+    from config import load_assumptions, load_studies
     import schema
     from config import Study
     from compose import build_study
     from evaluate import evaluate_design
 
     raw, _ranges = load_assumptions(ASSUMPTIONS_PATH)
+    case_specs, _studies = load_studies(STUDIES_PATH)
     fig = go.Figure()
     for case in cases:
         if case not in _DISPLAY:
@@ -313,7 +314,7 @@ def plot_lever_landscape(cases=("fossil", "lfp", "nuclear-cont", "tender"),
                       optimize=(), sweep=(schema.Axis("shared.op_v_kn", 5.0, 22.0, n, "none"),),
                       optimize_by="lcot", decompose=(), n=0, second_order=False, cases=(case,),
                       infeasible_value=None)
-        ds = evaluate_design(build_study(study, raw))[case]
+        ds = evaluate_design(build_study(study, raw, case_specs))[case]
         speed = ds["op_v_kn"].values
         cents = np.where(ds["feasible"].values.astype(bool), ds["lcot"].values * CENTS_PER_USD, np.nan)
         fig.add_trace(go.Scatter(
@@ -346,10 +347,10 @@ def _ensure_sobol(study_name: str) -> None:
     from pipeline import run_study
     from config import load_assumptions, load_studies, apply_schema
     raw, ranges = load_assumptions(ASSUMPTIONS_PATH)
-    studies_raw = load_studies(STUDIES_PATH)
+    case_specs, studies_raw = load_studies(STUDIES_PATH)
     if study_name in studies_raw:
         print(f"[study] computing {study_name!r} (no store yet)")
-        run_study(apply_schema((raw, ranges), study_name, studies_raw[study_name]), raw)
+        run_study(apply_schema((raw, ranges), study_name, studies_raw[study_name]), raw, case_specs)
 
 
 def main() -> None:

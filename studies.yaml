@@ -16,6 +16,55 @@
 # sample / fix / sweep / optimize all address the SAME dotted config leaves — any param can play
 # any role. op_v_kn/d_km are just leaves under `shared`, no more special than design_v_kn.
 
+# ============================================================= cases ====
+# The composition catalog: which library parts (from assumptions.yaml) each ship concept combines.
+# A case is `platform` + `drivetrain` (library keys) + `sources` (a list of keys — empty models a
+# fueled-for-life converter) + `strategy` (the function in the strategies package). That is all a
+# case IS — a composition; it holds no parameters of its own (the voyage operating point and the
+# shared economics/design assumptions live on `shared` in assumptions.yaml). Studies select cases
+# by name (or take all, in the order below).
+cases:
+  fossil:
+    platform: container
+    drivetrain: mechanical-fossil
+    sources: [vlsfo]
+    strategy: fuel_burn
+  e-methanol:
+    platform: container
+    drivetrain: mechanical-fossil
+    sources: [e-methanol]
+    strategy: fuel_burn
+  lfp:
+    platform: container
+    drivetrain: electric
+    sources: [lfp]
+    strategy: port_swap_battery
+  iron-air:
+    platform: container
+    drivetrain: electric
+    sources: [iron-air]
+    strategy: port_swap_battery
+  nuclear-direct:
+    platform: container
+    drivetrain: mechanical-nuclear
+    sources: [fission-fuel]
+    strategy: reactor_direct
+  nuclear-int-el:
+    platform: container
+    drivetrain: electric-nuclear
+    sources: [fission-fuel]
+    strategy: reactor_electric_integrated
+  nuclear-cont:
+    platform: container
+    drivetrain: electric
+    sources: [containerized-reactor]
+    strategy: reactor_electric
+  tender:
+    platform: container
+    drivetrain: electric
+    sources: [lfp, tender-reactor]
+    strategy: tether_charge
+
 studies:
 
   # --- the baseline fleet sweep: all cases, speed lever, distance condition, no sampling.

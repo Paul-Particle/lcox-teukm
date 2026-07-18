@@ -14,10 +14,12 @@ rebuild — so any config leaf can be sampled, fixed, swept, or optimized. `fix`
 their own named dim (sweep coord-bearing, lever coord-free). A bad path raises `KeyError` — the
 structural check.
 
-`build_study(study, raw)` is the sole entry point: draw the Saltelli matrix, set every
-sampled/fixed leaf and every swept/lever grid at its dotted config path in a copy of the raw
-config, rebuild once, and return a `Design` carrying the placed member cases + the block layout
-(dims/shape/coords) + the SALib problem for analysis.
+`build_study(study, raw, case_specs)` is the sole entry point: it validates that every varied
+path is consumed by some member case (T3), draws the Saltelli matrix, sets every sampled/fixed
+leaf and every swept/lever grid at its dotted config path in one copy of the raw config, rebuilds
+the library once (every member case shares the same placed axes), selects the study's member
+cases, and returns a `Design` carrying those cases + the block layout (dims/shape/coords) + the
+SALib problem for analysis.
 """
 
 from __future__ import annotations
@@ -78,9 +80,11 @@ class Design:
         return 0 if self.X is None else self.X.shape[0]
 
 
-def build_study(study: config.Study, raw: dict) -> Design:
-    """Materialize a study into placed member cases + the shared block layout."""
-    names = study.cases if study.cases is not None else tuple(raw["cases"])
+def build_study(study: config.Study, raw: dict, case_specs: dict) -> Design:
+    """Materialize a study into placed member cases + the shared block layout. `case_specs` is the
+    studies.yaml composition catalog; the study selects its member cases from it (or takes all)."""
+    names = study.cases if study.cases is not None else tuple(case_specs)
+    _check_consumption(study, names, case_specs)
 
     sample_paths = tuple(study.sample)
     problem = X = None
@@ -101,18 +105,21 @@ def build_study(study: config.Study, raw: dict) -> Design:
     if sample_paths:
         coords["sample"] = np.arange(X.shape[0])
 
-    placed = {name: _place_case(name, study, raw, sample_paths, X, sweep_axes, optimize_axes)
-              for name in names}
+    # every member case shares the same placed axes, so place the leaves + rebuild the library
+    # once, then select the requested cases from it.
+    cfg = copy.deepcopy(raw)
+    _place_axes(cfg, study, sample_paths, X, sweep_axes, optimize_axes)
+    built = config.build_cases(case_specs, config.build_library(cfg))
+    placed = {name: built[name] for name in names}
     return Design(study, placed, dims, shape, coords, sample_paths, problem, X,
                   sweep_dims, optimize_dims)
 
 
-def _place_case(name, study, raw, sample_paths, X, sweep_axes, optimize_axes) -> schema.Case:
-    """Place a study's values for one member case: every role sets a leaf at its dotted config
-    path in a copy of the raw config — fix a scalar, sample the Saltelli columns on the shared
-    `sample` dim, each swept/lever grid on its own named dim — then rebuild once so the
-    DataArray leaves flow into the frozen components and the kernel broadcasts them by name."""
-    cfg = copy.deepcopy(raw)
+def _place_axes(cfg: dict, study, sample_paths, X, sweep_axes, optimize_axes) -> None:
+    """Place a study's role values on the config leaves (mutating the `cfg` copy): fix a scalar,
+    sample the Saltelli columns on the shared `sample` dim, each swept/lever grid on its own named
+    dim (sweep coord-bearing, lever coord-free). The DataArray leaves flow into the frozen
+    components when the library is rebuilt, and the kernel broadcasts them by name."""
     if sample_paths:
         sample_coord = np.arange(X.shape[0])
         for i, path in enumerate(sample_paths):
@@ -124,7 +131,41 @@ def _place_case(name, study, raw, sample_paths, X, sweep_axes, optimize_axes) ->
         _set_path(cfg, axis.path, _axis_da(grid(axis), axis.name, coord=True))
     for axis in optimize_axes:
         _set_path(cfg, axis.path, _axis_da(grid(axis), axis.name, coord=False))
-    return config.build_cases(cfg, config.build_library(cfg))[name]
+
+
+# ------------------------------------------------------- consumption (T3) ----
+_PART_SELECTOR = {"platforms": "platform", "drivetrains": "drivetrain"}   # head -> case spec key
+
+
+def _case_consumes(path: str, spec: dict) -> bool:
+    """Whether a member case structurally reaches config leaf `path`: `shared.*` always; a
+    `platforms.X`/`drivetrains.X`/`sources.X` leaf only if the case selects part `X`. An
+    unattributable head is treated as consumed (we don't claim a leaf we can't reason about is
+    dead)."""
+    head, *rest = path.split(".")
+    if head == "shared" or not rest:
+        return True
+    part = rest[0]
+    if head == "sources":
+        return part in spec.get("sources", ())
+    if head in _PART_SELECTOR:
+        return part == spec[_PART_SELECTOR[head]]
+    return True
+
+
+def _check_consumption(study, names, case_specs: dict) -> None:
+    """T3: every varied path (sample/sweep/optimize) must be structurally consumed by at least one
+    member case. A path no case reaches contributes a flat axis — a NaN/degenerate Sobol index or
+    a sweep no measure responds to — so we reject it loudly rather than let it surface downstream."""
+    specs = [case_specs[name] for name in names]
+    varied = (*study.sample, *(axis.path for axis in study.sweep),
+              *(axis.path for axis in study.optimize))
+    for path in varied:
+        if not any(_case_consumes(path, spec) for spec in specs):
+            raise ValueError(
+                f"study {study.name!r}: varied path {path!r} is consumed by none of its cases "
+                f"{list(names)} — the axis can't affect any output (flat/NaN Sobol). Check the "
+                "path or the study's `cases:` selection.")
 
 
 def _set_path(node: dict, path: str, value) -> None:
