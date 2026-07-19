@@ -1,37 +1,111 @@
 """
 config.py — load the two YAMLs and build the Study objects the pipeline runs.
 
+Two vocabularies live here, both plain `Strict` models (reject unknown keys; no band peeling — bands
+live only on the assumptions leaves in schema.py):
+
+- the **studies.yaml input schema** (`StudiesInput` + friends): pydantic models mirroring that file,
+  so one `StudiesInput.model_validate(...)` validates the whole thing (the case catalog + the
+  studies);
+- the **built pipeline objects** (`Study`/`Case`/`Probe`): what the rest of the pipeline runs on.
+
 `get_studies(...)` validates assumptions.yaml into a typed `Library` once (leaves are plain floats;
 each leaf's optional sampling band was peeled onto its model's `bands`), then builds one `Study` per
 entry in studies.yaml. For each study it deep-copies the library, applies that study's value
-overrides onto the copy, harvests its probes, and resolves its member cases against the copy.
-
-`Study`/`Case`/`Probe` are the pipeline's own vocabulary and live here; the data/validation
-vocabulary — the `*Input` models, `Band`, `ProbeKind`, the domain schema — lives in schema.py. A
-studies.yaml param entry (`ParamInput`) has two independent parts: `range:` overrides the leaf's
-value and/or the band a probe reads; `probe:` says how to vary it. A probe's band comes from the
-study's `range` override if given, else the default band that sits beside the value in
-assumptions.yaml — read straight off the leaf's model (`_default_band`), no second pass over the raw
-file. `_walk` crosses the library the way it is shaped — dict-key through the catalog maps, getattr
-through an object.
+overrides onto the copy, harvests its probes, and resolves its member cases against the copy. A
+probe's band comes from the study's `range` override if given, else the default band that sits
+beside the value in assumptions.yaml — read straight off the leaf's model (`_default_band`), no
+second pass over the raw file. `_walk` crosses the library the way it is shaped — dict-key through
+the catalog maps, getattr through an object.
 """
 
 from __future__ import annotations
 
 from collections.abc import Mapping
+from typing import Literal
 
 import yaml
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, model_validator
 
-from schema import (Band, CaseInput, Drivetrain, EnergySource, Library, ParamInput, Platform,
-                    ProbeKind, Shared, StudiesInput, StudyInput)
+from schema import Band, Distribution, Drivetrain, EnergySource, Library, Platform, Shared
 
-
-class Node(BaseModel):
-    model_config = ConfigDict(extra="forbid")   # a typo in construction is an error, not a silent field
+ProbeKind = Literal["sample", "sweep", "optimize"]      # how a study varies a parameter (fixed = none)
 
 
-class Case(Node):
+class Strict(BaseModel):
+    model_config = ConfigDict(extra="forbid")   # a typo in construction/input is an error, not a silent field
+
+
+# ============================================= studies.yaml input schema ====
+
+class StudiesInput(Strict):
+    cases: dict[str, CaseInput]           # the composition catalog
+    studies: dict[str, StudyInput]        # name -> study definition
+
+
+class CaseInput(Strict):
+    """One composition: library keys (platform / drivetrain / sources) + a strategy name."""
+    platform: str
+    drivetrain: str
+    sources: list[str] = []
+    strategy: str
+
+
+class StudyInput(Strict):
+    """One study: which cases, how each parameter is probed and/or overridden, plus the meta."""
+    cases: list[str]                      # required — forgetting it errors
+    params: dict[str, ParamInput] = {}
+    optimize_by: str = "lcot"
+    minimize: bool = True                 # argmin (True) vs argmax (False) of optimize_by
+    decompose: list[str] = []             # Sobol targets; empty -> (optimize_by,)
+    saltelli_sample_n: int = 1024
+    second_order: bool = False
+    infeasible_value: float | None = None
+
+
+class ParamInput(Strict):
+    """One `params:` entry: an optional `probe` (how to vary it) and/or a `range` override (its
+    data). A bare scalar is shorthand for a fixed-value override, `range: {value: scalar}`."""
+    probe: ProbeInput | None = None
+    range: RangeInput | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _coerce_scalar(cls, data):
+        if not isinstance(data, dict):
+            return {"range": {"value": data}}
+        return data
+
+
+class ProbeInput(Strict):
+    """How a study varies one parameter. `restrict_to_cases` scopes the probe to a subset of the
+    study's member cases (absent -> all of them); optimize probes are typically scoped, sample/sweep
+    typically not."""
+    kind: ProbeKind
+    n: int | None = None                  # grid points (sweep/optimize); sampling ignores it
+    restrict_to_cases: list[str] | None = None
+
+
+class RangeInput(Strict):
+    """A data override for one leaf — any subset of `{value, lo, hi, dist}`. `value` overrides the
+    nominal; `lo`/`hi` (both or neither) override the sampling band a probe reads."""
+    value: float | None = None
+    lo: float | None = None
+    hi: float | None = None
+    dist: Distribution | None = None
+
+    @model_validator(mode="after")
+    def _check_band(self):
+        if (self.lo is None) != (self.hi is None):
+            raise ValueError(f"a range override needs both lo and hi (got lo={self.lo}, hi={self.hi})")
+        if self.lo is not None and not self.lo < self.hi:
+            raise ValueError(f"range lo {self.lo} must be < hi {self.hi}")
+        return self
+
+
+# ================================================= built pipeline objects ====
+
+class Case(Strict):
     """One ship concept: the composed library components plus the shared block, ready for a
     strategy. The components point into the study's library, so a value placed on a component is
     seen by every case that uses it."""
@@ -43,7 +117,7 @@ class Case(Node):
     shared: Shared
 
 
-class Probe(Node):
+class Probe(Strict):
     """How a study probes one parameter: the dotted path, the kind, the band it varies over, and
     (for sweep/optimize) the grid size. `restrict_to_cases` scopes an optimize probe to the cases
     that own that lever (absent -> the whole study)."""
@@ -54,7 +128,7 @@ class Probe(Node):
     restrict_to_cases: list[str] | None = None
 
 
-class Study(Node):
+class Study(Strict):
     """A study, built: the library its axes are placed on, its member cases, its probes (which
     parameters vary, over what band, and how), and the meta carried over from `StudyInput`. The
     cases point into `library`, so compose places an axis once and every consuming case sees it."""
@@ -69,6 +143,8 @@ class Study(Node):
     second_order: bool
     infeasible_value: float | None
 
+
+# =============================================================== building ====
 
 def load_yaml(path) -> dict:
     with open(path) as f:
@@ -202,3 +278,8 @@ def _check_consumption(study_name: str, probes: list[Probe], case_names: list[st
                 f"study {study_name!r}: probed path {probe.path!r} is consumed by none of its "
                 f"cases {list(targets)} — the axis can't affect any output (flat/NaN Sobol). "
                 "Check the path or the study's `cases:` selection.")
+
+
+# resolve forward references now that every model above exists.
+for _model in (StudiesInput, Study):
+    _model.model_rebuild()
