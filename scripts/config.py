@@ -1,8 +1,8 @@
 """
 config.py — load the two YAMLs and build the Study objects the pipeline runs.
 
-Two vocabularies live here, both plain `Strict` models (reject unknown keys; no band peeling — bands
-live only on the assumptions leaves in schema.py):
+Two vocabularies live here, both plain `Config` models (reject unknown keys; no range peeling —
+ranges live only on the assumptions leaves in schema.py):
 
 - the **studies.yaml input schema** (`StudiesInput` + friends): pydantic models mirroring that file,
   so one `StudiesInput.model_validate(...)` validates the whole thing (the case catalog + the
@@ -10,11 +10,11 @@ live only on the assumptions leaves in schema.py):
 - the **built pipeline objects** (`Study`/`Case`/`Probe`): what the rest of the pipeline runs on.
 
 `get_studies(...)` validates assumptions.yaml into a typed `Library` once (leaves are plain floats;
-each leaf's optional sampling band was peeled onto its model's `bands`), then builds one `Study` per
-entry in studies.yaml. For each study it deep-copies the library, applies that study's value
+each leaf's optional sampling range was peeled onto its model's `ranges`), then builds one `Study`
+per entry in studies.yaml. For each study it deep-copies the library, applies that study's value
 overrides onto the copy, harvests its probes, and resolves its member cases against the copy. A
-probe's band comes from the study's `range` override if given, else the default band that sits
-beside the value in assumptions.yaml — read straight off the leaf's model (`_default_band`), no
+probe's range comes from the study's `range` override if given, else the default range that sits
+beside the value in assumptions.yaml — read straight off the leaf's model (`_default_range`), no
 second pass over the raw file. `_walk` crosses the library the way it is shaped — dict-key through
 the catalog maps, getattr through an object.
 """
@@ -27,23 +27,23 @@ from typing import Literal
 import yaml
 from pydantic import BaseModel, ConfigDict, model_validator
 
-from schema import Band, Distribution, Drivetrain, EnergySource, Library, Platform, Shared
+from schema import Distribution, Drivetrain, EnergySource, Library, Platform, Range, Shared
 
 ProbeKind = Literal["sample", "sweep", "optimize"]      # how a study varies a parameter (fixed = none)
 
 
-class Strict(BaseModel):
+class Config(BaseModel):
     model_config = ConfigDict(extra="forbid")   # a typo in construction/input is an error, not a silent field
 
 
 # ============================================= studies.yaml input schema ====
 
-class StudiesInput(Strict):
+class StudiesInput(Config):
     cases: dict[str, CaseInput]           # the composition catalog
     studies: dict[str, StudyInput]        # name -> study definition
 
 
-class CaseInput(Strict):
+class CaseInput(Config):
     """One composition: library keys (platform / drivetrain / sources) + a strategy name."""
     platform: str
     drivetrain: str
@@ -51,7 +51,7 @@ class CaseInput(Strict):
     strategy: str
 
 
-class StudyInput(Strict):
+class StudyInput(Config):
     """One study: which cases, how each parameter is probed and/or overridden, plus the meta."""
     cases: list[str]                      # required — forgetting it errors
     params: dict[str, ParamInput] = {}
@@ -63,7 +63,7 @@ class StudyInput(Strict):
     infeasible_value: float | None = None
 
 
-class ParamInput(Strict):
+class ParamInput(Config):
     """One `params:` entry: an optional `probe` (how to vary it) and/or a `range` override (its
     data). A bare scalar is shorthand for a fixed-value override, `range: {value: scalar}`."""
     probe: ProbeInput | None = None
@@ -77,7 +77,7 @@ class ParamInput(Strict):
         return data
 
 
-class ProbeInput(Strict):
+class ProbeInput(Config):
     """How a study varies one parameter. `restrict_to_cases` scopes the probe to a subset of the
     study's member cases (absent -> all of them); optimize probes are typically scoped, sample/sweep
     typically not."""
@@ -86,16 +86,16 @@ class ProbeInput(Strict):
     restrict_to_cases: list[str] | None = None
 
 
-class RangeInput(Strict):
+class RangeInput(Config):
     """A data override for one leaf — any subset of `{value, lo, hi, dist}`. `value` overrides the
-    nominal; `lo`/`hi` (both or neither) override the sampling band a probe reads."""
+    nominal; `lo`/`hi` (both or neither) override the sampling range a probe reads."""
     value: float | None = None
     lo: float | None = None
     hi: float | None = None
     dist: Distribution | None = None
 
     @model_validator(mode="after")
-    def _check_band(self):
+    def _check_range(self):
         if (self.lo is None) != (self.hi is None):
             raise ValueError(f"a range override needs both lo and hi (got lo={self.lo}, hi={self.hi})")
         if self.lo is not None and not self.lo < self.hi:
@@ -105,7 +105,7 @@ class RangeInput(Strict):
 
 # ================================================= built pipeline objects ====
 
-class Case(Strict):
+class Case(Config):
     """One ship concept: the composed library components plus the shared block, ready for a
     strategy. The components point into the study's library, so a value placed on a component is
     seen by every case that uses it."""
@@ -117,20 +117,20 @@ class Case(Strict):
     shared: Shared
 
 
-class Probe(Strict):
-    """How a study probes one parameter: the dotted path, the kind, the band it varies over, and
+class Probe(Config):
+    """How a study probes one parameter: the dotted path, the kind, the range it varies over, and
     (for sweep/optimize) the grid size. `restrict_to_cases` scopes an optimize probe to the cases
     that own that lever (absent -> the whole study)."""
     path: str
     kind: ProbeKind
-    band: Band
+    range: Range
     n: int | None = None
     restrict_to_cases: list[str] | None = None
 
 
-class Study(Strict):
+class Study(Config):
     """A study, built: the library its axes are placed on, its member cases, its probes (which
-    parameters vary, over what band, and how), and the meta carried over from `StudyInput`. The
+    parameters vary, over what range, and how), and the meta carried over from `StudyInput`. The
     cases point into `library`, so compose places an axis once and every consuming case sees it."""
     name: str
     library: Library
@@ -192,25 +192,25 @@ def build_case(name: str, case_defs: dict[str, CaseInput], library: Library) -> 
 
 
 def build_probe(path: str, entry: ParamInput, library: Library) -> Probe:
-    """Assemble a probe: its band is the study's `range` override if that supplies one, else the
+    """Assemble a probe: its range is the study's `range` override if that supplies one, else the
     default declared beside the value in assumptions.yaml — re-centered on a value-only override,
     keeping the width."""
     override = entry.range
-    if override is not None and override.lo is not None:        # study supplies the band
-        band = Band(lo=override.lo, hi=override.hi, dist=override.dist or "unif")
+    if override is not None and override.lo is not None:        # study supplies the range
+        sampling_range = Range(lo=override.lo, hi=override.hi, dist=override.dist or "unif")
     else:                                                       # inherit the assumptions default
-        band = _default_band(library, path)
+        sampling_range = _default_range(library, path)
         if override is not None and override.value is not None:
-            band = band.recentered(override.value)
+            sampling_range = sampling_range.recentered(override.value)
     probe = entry.probe
     return Probe(path=path, kind=probe.kind, n=probe.n,
-                 restrict_to_cases=probe.restrict_to_cases, band=band)
+                 restrict_to_cases=probe.restrict_to_cases, range=sampling_range)
 
 
 def _apply_value_overrides(library: Library, params: dict[str, ParamInput]) -> None:
     """Set each param's `value` override on its leaf, in place (a probed leaf is overwritten by its
     axis later, so this only bites the fixed leaves; on a probed leaf the value only re-centers the
-    band, handled in `build_probe`)."""
+    range, handled in `build_probe`)."""
     for path, entry in params.items():
         if entry.range is None or entry.range.value is None:
             continue
@@ -218,16 +218,16 @@ def _apply_value_overrides(library: Library, params: dict[str, ParamInput]) -> N
         setattr(parent, leaf, entry.range.value)
 
 
-def _default_band(library: Library, path: str) -> Band:
-    """The sampling band that sits beside the value in assumptions.yaml, read off the leaf's model
-    (`bands`) by the probe's path — no second pass over the raw file."""
+def _default_range(library: Library, path: str) -> Range:
+    """The sampling range that sits beside the value in assumptions.yaml, read off the leaf's model
+    (`ranges`) by the probe's path — no second pass over the raw file."""
     parent, leaf = _walk(library, path)
-    band = parent.bands.get(leaf)
-    if band is None:
+    sampling_range = parent.ranges.get(leaf)
+    if sampling_range is None:
         raise ValueError(
-            f"probe {path!r} has no band: assumptions.yaml declares none beside its value and the "
+            f"probe {path!r} has no range: assumptions.yaml declares none beside its value and the "
             "study supplies none — add lo/hi there, or a range on the probe")
-    return band
+    return sampling_range
 
 
 def _walk(root, path: str) -> tuple[object, str]:
