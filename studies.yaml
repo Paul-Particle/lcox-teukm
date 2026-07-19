@@ -67,12 +67,19 @@ cases:
 studies:
 
   # --- fleet: all cases, speed lever, distance condition, no sampling -> a tidy comparison table.
+  #     The integrated-reactor cases also optimize design speed (their reactor is the converter,
+  #     sized to the speed they run) — a case-level probe; it collapses to op speed, sizing the
+  #     reactor to the operating point. Without it those cases size to the fixed nominal design and
+  #     lose the slow-steam incentive.
   fleet:
     cases: [fossil, e-methanol, lfp, iron-air, nuclear-direct, nuclear-int-el, nuclear-cont, tender]
     optimize_by: lcot
     params:
       shared.op_v_kn: {probe: {kind: optimize, n: 18}, range: {lo: 5.0, hi: 22.0}}
       shared.d_km:    {probe: {kind: sweep,    n: 36}, range: {lo: 500.0, hi: 18000.0}}
+      shared.design_v_kn:
+        probe: {kind: optimize, n: 18, restrict_to_cases: [nuclear-direct, nuclear-int-el]}
+        range: {lo: 5.0, hi: 22.0}
 
   # --- validation: a single sampled param, nothing else varying -> S1 ~ ST ~ 1 -----------
   lfp-price-check:
@@ -92,3 +99,14 @@ studies:
       sources.tender-reactor.tether.detach_frac: {probe: {kind: sample}}   # band [0.0, 0.10]  from assumptions
       shared.op_v_kn: {probe: {kind: optimize, n: 18}, range: {lo: 5.0, hi: 22.0}}
       shared.d_km:    {probe: {kind: sweep,    n: 36}, range: {lo: 500.0, hi: 18000.0}}
+
+  # --- case-restricted optimize: only the integrated-reactor cases optimize design speed. With no
+  #     sprint counterforce, minimizing reactor CAPEX drives it to its op-speed feasibility floor,
+  #     so design_v_kn -> op_v_kn (=14) for those two; nuclear-cont is present but unrestricted -> no
+  #     design lever, so it keeps the nominal 18. That contrast is the restriction showing itself. --
+  design-speed-check:
+    cases: [nuclear-direct, nuclear-int-el, nuclear-cont]
+    params:
+      shared.design_v_kn:
+        probe: {kind: optimize, n: 18, restrict_to_cases: [nuclear-direct, nuclear-int-el]}
+        range: {lo: 5.0, hi: 22.0}

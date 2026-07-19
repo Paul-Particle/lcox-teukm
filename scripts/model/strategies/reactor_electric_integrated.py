@@ -16,12 +16,13 @@ from ._shared import (_resolve_demand, _fixed_costs, _lcot, _finalize,
 def reactor_electric_integrated(case: config.Case) -> dict:
     """Integrated-reactor ELECTRIC-drive ship (nuclear-int-el): reactor + generator + motor,
     all integrated (CAPEX on the Drivetrain, reactor+generator and motor amortized on their
-    own lives). Energy is fission fuel (thermal $/kWh) or nothing. Both stages sized to the
-    operating speed (the reactor caps speed anyway).
+    own lives). Energy is fission fuel (thermal $/kWh) or nothing. Both stages sized to the DESIGN
+    speed, a lever the optimizer floors at the operating speed (the reactor caps speed anyway).
     """
     pl, dt, shared = case.platform, case.drivetrain, case.shared
     margins = shared.margins
     d_km, op_v_kn = shared.d_km, shared.op_v_kn
+    design_v_kn = shared.design_v_kn
     fuels = [s for s in case.sources if isinstance(s, schema.FuelSource)]
     fuel = fuels[0] if fuels else None
 
@@ -34,14 +35,16 @@ def reactor_electric_integrated(case: config.Case) -> dict:
     legs = legs_per_year(op_v_kn, d_km, dt.operations.port_hours, dt.operations.availability)
     cargo = carried(pl, dt.overhead.slots, 0.0, 0.0,
                     shared.load_factor, shared.load_factor_imbalance)
-    mask = cargo > 0        # reactor overhead swamps the ship -> infeasible
+    mask = (cargo > 0) & (design_v_kn >= op_v_kn)   # overhead swamps ship, or design < op speed -> infeasible
 
     # --- energy: thermal fuel over the leg (zero if fueled-for-life) -------------
     fuel_cost_leg = fuel_kwh_leg * costing.fuel_usd_per_kwh(fuel) if fuel is not None else 0.0
 
     discount_rate = shared.discount_rate
-    # reactor+generator sized to the operating-speed bus, motor to the shaft power; separate lives
-    motor_shaft_kw = demand.prop_kw * (1 + margins.sea)
+    # reactor+generator + motor sized to the DESIGN speed (a lever floored at the operating speed);
+    # motor to the shaft, reactor to the bus; separate lives
+    motor_shaft_kw = helpers.prop_power_kw(pl.resistance, design_v_kn,
+                                           demand.propulsion_factor) * (1 + margins.sea)
     reactor_elec_kw = motor_shaft_kw / dt.efficiency.drive + demand.hotel_kw / dt.efficiency.hotel
     fixed = _fixed_costs(pl, dt, shared, legs, discount_rate,
                          powerplant=dt.capex.reactor_usd_per_kw * reactor_elec_kw
