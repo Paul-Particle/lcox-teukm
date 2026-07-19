@@ -25,12 +25,12 @@ def run_study(study: config.Study) -> None:
     """Run one study end to end: compose the block, evaluate + collapse the lever, decompose any
     sample probe (a no-op for a pure sweep), and persist the store. `analyze.report` does the
     post-run readout (feasibility + drivers)."""
-    design = compose.build_study(study)
-    datasets = evaluate.evaluate_design(design)
-    indices, feasibility = analyze.sobol_indices(design, datasets)
-    out = store.write(design, datasets, indices, feasibility)
+    compose.place_axes(study)
+    datasets = evaluate.evaluate(study)
+    indices, feasibility = analyze.sobol_indices(study, datasets)
+    out = store.write(study, datasets, indices, feasibility)
     print(f"[{study.name}] -> {out.relative_to(REPO_ROOT)}")
-    analyze.report(design, datasets, indices, feasibility)
+    analyze.report(study, datasets, indices, feasibility)
 
 
 def _cmd_run(args: argparse.Namespace) -> None:

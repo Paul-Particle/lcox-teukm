@@ -3,6 +3,7 @@ leg and the grid refills it at each port swap."""
 
 from __future__ import annotations
 
+import config
 import schema
 from common import helpers
 from model import costing
@@ -12,16 +13,16 @@ from ._shared import (_resolve_demand, _fixed_costs, _lcot, _finalize,
                       legs_per_year, carried)
 
 
-def port_swap_battery(case: schema.Case) -> dict:
+def port_swap_battery(case: config.Case) -> dict:
     """Port-swap battery ship (LFP / iron-air). Like `tether_charge` but with no tender: the
     pack carries the WHOLE leg and the grid refills it at each port swap. Motor sized to the
     fixed design speed; pack to the operating-speed energy (and for iron-air the C/50 power
     floor in costing.battery_size pins the economic speed low). No new source interface.
     """
-    pl, dt, params = case.platform, case.drivetrain, case.params
-    economics, margins = params.economics, params.margins
-    d_km, op_v_kn = params.d_km, params.op_v_kn
-    design_v_kn = params.design_v_kn
+    pl, dt, shared = case.platform, case.drivetrain, case.shared
+    margins = shared.margins
+    d_km, op_v_kn = shared.d_km, shared.op_v_kn
+    design_v_kn = shared.design_v_kn
     battery = next(s for s in case.sources if isinstance(s, schema.BatterySource))
 
     # --- route plan + power demand at the operating speed ----------------------
@@ -40,7 +41,7 @@ def port_swap_battery(case: schema.Case) -> dict:
     # --- annual legs + revenue cargo --------------------------------------------
     legs = legs_per_year(op_v_kn, d_km, dt.operations.port_hours, dt.operations.availability)
     cargo = carried(pl, dt.overhead.slots, slots, mass_t,
-                    params.load_factor, params.load_factor_imbalance)
+                    shared.load_factor, shared.load_factor_imbalance)
     mask = cargo > 0        # pack swamps the ship -> infeasible
 
     # --- energy: the swap refills what the leg consumed in expectation ------------
@@ -51,10 +52,10 @@ def port_swap_battery(case: schema.Case) -> dict:
     grid_cost_leg = recharge_kwh * battery.charge_usd_per_kwh
 
     # --- capital + fixed O&M ----------------------------------------------------
-    discount_rate = economics.discount_rate
+    discount_rate = shared.discount_rate
     motor_kw = helpers.prop_power_kw(pl.resistance, design_v_kn, demand.propulsion_factor) * (1 + margins.sea)
     battery_life = costing.battery_life_yr(battery, legs)
-    fixed = _fixed_costs(pl, dt, economics, legs, discount_rate,
+    fixed = _fixed_costs(pl, dt, shared, legs, discount_rate,
                          powerplant=dt.capex.converter_usd_per_kw * motor_kw
                          * helpers.crf(discount_rate, dt.capex.life_yr),
                          store=battery.capex.usd_per_kwh * installed_kwh

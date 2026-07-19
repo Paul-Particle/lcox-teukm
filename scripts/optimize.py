@@ -77,13 +77,14 @@ def _leaf(path: str) -> str:
     return path.split(".")[-1]
 
 
-def _grid(lever: Lever) -> np.ndarray:
-    """`lever.n` points across `[lo, hi]` — geometric when `dist == "loguniform"`, else linear."""
-    if lever.n <= 1:
-        return np.array([float(lever.lo)])
-    if lever.dist == "loguniform":
-        return np.geomspace(lever.lo, lever.hi, lever.n)
-    return np.linspace(lever.lo, lever.hi, lever.n)
+def grid(lo: float, hi: float, n: int, dist: str = "unif") -> np.ndarray:
+    """`n` points across `[lo, hi]` — geometric when `dist == "loguniform"`, else linear; a single
+    point sits at `lo`. Shared by the exhaustive lever grid and compose's sweep grids."""
+    if n <= 1:
+        return np.array([float(lo)])
+    if dist == "loguniform":
+        return np.geomspace(lo, hi, n)
+    return np.linspace(lo, hi, n)
 
 
 def _mid(lever: Lever) -> float:
@@ -99,7 +100,8 @@ def exhaustive_search(evaluate: Evaluate, levers: list[Lever], objective: str,
     """Propose the whole grid, evaluate it in one vectorized call, argmin over the lever dims. With
     no levers the block is returned as-is (a no-lever case). numpy/xarray `argmin` keeps the first
     extremum on ties, so an all-infeasible slice collapses to lever index 0."""
-    assignment = {lever.path: xr.DataArray(_grid(lever), dims=lever.path) for lever in levers}
+    assignment = {lever.path: xr.DataArray(grid(lever.lo, lever.hi, lever.n, lever.dist), dims=lever.path)
+                  for lever in levers}
     block = _block(evaluate(assignment))
     if not levers:
         return block
@@ -108,8 +110,8 @@ def exhaustive_search(evaluate: Evaluate, levers: list[Lever], objective: str,
     winner = (objective_da.argmin if minimize_objective else objective_da.argmax)(dim=lever_dims)
     collapsed = block.isel(winner)                      # every measure at the optimum, over sample/sweep
     for lever in levers:                                # carry each lever's winning value (grid[argopt])
-        grid = xr.DataArray(_grid(lever), dims=lever.path)
-        collapsed[_leaf(lever.path)] = grid.isel({lever.path: winner[lever.path]})
+        axis = xr.DataArray(grid(lever.lo, lever.hi, lever.n, lever.dist), dims=lever.path)
+        collapsed[_leaf(lever.path)] = axis.isel({lever.path: winner[lever.path]})
     return collapsed
 
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import numpy as np
 
+import config
 import schema
 from common import helpers
 from model import costing
@@ -14,7 +15,7 @@ from ._shared import (_resolve_demand, _fixed_costs, _lcot, _finalize,
                       legs_per_year, carried)
 
 
-def tether_charge(case: schema.Case) -> dict:
+def tether_charge(case: config.Case) -> dict:
     """Nuclear-tender case: a battery ship whose ocean crossing is carried by a
     nuclear tender over a tether. Three segments — coastal-out (battery, refilled at sea by
     the tender), tethered open ocean (tender propels directly), coastal-in (battery, refilled
@@ -32,10 +33,10 @@ def tether_charge(case: schema.Case) -> dict:
     `availability`. Billed energy is what a leg consumes in expectation — the reserve and
     the detach buffer are never billed as throughput.
     """
-    pl, dt, params = case.platform, case.drivetrain, case.params
-    economics, margins = params.economics, params.margins
-    d_km, op_v_kn = params.d_km, params.op_v_kn
-    design_v_kn = params.design_v_kn
+    pl, dt, shared = case.platform, case.drivetrain, case.shared
+    margins = shared.margins
+    d_km, op_v_kn = shared.d_km, shared.op_v_kn
+    design_v_kn = shared.design_v_kn
     # expects exactly one battery + one tender reactor source
     battery = next(s for s in case.sources if isinstance(s, schema.BatterySource))
     tender = next(s for s in case.sources if isinstance(s, schema.TenderReactor))
@@ -72,7 +73,7 @@ def tether_charge(case: schema.Case) -> dict:
     # --- annual legs + revenue cargo (pack slots + mass displace cargo) ---------
     legs = legs_per_year(op_v_kn, d_km, dt.operations.port_hours, dt.operations.availability)
     cargo = carried(pl, dt.overhead.slots, slots, mass_t,
-                    params.load_factor, params.load_factor_imbalance)
+                    shared.load_factor, shared.load_factor_imbalance)
     mask = feasible_route & (cargo > 0)     # pack swamps the ship -> also infeasible
 
     # --- energy per leg: expected consumption, not pack capacity ----------------
@@ -90,15 +91,15 @@ def tether_charge(case: schema.Case) -> dict:
     tender_bus_kwh = tender_bus_kw * attached_h
     # detached hours are non-delivering time for the tender, on top of the between-ship wait
     tender_usd_per_kwh, reactor_kw = costing.tender_levelize(
-        tender, tender_bus_kw, attached_h, tender.idle_h + detach_h, economics.discount_rate)
+        tender, tender_bus_kw, attached_h, tender.idle_h + detach_h, shared.discount_rate)
     tender_cost_leg = tender_bus_kwh * tender_usd_per_kwh
 
     # --- capital + fixed O&M (ship only; the tender's CAPEX is inside its $/kWh) -
-    discount_rate = economics.discount_rate
+    discount_rate = shared.discount_rate
     # motor sized to the FIXED design speed (cheap, off the slow-steam sweep)
     motor_kw = helpers.prop_power_kw(pl.resistance, design_v_kn, demand.propulsion_factor) * (1 + margins.sea)
     battery_life = costing.battery_life_yr(battery, legs)
-    fixed = _fixed_costs(pl, dt, economics, legs, discount_rate,
+    fixed = _fixed_costs(pl, dt, shared, legs, discount_rate,
                          powerplant=dt.capex.converter_usd_per_kw * motor_kw
                          * helpers.crf(discount_rate, dt.capex.life_yr),
                          store=battery.capex.usd_per_kwh * installed_kwh

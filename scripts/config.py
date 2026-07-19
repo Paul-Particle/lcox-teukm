@@ -57,6 +57,7 @@ class StudyInput(Config):
     params: dict[str, ParamInput] = {}
     optimize_by: str = "lcot"
     minimize: bool = True                 # argmin (True) vs argmax (False) of optimize_by
+    optimizer: str = "exhaustive_search"  # lever solver: "exhaustive_search" | "scipy_local"
     decompose: list[str] = []             # Sobol targets; empty -> (optimize_by,)
     saltelli_sample_n: int = 1024
     second_order: bool = False
@@ -138,6 +139,7 @@ class Study(Config):
     probes: list[Probe]
     optimize_by: str
     minimize: bool
+    optimizer: str
     decompose: list[str]
     saltelli_sample_n: int
     second_order: bool
@@ -214,14 +216,14 @@ def _apply_value_overrides(library: Library, params: dict[str, ParamInput]) -> N
     for path, entry in params.items():
         if entry.range is None or entry.range.value is None:
             continue
-        parent, leaf = _walk(library, path)
+        parent, leaf = walk(library, path)
         setattr(parent, leaf, entry.range.value)
 
 
 def _default_range(library: Library, path: str) -> Range:
     """The sampling range that sits beside the value in assumptions.yaml, read off the leaf's model
     (`ranges`) by the probe's path — no second pass over the raw file."""
-    parent, leaf = _walk(library, path)
+    parent, leaf = walk(library, path)
     sampling_range = parent.ranges.get(leaf)
     if sampling_range is None:
         raise ValueError(
@@ -230,7 +232,7 @@ def _default_range(library: Library, path: str) -> Range:
     return sampling_range
 
 
-def _walk(root, path: str) -> tuple[object, str]:
+def walk(root, path: str) -> tuple[object, str]:
     """Return `(parent, leaf)` for a dotted `path`, crossing the catalog maps by key and an object
     by attribute. A wrong segment raises the underlying KeyError/AttributeError, which names it."""
     *parents, leaf = path.split(".")
@@ -238,6 +240,21 @@ def _walk(root, path: str) -> tuple[object, str]:
     for segment in parents:
         node = node[segment] if isinstance(node, Mapping) else getattr(node, segment)
     return node, leaf
+
+
+def get_leaf(root, path: str):
+    """Read the leaf a dotted `path` names."""
+    parent, leaf = walk(root, path)
+    return getattr(parent, leaf)
+
+
+def set_leaf(root, path: str, value) -> None:
+    """Set the leaf a dotted `path` names, in place. compose places an array axis on a library leaf
+    this way; evaluate brackets a lever value on one for the duration of a kernel call. The leaf is
+    declared `float`, but pydantic stores the assignment without re-validating (`validate_assignment`
+    is off by default), so a DataArray rides on it fine."""
+    parent, leaf = walk(root, path)
+    setattr(parent, leaf, value)
 
 
 # ------------------------------------------------------- consumption (T3) ----

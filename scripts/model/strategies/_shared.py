@@ -48,7 +48,7 @@ def _resolve_demand(pl: schema.Platform, dt: schema.Drivetrain, op_v_kn: float,
     return Demand(propulsion_factor, prop_kw, hotel_kw, bus_kw)
 
 
-def _fixed_costs(pl: schema.Platform, dt: schema.Drivetrain, economics: schema.Economics,
+def _fixed_costs(pl: schema.Platform, dt: schema.Drivetrain, shared: schema.Shared,
                  legs: float, discount_rate: float, *,
                  powerplant: float, store: float = 0.0) -> dict[str, float]:
     """Annualized fixed-cost components (US$/yr), itemized for the cost-stack breakdown. Hull
@@ -62,7 +62,7 @@ def _fixed_costs(pl: schema.Platform, dt: schema.Drivetrain, economics: schema.E
         "cost_hull": pl.capex.hull_usd * helpers.crf(discount_rate, pl.capex.life_yr),
         "cost_powerplant": powerplant,
         "cost_store": store,
-        "cost_crew": dt.operations.crew_count * economics.crew_cost_usd_yr,
+        "cost_crew": dt.operations.crew_count * shared.crew_cost_usd_yr,
         "cost_om": dt.operations.om_other_usd_yr + dt.operations.tug_usd_per_call * legs,
     }
 

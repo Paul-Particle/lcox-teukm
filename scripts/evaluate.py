@@ -1,18 +1,18 @@
 """
-evaluate.py — run the kernel over each study case's block and collapse the lever axes.
+evaluate.py — run the kernel for each case and collapse its lever axes to the optimum.
 
-One kernel call per case: `compose` has already turned the study's axes into named `xr.DataArray`
-leaves on the config, so the strategy is called ONCE and xarray broadcasts them (sample x swept x
-lever) by dim name — no manual reshape. Then:
+`compose.place_axes` has already put the study's sample/sweep axes on the shared library as named
+`xr.DataArray` leaves, so a strategy call broadcasts them (sample x swept x lever) by dim name. For
+each case we hand the chosen optimizer (`study.optimizer`) a closure that runs the case's strategy at
+a given lever assignment; the optimizer OWNS the lever axes — it proposes points, collapses them to
+the optimum, and returns every measure at that optimum over the retained (sample, swept) dims (see
+`optimize.py`). A case with no levers just gets its block back, uncollapsed.
 
-- the lever dims are collapsed to the optimum by `optimize.collapse` (dispatched on the axis
-  method; `exhaustive_search` argmins `optimize_by` and carries every measure at that index), so
-  the optimal speed and the whole itemization at the optimum survive.
-- the sample dim (if any) and the swept dims are retained.
-
-Feasibility masking lives in the strategies (`_finalize`). Each case becomes one xarray `Dataset`
-over the retained dims — `store` renders the datasets to the tidy per-study table, `analyze`
-variance-decomposes them (a no-op when the study has no `sample` axis).
+The closure brackets the lever assignment: it sets each lever leaf, runs the strategy, and restores
+the leaf afterwards, so the shared library is left as it was for the next case (a case that doesn't
+optimize a given leaf still sees its nominal value). Feasibility masking lives in the strategies
+(`_finalize`); each case becomes one `xr.Dataset` over the retained dims, with the swept/sample
+coordinate echoes dropped (they survive as coordinates).
 """
 
 from __future__ import annotations
@@ -22,39 +22,39 @@ import xarray as xr
 
 from model import strategies
 import compose
+import config
 import optimize
 
 
-def evaluate_design(design_: compose.Design) -> dict[str, xr.Dataset]:
-    """Evaluate every member case of a study over its block and collapse the lever dims, one
-    xarray `Dataset` per case. The lever collapse is delegated to `optimize` (per the axis
-    method); the retained dims are `sample` (if sampled) + the swept conditions."""
-    objective = design_.study.optimize_by
-    lever_dims = list(design_.optimize_dims)
-    method = _lever_method(design_.study.optimize)
-    # retained-axis echoes (a strategy re-emits d_km / the sample column as measures) are dropped;
-    # those axes survive as coordinates via every measure that depends on them.
-    retained = set(design_.sweep_dims) | ({"sample"} if design_.sample_paths else set())
+def evaluate(study: config.Study) -> dict[str, xr.Dataset]:
+    """Evaluate every member case over its block and collapse its levers, one `xr.Dataset` per case.
+    The lever collapse is delegated to the study's optimizer; the retained dims are `sample` (if the
+    study samples) plus the swept conditions."""
+    optimizer = optimize.OPTIMIZERS[study.optimizer]
+    case_levers = compose.levers(study)
+    echoes = set(compose.sweep_dims(study)) | ({"sample"} if compose.sample_paths(study) else set())
     datasets: dict[str, xr.Dataset] = {}
-    for name, case in design_.cases.items():
+    for case in study.cases:
         strategy = getattr(strategies, case.strategy)
+        run_kernel = _evaluator(study.library, case, strategy)
         with np.errstate(all="ignore"):
-            row = strategy(case)
-        row = {measure: value for measure, value in row.items() if measure not in retained}
-        block = dict(zip(row, xr.broadcast(*(_as_da(v) for v in row.values()))))
-        datasets[name] = optimize.collapse(block, objective, lever_dims, method)
+            collapsed = optimizer(run_kernel, case_levers[case.name],
+                                  study.optimize_by, study.minimize)
+        datasets[case.name] = collapsed.drop_vars(
+            [name for name in echoes if name in collapsed.data_vars])
     return datasets
 
 
-def _as_da(value) -> xr.DataArray:
-    """A measure as a DataArray (a scalar becomes 0-d), so the block broadcasts uniformly."""
-    return value if isinstance(value, xr.DataArray) else xr.DataArray(value)
-
-
-def _lever_method(optimize_axes) -> str:
-    """The single collapse method shared by a study's lever axes (mixed methods aren't supported
-    yet). Defaults to `exhaustive_search` when there are no lever axes (the method is unused then)."""
-    methods = {axis.method for axis in optimize_axes}
-    if len(methods) > 1:
-        raise ValueError(f"a study's optimize axes must share one method; got {sorted(methods)}")
-    return methods.pop() if methods else optimize.EXHAUSTIVE_SEARCH
+def _evaluator(library: config.Library, case: config.Case, strategy):
+    """A closure the optimizer drives: place the lever assignment on the shared library, run the
+    case's strategy, and restore the leaves — so the mutation is scoped to this one kernel call."""
+    def run_kernel(assignment):
+        originals = {path: config.get_leaf(library, path) for path in assignment}
+        for path, value in assignment.items():
+            config.set_leaf(library, path, value)
+        try:
+            return strategy(case)
+        finally:
+            for path, value in originals.items():
+                config.set_leaf(library, path, value)
+    return run_kernel

@@ -19,7 +19,7 @@ import xarray as xr
 import pandas as pd
 
 from common.paths import STUDIES_DIR
-import compose
+import config
 
 # stable leading columns for the tidy table; everything else (strategy-specific) follows in
 # first-seen order.
@@ -27,11 +27,11 @@ _LEAD_COLUMNS = ["case", "feasible", "lcot", "op_v_kn", "d_km",
                  "carried", "legs", "annual_fixed", "annual_energy"]
 
 
-def write(design: compose.Design, datasets: dict[str, xr.Dataset],
+def write(study: config.Study, datasets: dict[str, xr.Dataset],
           indices: pd.DataFrame, feasibility: pd.DataFrame) -> Path:
     """Write a study's block(s), tidy table, feasibility, spec snapshot, and (when the study
     samples) its Sobol indices. Returns the study directory."""
-    out = STUDIES_DIR / design.study.name
+    out = STUDIES_DIR / study.name
     out.mkdir(parents=True, exist_ok=True)
     for case_name, ds in datasets.items():
         ds.to_netcdf(out / f"{case_name}.block.nc", engine="h5netcdf")
@@ -43,7 +43,7 @@ def write(design: compose.Design, datasets: dict[str, xr.Dataset],
         indices.to_parquet(out / "indices.parquet", index=False)
     feasibility.to_csv(out / "feasibility.csv", index=False)
     with open(out / "study.yaml", "w") as f:
-        yaml.safe_dump(_snapshot(design.study), f, sort_keys=False)
+        yaml.safe_dump(_snapshot(study), f, sort_keys=False)
     return out
 
 
@@ -57,19 +57,21 @@ def tidy_table(datasets: dict[str, xr.Dataset]) -> pd.DataFrame:
     return frame[lead + rest]
 
 
-def _snapshot(study) -> dict:
-    """A plain-dict snapshot of the study spec (sample ranges as [lo, hi, dist]; axis grids as
-    {param: [lo, hi, n]})."""
+def _snapshot(study: config.Study) -> dict:
+    """A plain-dict snapshot of the study spec: its cases, its probes (path, kind, range, grid size,
+    case restriction), and the meta that shaped the run."""
     return {
         "name": study.name,
-        "cases": list(study.cases) if study.cases is not None else None,
-        "sample": {path: [r.lo, r.hi, r.dist] for path, r in study.sample.items()},
-        "fix": study.fix,
-        "optimize": {a.path: [a.lo, a.hi, a.n] for a in study.optimize},
-        "sweep": {a.path: [a.lo, a.hi, a.n] for a in study.sweep},
+        "cases": [case.name for case in study.cases],
+        "probes": [{"path": probe.path, "kind": probe.kind,
+                    "range": [probe.range.lo, probe.range.hi, probe.range.dist],
+                    "n": probe.n, "restrict_to_cases": probe.restrict_to_cases}
+                   for probe in study.probes],
         "optimize_by": study.optimize_by,
+        "minimize": study.minimize,
+        "optimizer": study.optimizer,
         "decompose": list(study.decompose),
-        "n": study.n,
+        "saltelli_sample_n": study.saltelli_sample_n,
         "second_order": study.second_order,
         "infeasible_value": study.infeasible_value,
     }
