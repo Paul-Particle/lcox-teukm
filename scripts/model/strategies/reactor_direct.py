@@ -3,6 +3,7 @@ drivetrain converter, heat straight to shaft."""
 
 from __future__ import annotations
 
+import config
 import schema
 from common import helpers
 from model import costing
@@ -12,15 +13,15 @@ from ._shared import (_resolve_demand, _fixed_costs, _lcot, _finalize,
                       legs_per_year, carried)
 
 
-def reactor_direct(case: schema.Case) -> dict:
+def reactor_direct(case: config.Case) -> dict:
     """Integrated-reactor DIRECT-drive ship (nuclear-direct). The reactor IS the drivetrain
     converter (CAPEX on the Drivetrain), heat straight to shaft. Source is THIN — fission fuel
     (thermal $/kWh) or NOTHING (fueled-for-life -> no energy cost, so the optimizer runs to
     v_max). Being expensive, the reactor is sized to the OPERATING speed, not a fixed design one.
     """
-    pl, dt, params = case.platform, case.drivetrain, case.params
-    economics, margins = params.economics, params.margins
-    d_km, op_v_kn = params.d_km, params.op_v_kn
+    pl, dt, shared = case.platform, case.drivetrain, case.shared
+    margins = shared.margins
+    d_km, op_v_kn = shared.d_km, shared.op_v_kn
     fuels = [s for s in case.sources if isinstance(s, schema.FuelSource)]
     fuel = fuels[0] if fuels else None                  # None => fueled-for-life (no energy cost)
 
@@ -33,16 +34,16 @@ def reactor_direct(case: schema.Case) -> dict:
     legs = legs_per_year(op_v_kn, d_km, dt.operations.port_hours, dt.operations.availability)
     # integrated reactor + shielding is a fixed slot overhead on the drivetrain; ~no carried mass
     cargo = carried(pl, dt.overhead.slots, 0.0, 0.0,
-                    params.load_factor, params.load_factor_imbalance)
+                    shared.load_factor, shared.load_factor_imbalance)
     mask = cargo > 0        # reactor overhead swamps the ship -> infeasible
 
     # --- energy: thermal fuel over the leg (zero if fueled-for-life) -------------
     fuel_cost_leg = fuel_kwh_leg * costing.fuel_usd_per_kwh(fuel) if fuel is not None else 0.0
 
-    discount_rate = economics.discount_rate
+    discount_rate = shared.discount_rate
     # reactor sized to the OPERATING speed; converter_usd_per_kw is the reactor+steam+shaft plant
     reactor_shaft_kw = demand.prop_kw * (1 + margins.sea)
-    fixed = _fixed_costs(pl, dt, economics, legs, discount_rate,
+    fixed = _fixed_costs(pl, dt, shared, legs, discount_rate,
                          powerplant=dt.capex.converter_usd_per_kw * reactor_shaft_kw
                          * helpers.crf(discount_rate, dt.capex.life_yr))
     annual_fixed = sum(fixed.values())

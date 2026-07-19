@@ -3,6 +3,7 @@ reactor is a separable EnergySource with its own CAPEX + cost model."""
 
 from __future__ import annotations
 
+import config
 import schema
 from common import helpers
 from model import costing
@@ -12,16 +13,16 @@ from ._shared import (_resolve_demand, _fixed_costs, _lcot, _finalize,
                       legs_per_year, carried)
 
 
-def reactor_electric(case: schema.Case) -> dict:
+def reactor_electric(case: config.Case) -> dict:
     """Electric ship powered by a CONTAINERIZED reactor (nuclear-cont). Unlike the integrated
     cases, the reactor is a SEPARABLE EnergySource with its own CAPEX + cost model: it occupies
     slots (teu_per_mwe), adds an onboard hotel load, bills $/kWh over its fleet-pooled
     utilization. The bare motor is design-sized; the reactor sized to the operating bus.
     """
-    pl, dt, params = case.platform, case.drivetrain, case.params
-    economics, margins = params.economics, params.margins
-    d_km, op_v_kn = params.d_km, params.op_v_kn
-    design_v_kn = params.design_v_kn
+    pl, dt, shared = case.platform, case.drivetrain, case.shared
+    margins = shared.margins
+    d_km, op_v_kn = shared.d_km, shared.op_v_kn
+    design_v_kn = shared.design_v_kn
     reactor = next(s for s in case.sources if isinstance(s, schema.ContainerizedReactor))
 
     # the containerized reactor sits onboard, so its crew/security hotel delta adds to the bus
@@ -31,21 +32,21 @@ def reactor_electric(case: schema.Case) -> dict:
     sizing_kw = demand.prop_kw * (1 + margins.sea) / dt.efficiency.drive + demand.hotel_kw / dt.efficiency.hotel
 
     # --- size the reactor to the bus (its slots displace cargo below) ------------
-    reactor_usd_per_kwh, reactor_kw, reactor_slots = costing.containerized_reactor_size(reactor, sizing_kw, economics.discount_rate)
+    reactor_usd_per_kwh, reactor_kw, reactor_slots = costing.containerized_reactor_size(reactor, sizing_kw, shared.discount_rate)
 
     legs = legs_per_year(op_v_kn, d_km, dt.operations.port_hours, dt.operations.availability)
     # the reactor's slots displace cargo (like a battery's); drivetrain overhead is the bare motor
     cargo = carried(pl, dt.overhead.slots, reactor_slots, 0.0,
-                    params.load_factor, params.load_factor_imbalance)
+                    shared.load_factor, shared.load_factor_imbalance)
     mask = cargo > 0        # reactor slots swamp the ship -> infeasible
 
     # --- energy: pool-levelized reactor over the full-leg bus --------------------
     reactor_cost_leg = bus_kw * sail_h * reactor_usd_per_kwh
 
     # --- capital + fixed O&M ----------------------------------------------------
-    discount_rate = economics.discount_rate
+    discount_rate = shared.discount_rate
     motor_kw = helpers.prop_power_kw(pl.resistance, design_v_kn, demand.propulsion_factor) * (1 + margins.sea)  # bare motor (cheap), design-sized
-    fixed = _fixed_costs(pl, dt, economics, legs, discount_rate,
+    fixed = _fixed_costs(pl, dt, shared, legs, discount_rate,
                          powerplant=dt.capex.converter_usd_per_kw * motor_kw
                          * helpers.crf(discount_rate, dt.capex.life_yr))
     annual_fixed = sum(fixed.values())
