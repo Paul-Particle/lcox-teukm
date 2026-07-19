@@ -1,5 +1,5 @@
 """
-schema.py — the typed config schema (pydantic models), mirroring assumptions.yaml 1:1.
+schema.py — the typed assumptions library (pydantic models), mirroring assumptions.yaml 1:1.
 
 Every numeric leaf is a plain `float`. A leaf may carry an optional sampling band — a
 `{value, lo, hi, dist}` mapping in the YAML: the value stays on the leaf, and the band
@@ -10,12 +10,14 @@ source `type`, or a stray key all raise a precise error.
 The peel is type-driven: `_split_bands` reads each field's declared type to decide leaf vs
 sub-block (`_is_scalar`), so there's no key-guessing, and pydantic's own nested validation drives
 the recursion. After load the leaves are ordinary floats — compose swaps arrays onto the probed
-ones, everything else reads them bare.
+ones, everything else reads them bare. Every model shares one base, `Banded`; models with no leaves
+(`Library`, `Band`) just carry an empty `bands`.
 
 The source family is a discriminated union on `type` (fuel / battery / containerized-reactor /
 tender-reactor). Components are keyed by name in their catalogs, so the models carry no `name`
-field. Layout is big-picture-first (`Library` → components → sub-blocks → the leaf band);
-forward references are resolved by `model_rebuild()` at the bottom, once every model exists.
+field. Layout is big-picture-first (`Library` → components → sub-blocks → the leaf band); forward
+references are resolved by `model_rebuild()` at the bottom, once every model exists. The
+studies.yaml input schema lives in config.py, alongside the Study objects it builds.
 """
 
 from __future__ import annotations
@@ -27,13 +29,6 @@ from typing import Annotated, Literal, Union, get_args, get_origin
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 Distribution = Literal["unif", "loguniform"]     # sampling draw / grid spacing (linear vs geometric)
-ProbeKind = Literal["sample", "sweep", "optimize"]      # how a study varies a parameter (fixed = none)
-
-
-class Node(BaseModel):
-    """Base for every model: reject unknown keys, so a typo in the YAML is an error rather than a
-    silently-ignored field."""
-    model_config = ConfigDict(extra="forbid")
 
 
 def _is_scalar(annotation) -> bool:
@@ -52,9 +47,12 @@ def _peel(field, value):
     return value["value"], band or None
 
 
-class Banded(Node):
-    """Base for the assumptions models: every numeric leaf may carry a sampling band, peeled off
-    here into `bands` (keyed by leaf name) so the leaf itself stays a plain float."""
+class Banded(BaseModel):
+    """Base for every assumptions model: reject unknown keys (a typo is an error, not a silently
+    ignored field), and peel each numeric leaf's optional band ({value, lo, hi, dist}) off into
+    `bands` (keyed by leaf name) so the leaf itself stays a plain float. Models with no leaves just
+    carry an empty `bands`."""
+    model_config = ConfigDict(extra="forbid")
     bands: dict[str, Band] = Field(default_factory=dict, exclude=True)
 
     @model_validator(mode="before")
@@ -291,7 +289,7 @@ class Tether(Banded):
 
 # =============================================================== the leaf band ====
 
-class Band(Node):
+class Band(Banded):
     """A sampling band peeled off a numeric leaf: the prior a study varies it over (bounds plus
     draw/grid spacing). Lives on the owning model's `bands`, keyed by leaf name, and is harvested
     by a probe. `dist` doubles as the grid spacing for sweeps/optimizes (`unif` -> linear,
@@ -312,76 +310,6 @@ class Band(Node):
         return Band(lo=value - half_width, hi=value + half_width, dist=self.dist)
 
 
-# ============================================= studies.yaml input schema ====
-# The same move as `Library`, for the other YAML: pydantic models mirror studies.yaml so one
-# `StudiesInput.model_validate(...)` validates the whole file (the case catalog + the studies).
-# These are plain `Node`s (no band peeling — bands live only on the assumptions leaves).
-
-class StudiesInput(Node):
-    cases: dict[str, CaseInput]           # the composition catalog
-    studies: dict[str, StudyInput]        # name -> study definition
-
-
-class CaseInput(Node):
-    """One composition: library keys (platform / drivetrain / sources) + a strategy name."""
-    platform: str
-    drivetrain: str
-    sources: list[str] = []
-    strategy: str
-
-
-class StudyInput(Node):
-    """One study: which cases, how each parameter is probed and/or overridden, plus the meta."""
-    cases: list[str]                      # required — forgetting it errors
-    params: dict[str, ParamInput] = {}
-    optimize_by: str = "lcot"
-    minimize: bool = True                 # argmin (True) vs argmax (False) of optimize_by
-    decompose: list[str] = []             # Sobol targets; empty -> (optimize_by,)
-    saltelli_sample_n: int = 1024
-    second_order: bool = False
-    infeasible_value: float | None = None
-
-
-class ParamInput(Node):
-    """One `params:` entry: an optional `probe` (how to vary it) and/or a `range` override (its
-    data). A bare scalar is shorthand for a fixed-value override, `range: {value: scalar}`."""
-    probe: ProbeInput | None = None
-    range: RangeInput | None = None
-
-    @model_validator(mode="before")
-    @classmethod
-    def _coerce_scalar(cls, data):
-        if not isinstance(data, dict):
-            return {"range": {"value": data}}
-        return data
-
-
-class ProbeInput(Node):
-    """How a study varies one parameter. `restrict_to_cases` scopes the probe to a subset of the
-    study's member cases (absent -> all of them); optimize probes are typically scoped, sample/sweep
-    typically not."""
-    kind: ProbeKind
-    n: int | None = None                  # grid points (sweep/optimize); sampling ignores it
-    restrict_to_cases: list[str] | None = None
-
-
-class RangeInput(Node):
-    """A data override for one leaf — any subset of `{value, lo, hi, dist}`. `value` overrides the
-    nominal; `lo`/`hi` (both or neither) override the sampling band a probe reads."""
-    value: float | None = None
-    lo: float | None = None
-    hi: float | None = None
-    dist: Distribution | None = None
-
-    @model_validator(mode="after")
-    def _check_band(self):
-        if (self.lo is None) != (self.hi is None):
-            raise ValueError(f"a range override needs both lo and hi (got lo={self.lo}, hi={self.hi})")
-        if self.lo is not None and not self.lo < self.hi:
-            raise ValueError(f"range lo {self.lo} must be < hi {self.hi}")
-        return self
-
-
 # resolve the forward references now that every model above exists (big-picture-first layout).
-for _model in (Library, StudiesInput):
+for _model in (Library, Band):
     _model.model_rebuild()
