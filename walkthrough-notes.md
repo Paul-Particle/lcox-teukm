@@ -20,12 +20,13 @@ Three problems with how `_cmd_run` (`scripts/run.py:23–30`) reaches into the b
 
 3. **The wrapper is too thin to justify its own file.** Once 1–2 are cleaned up there's almost
    nothing left in `run.py` — the argparse could live directly in the script that runs the loop
-   over the studies. → **IMPORTANT TODO: merge `run.py` and `pipeline.py`** into one
-   entry+orchestration script. (Shelved earlier; promoting it now.)
+   over the studies. → **DONE: merged `run.py` and `pipeline.py`** into one entry+orchestration
+   script. `run.py` now owns the CLI plumbing, the central `config.get_studies(...)` loop, and
+   `run_study(study)` (compose → evaluate → analyze → store). `viz/plots.py` calls `run.run_study`
+   directly.
 
-Related: the `from config import load_assumptions` (bare-name) import style strips the `config.`
-namespace from the call sites — `load_assumptions(...)` reads with less context than
-`config.load_assumptions(...)`. Fix this together with the run/pipeline merge.
+Related — **DONE**: dropped the `from config import load_assumptions` (bare-name) import style;
+call sites now read `config.get_studies(...)` (context-preserving).
 
 ## `pipeline.py` — the one-study pipeline
 
@@ -41,14 +42,11 @@ namespace from the call sites — `load_assumptions(...)` reads with less contex
   self-contained — the pipeline still handles what the study was built from. Params are also
   untyped. Worth revisiting what a "built study" should carry so the pipeline takes one cohesive
   object.
-- **Move the reporting + feasibility summary out of `pipeline.py`.** The index-reporting
-  (`_report_indices`) and the feasibility/print summary blocks (`run_study` L27–31) aren't
-  important enough to sit in the pipeline. If kept, they belong in `analyze.py` — analyze does
-  Sobol indices and not much more, so giving it the job of writing/reporting summary results is
-  reasonable *and* means a non-sampling run still has analyze doing something meaningful (today it
-  no-ops for pure sweeps). With those two (not-too-pretty) blocks gone, `run_study` is just
-  compose → evaluate → analyze → store, and the run/pipeline merge is even clearer.
-  *(Revisit exactly what analyze should own when we read `analyze.py`.)*
+- **DONE: moved the reporting + feasibility summary out of the runner into `analyze.report`.** The
+  index-reporting and the feasibility/print summary now live in `analyze.py`, so a non-sampling run
+  still has analyze doing something meaningful (it summarizes feasibility even when it decomposes
+  nothing). `run_study` is now just compose → evaluate → analyze → store, plus the one status line
+  + `analyze.report`.
 
 ### Clarification on problems #1/#2 (working material in the CLI)
 
