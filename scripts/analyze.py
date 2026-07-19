@@ -58,6 +58,24 @@ def sobol_indices(design: compose.Design,
     return pd.DataFrame(index_rows), pd.DataFrame(feasibility_rows)
 
 
+def report(design: compose.Design, datasets: dict[str, xr.Dataset],
+           indices: pd.DataFrame, feasibility: pd.DataFrame) -> None:
+    """A terse post-run readout: the block shape, the worst feasibility over slices, and — when the
+    study sampled — the objective's first-order drivers averaged over slices. This lives in analyze
+    (not the runner) so a non-sampling run still reports something meaningful: it decomposes
+    nothing, but it still summarizes feasibility."""
+    worst = feasibility["infeasible_fraction"].max() if not feasibility.empty else 0.0
+    print(f"   cases={list(datasets)} dims={design.dims} shape={design.shape} M={design.M}")
+    print(f"   {len(feasibility)} slice(s); worst infeasible fraction {worst:.1%}")
+    objective = indices[indices["target"] == "objective"] if not indices.empty else indices
+    if objective.empty:
+        return
+    ranked = (objective.groupby("param")[["S1", "ST"]].mean()
+              .sort_values("ST", ascending=False))
+    for param, row in ranked.iterrows():
+        print(f"   S1={row['S1']:+.3f}  ST={row['ST']:+.3f}  {param}")
+
+
 def _objective_indices(design, case_name, coords, objective, infeasible_fraction,
                        label: str = "objective") -> list[dict]:
     """Sobol for one measure over one slice: normal when fully feasible; penalized if the study

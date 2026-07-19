@@ -8,7 +8,7 @@ kernel call per case with the lever argmin-collapsed (`evaluate` → `optimize`)
 variance decomposition (`analyze`), and a persisted store (`store`). The single entry point
 `run.py` drives all of it: `lcot run [names]` runs studies into `results/studies/<name>/` (a tidy
 table always, Sobol indices when the study samples), and `lcot plot` draws the fleet and
-sensitivity figures (`lcot all` = run + plot). One study end-to-end lives in `pipeline.run_study`.
+sensitivity figures (`lcot all` = run + plot). One study end-to-end lives in `run.run_study`.
 `docs/architecture_v6.md` records the design and the alternatives weighed at each decision point.
 
 The rebuild, the "any parameter can play any role" generalization, the vectorized kernel, and the
@@ -46,9 +46,9 @@ not plumbing.
 - **Infeasibility/print noise** — trim the scattered `print()` calls to one summary location.
   Candidates to drop: the per-slice note in `analyze.py:_objective_indices` (fires once per
   infeasible slice with no `infeasible_value`, so a large sweep floods stdout) and the `[skip]`
-  notices in `plots.py:plot_sobol_indices`. Keep (or fold everything into) the one per-study line
-  in `pipeline.py:run_study` (`"N slice(s); worst infeasible fraction X%"`), which already
-  summarizes at the right granularity.
+  notices in `plots.py:plot_sobol_indices`. Keep (or fold everything into) the per-study summary in
+  `analyze.report` (`"N slice(s); worst infeasible fraction X%"`), which already summarizes at the
+  right granularity.
 - **Consolidate `shared:` under one schema block** — the `shared:` block is now grouped in
   `assumptions.yaml`, but the *schema* side still doesn't mirror it 1:1 the way every other yaml
   sub-block does (`Block(**yaml_subdict)`): `config.build_library` splits `shared` into two

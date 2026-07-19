@@ -347,13 +347,12 @@ def _ensure_study(study_name: str) -> None:
     Sobol `indices.csv` (which a pure-sweep study never has)."""
     if (STUDIES_DIR / study_name / "table.parquet").exists():
         return
-    from pipeline import run_study
-    from config import load_assumptions, load_studies, apply_schema
-    raw, ranges = load_assumptions(ASSUMPTIONS_PATH)
-    case_specs, studies_raw = load_studies(STUDIES_PATH)
-    if study_name in studies_raw:
+    import config
+    from run import run_study
+    studies = {study.name: study for study in config.get_studies(ASSUMPTIONS_PATH, STUDIES_PATH)}
+    if study_name in studies:
         print(f"[study] computing {study_name!r} (no store yet)")
-        run_study(apply_schema((raw, ranges), study_name, studies_raw[study_name]), raw, case_specs)
+        run_study(studies[study_name])
 
 
 def main() -> None:
