@@ -27,11 +27,13 @@ not plumbing.
   route-independent fleet utilization (`pool.availability`), so `pool.idle_h` is still **unused**;
   it needs an estimated turnaround time like the tender's.
 - **Design speed as a live variable** — `design_v_kn` is an ordinary config leaf
-  (`shared.design_v_kn`), so it can be sampled/swept/optimized like any other. But optimizing it
-  only bites once the model has a counterforce — a peak-power / brief-sprint constraint (weather
-  evasion, schedule recovery) that rewards a larger converter. Without one, minimizing converter
-  CAPEX drives it to the floor. Add such a constraint before treating it as a meaningful free
-  variable.
+  (`shared.design_v_kn`). The integrated-reactor cases (nuclear-direct, nuclear-int-el) now optimize
+  it via a case-restricted probe (`fleet`, `design-speed-check`), sizing the reactor at design speed
+  with `design_v_kn >= op_v_kn` as their feasibility floor; the cheap-converter cases hold it at the
+  fixed nominal. With no counterforce it collapses to that floor (design = op) — which is exactly the
+  reactor-sized-to-op behavior, now explicit rather than hardwired. To make it a *meaningful* free
+  variable whose optimum exceeds op, add a peak-power / brief-sprint constraint (weather evasion,
+  schedule recovery) that rewards a larger converter.
 - **Tender CAPEX on one life** — `TenderReactor.levelize` amortizes hull + reactor CAPEX over a
   single `capex.life_yr`; split if the hull and reactor lives should differ.
 - **Source roles in multi-source cases** — a plain list for now; natural roles (buffer / charger)
