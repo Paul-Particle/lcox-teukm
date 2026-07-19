@@ -40,12 +40,20 @@ class Case(Node):
     shared: schema.Shared
 
 
+class Probe(Node):
+    """How a study probes one parameter: the dotted path, the kind, and the grid size. Bounds and
+    distribution come from the `Range` at `path` (sampling ignores `n`)."""
+    path: str
+    kind: schema.ProbeKind
+    n: int | None = None
+
+
 class Study(Node):
-    """A study, built: its member cases, its probes (path -> how to vary it), and the meta carried
-    straight over from `StudyInput`."""
+    """A study, built: its member cases, its probes (which parameters vary, and how), and the meta
+    carried straight over from `StudyInput`."""
     name: str
     cases: list[Case]
-    probes: dict[str, schema.ProbeInput]
+    probes: list[Probe]
     optimize_by: str
     minimize: bool
     decompose: list[str]
@@ -75,7 +83,7 @@ def build_study(name: str, study_input: schema.StudyInput, assumptions_library: 
     """Overlay this study's overrides onto a copy of the library, resolve its cases against that
     copy, and carry its probes + meta — the assembly line, one visible step at a time."""
     library = assumptions_library.model_copy(deep=True)
-    probes: dict[str, schema.ProbeInput] = {}
+    probes: list[Probe] = []
     for path, entry in study_input.params.items():
         parent, leaf = _walk(library, path)
         existing = getattr(parent, leaf)                    # also validates that the path resolves
@@ -86,7 +94,7 @@ def build_study(name: str, study_input: schema.StudyInput, assumptions_library: 
             setattr(parent, leaf, schema.Range.model_validate(
                 {**existing.model_dump(), **entry.range.model_dump(exclude_none=True)}))
         if entry.probe is not None:
-            probes[path] = entry.probe
+            probes.append(Probe(path=path, kind=entry.probe.kind, n=entry.probe.n))
     cases = [build_case(case_name, case_defs, library) for case_name in study_input.cases]
 
     meta = study_input.model_dump(exclude={"cases", "params"})
