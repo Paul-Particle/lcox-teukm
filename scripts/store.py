@@ -50,11 +50,19 @@ def write(study: config.Study, datasets: dict[str, xr.Dataset],
 def tidy_table(datasets: dict[str, xr.Dataset]) -> pd.DataFrame:
     """Flatten the per-case datasets into one tidy table: each case's block to long form, tagged
     with `case`, concatenated (columns unioned), stable lead columns first."""
-    frame = pd.concat([ds.to_dataframe().reset_index().assign(case=name)
-                       for name, ds in datasets.items()], ignore_index=True)
+    frame = pd.concat([_long_form(ds).assign(case=name) for name, ds in datasets.items()],
+                      ignore_index=True)
     lead = [c for c in _LEAD_COLUMNS if c in frame.columns]
     rest = [c for c in frame.columns if c not in lead]
     return frame[lead + rest]
+
+
+def _long_form(ds: xr.Dataset) -> pd.DataFrame:
+    """One case's block as rows: the long form of its retained dims, or a single row when the block
+    is fully collapsed (an optimize-only study leaves no sample/sweep dim to index)."""
+    if ds.sizes:
+        return ds.to_dataframe().reset_index()
+    return pd.DataFrame([{name: value.item() for name, value in ds.items()}])
 
 
 def _snapshot(study: config.Study) -> dict:

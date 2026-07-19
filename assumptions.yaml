@@ -15,7 +15,7 @@ shared:
   load_factor_imbalance: 0.2       # head/back-haul demand split (directions differ in demand)
   d_km: 10000.0                    # nominal D_max hop; the fleet study sweeps it (500..18000)
   op_v_kn: 14.0                    # nominal operating speed; the fleet study optimizes it (5..22)
-  design_v_kn: 18.0                # design speed the cheap converter is sized to (integrated-reactor cases size to op speed and ignore it)
+  design_v_kn: 18.0                # design speed the converter is sized to; the integrated-reactor cases optimize it down to op speed
   margins:
     energy_reserve: 0.20           # spare energy on a battery ship's pack (weather/contingency)
     sea: 0.15                      # power margin on installed propulsion

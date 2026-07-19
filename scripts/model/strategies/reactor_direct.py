@@ -17,11 +17,13 @@ def reactor_direct(case: config.Case) -> dict:
     """Integrated-reactor DIRECT-drive ship (nuclear-direct). The reactor IS the drivetrain
     converter (CAPEX on the Drivetrain), heat straight to shaft. Source is THIN — fission fuel
     (thermal $/kWh) or NOTHING (fueled-for-life -> no energy cost, so the optimizer runs to
-    v_max). Being expensive, the reactor is sized to the OPERATING speed, not a fixed design one.
+    v_max). Being expensive, the reactor is sized to the DESIGN speed, a lever the optimizer floors
+    at the operating speed (so at the optimum it equals operating-speed sizing).
     """
     pl, dt, shared = case.platform, case.drivetrain, case.shared
     margins = shared.margins
     d_km, op_v_kn = shared.d_km, shared.op_v_kn
+    design_v_kn = shared.design_v_kn
     fuels = [s for s in case.sources if isinstance(s, schema.FuelSource)]
     fuel = fuels[0] if fuels else None                  # None => fueled-for-life (no energy cost)
 
@@ -35,14 +37,16 @@ def reactor_direct(case: config.Case) -> dict:
     # integrated reactor + shielding is a fixed slot overhead on the drivetrain; ~no carried mass
     cargo = carried(pl, dt.overhead.slots, 0.0, 0.0,
                     shared.load_factor, shared.load_factor_imbalance)
-    mask = cargo > 0        # reactor overhead swamps the ship -> infeasible
+    mask = (cargo > 0) & (design_v_kn >= op_v_kn)   # overhead swamps ship, or design < op speed -> infeasible
 
     # --- energy: thermal fuel over the leg (zero if fueled-for-life) -------------
     fuel_cost_leg = fuel_kwh_leg * costing.fuel_usd_per_kwh(fuel) if fuel is not None else 0.0
 
     discount_rate = shared.discount_rate
-    # reactor sized to the OPERATING speed; converter_usd_per_kw is the reactor+steam+shaft plant
-    reactor_shaft_kw = demand.prop_kw * (1 + margins.sea)
+    # reactor sized to the DESIGN speed — a lever the optimizer floors at the operating speed, so at
+    # the optimum it equals operating-speed sizing; converter_usd_per_kw is the reactor+steam+shaft plant
+    reactor_shaft_kw = helpers.prop_power_kw(pl.resistance, design_v_kn,
+                                             demand.propulsion_factor) * (1 + margins.sea)
     fixed = _fixed_costs(pl, dt, shared, legs, discount_rate,
                          powerplant=dt.capex.converter_usd_per_kw * reactor_shaft_kw
                          * helpers.crf(discount_rate, dt.capex.life_yr))
