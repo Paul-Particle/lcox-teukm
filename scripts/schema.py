@@ -20,6 +20,7 @@ from typing import Annotated, Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 Distribution = Literal["unif", "loguniform"]     # sampling draw / grid spacing (linear vs geometric)
+ProbeKind = Literal["sample", "sweep", "optimize"]      # how a study varies a parameter (fixed = none)
 
 
 class Node(BaseModel):
@@ -280,5 +281,63 @@ class Range(Node):
         return self
 
 
+# ============================================= studies.yaml input schema ====
+# The same move as `Library`, for the other YAML: pydantic models mirror studies.yaml so one
+# `StudiesInput.model_validate(...)` validates the whole file (the case catalog + the studies).
+
+class StudiesInput(Node):
+    cases: dict[str, CaseInput]           # the composition catalog
+    studies: dict[str, StudyInput]        # name -> study definition
+
+
+class CaseInput(Node):
+    """One composition: library keys (platform / drivetrain / sources) + a strategy name."""
+    platform: str
+    drivetrain: str
+    sources: list[str] = []
+    strategy: str
+
+
+class StudyInput(Node):
+    """One study: which cases, how each parameter is probed and/or overridden, plus the meta."""
+    cases: list[str]                      # required — forgetting it errors
+    params: dict[str, ParamInput] = {}
+    optimize_by: str = "lcot"
+    minimize: bool = True                 # argmin (True) vs argmax (False) of optimize_by
+    decompose: list[str] = []             # Sobol targets; empty -> (optimize_by,)
+    saltelli_sample_n: int = 1024
+    second_order: bool = False
+    infeasible_value: float | None = None
+
+
+class ParamInput(Node):
+    """One `params:` entry: an optional `probe` (how to vary it) and/or a `range` override (its
+    data). A bare scalar is shorthand for a fixed-value override, `range: {value: scalar}`."""
+    probe: ProbeInput | None = None
+    range: RangeInput | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _coerce_scalar(cls, data):
+        if not isinstance(data, dict):
+            return {"range": {"value": data}}
+        return data
+
+
+class ProbeInput(Node):
+    kind: ProbeKind
+    n: int | None = None                  # grid points (sweep/optimize); sampling ignores it
+
+
+class RangeInput(Node):
+    """A data override for one leaf — any subset of a `Range`'s fields, deep-merged onto the
+    assumptions leaf (so `value` is inherited unless you set it)."""
+    value: float | None = None
+    lo: float | None = None
+    hi: float | None = None
+    dist: Distribution | None = None
+
+
 # resolve the forward references now that every model above exists (big-picture-first layout).
-Library.model_rebuild()
+for _model in (Library, StudiesInput):
+    _model.model_rebuild()

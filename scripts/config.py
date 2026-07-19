@@ -1,44 +1,47 @@
 """
 config.py — load the two YAMLs and build the Study objects the pipeline runs.
 
-`get_studies(assumptions_path, studies_path)` returns one `Study` per entry in `studies.yaml`.
-For each study it overlays that study's parameter overrides onto the assumptions tree, validates
-the merged tree into a typed `Library` (schema), builds the member `Case`s from it, and collects
-the `Probe`s (which parameters vary, and how).
+`get_studies(assumptions_path, studies_path)` validates `assumptions.yaml` into a typed `Library`
+*once*, then builds one `Study` per entry in `studies.yaml`. For each study it deep-copies the
+library, overlays that study's parameter overrides onto the copy, resolves its member cases against
+the copy, and collects its probes (which parameters vary, and how).
 
-A `studies.yaml` param entry has two independent parts, written together for convenience:
-`range:` is a data override (value / lo / hi / dist), deep-merged onto the assumptions leaf;
-`probe:` says how to vary it (kind + grid `n`). A bare scalar is shorthand for `range: {value: x}`.
+A `studies.yaml` param entry has two independent parts, written together for convenience (schema
+`ParamInput`): `range:` is a data override (value / lo / hi / dist), merged onto the assumptions
+`Range` at that dotted path; `probe:` says how to vary it (kind + grid `n`). A bare scalar is
+shorthand for `range: {value: x}`.
+
+Overrides reach their leaf with `_leaf`, which walks a dotted path across the library the way the
+library is actually shaped: dict-key through a catalog map (`platforms` / `drivetrains` /
+`sources`), getattr through an object everywhere else. No component is referenced by string except
+where the data genuinely is a map — a case naming its parts, or a path naming a catalog entry.
 """
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
-import copy
 
 import yaml
-from pydantic import BaseModel, ConfigDict
 
 import schema
 
-from typing import Literal
 
-ProbeKind = Literal["sample", "sweep", "optimize"]      # fixed = no probe
-
-
-class Probe(BaseModel):
+@dataclass
+class Probe:
     """How a study probes one parameter: the dotted config path, the kind, and the grid size.
-    The bounds/distribution come from the `Range` at `path` (sampling ignores `n`)."""
-    model_config = ConfigDict(extra="forbid")
+    The bounds/distribution come from the `Range` at `path` in the study's library (sampling
+    ignores `n`)."""
     path: str
-    kind: ProbeKind
+    kind: schema.ProbeKind
     n: int | None = None
 
 
 @dataclass
 class Case:
     """One ship concept: the composed library components plus the shared block, ready for a
-    strategy to read. Fields follow the assumptions.yaml case order."""
+    strategy to read. The components point into the study's `Library`, so a value placed on the
+    library is seen by every case that uses that component."""
     name: str
     platform: schema.Platform
     drivetrain: schema.Drivetrain
@@ -50,11 +53,12 @@ class Case:
 @dataclass
 class Study:
     name: str
-    cases: list[Case]
+    library: schema.Library             # this study's assumptions, overrides applied; probes resolve here
+    cases: list[Case]                   # member cases, pointing into `library`
     probes: list[Probe]
     optimize_by: str                    # measure the lever collapse optimizes
     minimize: bool                      # argmin (True) vs argmax (False) of optimize_by
-    decompose: tuple[str, ...]          # Sobol target measures; () -> default to (optimize_by,)
+    decompose: tuple[str, ...]          # Sobol target measures; defaults to (optimize_by,)
     saltelli_sample_n: int              # Saltelli base-N for sampled probes
     second_order: bool
     infeasible_value: float | None      # objective penalty for infeasible samples (else skip the slice)
@@ -66,107 +70,120 @@ def load_yaml(path) -> dict:
 
 
 def get_studies(assumptions_path, studies_path) -> list[Study]:
-    """Build every study in `studies.yaml` against `assumptions.yaml`."""
-    assumptions = load_yaml(assumptions_path)
-    studies_file = load_yaml(studies_path)
-    case_defs = studies_file["cases"]
-    studies = [
-        build_study(name, body, assumptions, case_defs)
-        for name, body in studies_file["studies"].items()
+    """Build every study in `studies.yaml` against `assumptions.yaml`. The library is validated once
+    and deep-copied per study, so a study's overrides never leak into another."""
+    library = schema.Library.model_validate(load_yaml(assumptions_path))
+    studies_input = schema.StudiesInput.model_validate(load_yaml(studies_path))
+    return [
+        build_study(name, study_input, library, studies_input.cases)
+        for name, study_input in studies_input.studies.items()
     ]
-    return studies
 
 
-def build_study(name: str, body: dict, assumptions: dict, case_defs: dict) -> Study:
-    """Overlay this study's overrides onto the assumptions, validate the merged tree into a typed
-    Library, build its member cases, and collect its probes."""
-    overrides, probes = _split_params(body.get("params", {}))
-    merged = _overlay(assumptions, overrides)
+def build_study(name: str, study_input: schema.StudyInput, library: schema.Library,
+                case_defs: dict[str, schema.CaseInput]) -> Study:
+    """Overlay this study's overrides onto a copy of the library, resolve its member cases against
+    that copy, and collect its probes."""
+    study_library = library.model_copy(deep=True)
+    overrides, probes = _split_params(study_input.params)
+    for path, override in overrides.items():
+        _apply_override(study_library, path, override)
     for probe in probes:
-        _descend(merged, probe.path)        # a probe must name a real config leaf
-    library = schema.Library.model_validate(merged)
-    case_names = body.get("cases") or list(case_defs)
-    unknown = [n for n in case_names if n not in case_defs]
-    if unknown:
-        raise ValueError(f"study {name!r}: unknown case(s) {unknown}; known: {list(case_defs)}")
-    cases = [_build_case(n, case_defs[n], library) for n in case_names]
+        _leaf(study_library, probe.path)                # a probe must name a real config leaf
+    cases = [_build_case(case_name, case_defs, study_library) for case_name in study_input.cases]
 
-    decompose = body.get("decompose", ())
-    decompose = (decompose,) if isinstance(decompose, str) else tuple(decompose)
     return Study(
         name=name,
+        library=study_library,
         cases=cases,
         probes=probes,
-        optimize_by=body.get("optimize_by", "lcot"),
-        minimize=bool(body.get("minimize", True)),
-        decompose=decompose,
-        saltelli_sample_n=int(body.get("saltelli_sample_n", 1024)),
-        second_order=bool(body.get("second_order", False)),
-        infeasible_value=(float(body["infeasible_value"])
-                          if body.get("infeasible_value") is not None else None),
+        optimize_by=study_input.optimize_by,
+        minimize=study_input.minimize,
+        decompose=tuple(study_input.decompose) or (study_input.optimize_by,),
+        saltelli_sample_n=study_input.saltelli_sample_n,
+        second_order=study_input.second_order,
+        infeasible_value=study_input.infeasible_value,
     )
 
 
-def _split_params(params: dict) -> tuple[dict, list[Probe]]:
-    """Split each `studies.yaml` param entry into its data override (the `range:` block, deep-merged
-    later) and its `Probe` (the `probe:` block). A bare scalar is `range: {value: scalar}`."""
-    overrides: dict[str, dict] = {}
+def _split_params(params: dict[str, schema.ParamInput]) -> tuple[dict[str, schema.RangeInput], list[Probe]]:
+    """Split each `params:` entry into its data override (`range:`) and its `Probe` (`probe:`).
+    An entry may carry either, both, or (validation aside) neither — they are independent."""
+    overrides: dict[str, schema.RangeInput] = {}
     probes: list[Probe] = []
     for path, entry in params.items():
-        if not isinstance(entry, dict):
-            overrides[path] = {"value": float(entry)}
-            continue
-        extra = set(entry) - {"probe", "range"}
-        if extra:
-            raise ValueError(f"param {path!r}: unexpected keys {sorted(extra)}; "
-                             "a param entry is {probe: {...}, range: {...}}")
-        if "range" in entry:
-            overrides[path] = entry["range"]
-        if "probe" in entry:
-            probes.append(Probe(path=path, **entry["probe"]))
+        if entry.range is not None:
+            overrides[path] = entry.range
+        if entry.probe is not None:
+            probes.append(Probe(path=path, kind=entry.probe.kind, n=entry.probe.n))
     return overrides, probes
 
 
-def _overlay(assumptions: dict, overrides: dict) -> dict:
-    """Deep-merge each override onto the assumptions leaf it names, on a copy."""
-    merged = copy.deepcopy(assumptions)
-    for path, override in overrides.items():
-        _merge_leaf(merged, path, override)
-    return merged
+def _apply_override(library: schema.Library, path: str, override: schema.RangeInput) -> None:
+    """Merge a `range:` override onto the `Range` leaf at dotted `path`, in place. Unset override
+    fields are inherited from the existing leaf (so overriding only `value` keeps the band, and
+    overriding only the band keeps the nominal)."""
+    parent, leaf = _leaf(library, path)
+    existing = _get(parent, leaf, path)
+    if not isinstance(existing, schema.Range):
+        raise ValueError(f"path {path!r} is not a numeric leaf (it's a {type(existing).__name__}); "
+                         "only a Range leaf takes a range override")
+    merged = {**existing.model_dump(), **override.model_dump(exclude_none=True)}
+    _set(parent, leaf, schema.Range.model_validate(merged))
 
 
-def _merge_leaf(tree: dict, path: str, override: dict) -> None:
-    """Merge `override` onto the leaf at dotted `path`. A scalar leaf becomes `{value: scalar}`
-    first, so an override may add a band to a plain nominal."""
-    node, leaf = _descend(tree, path)
-    current = node[leaf]
-    base = current if isinstance(current, dict) else {"value": current}
-    node[leaf] = {**base, **override}
+def _build_case(name: str, case_defs: dict[str, schema.CaseInput], library: schema.Library) -> Case:
+    """Resolve one case's composition (library keys) into the actual components on `library`."""
+    if name not in case_defs:
+        raise ValueError(f"unknown case {name!r}; known: {list(case_defs)}")
+    spec = case_defs[name]
+    return Case(
+        name=name,
+        platform=_catalog_get(library.platforms, spec.platform, "platform", name),
+        drivetrain=_catalog_get(library.drivetrains, spec.drivetrain, "drivetrain", name),
+        sources=[_catalog_get(library.sources, s, "source", name) for s in spec.sources],
+        strategy=spec.strategy,
+        shared=library.shared,
+    )
 
 
-def _descend(tree: dict, path: str) -> tuple[dict, str]:
-    """Return `(parent_dict, leaf_key)` for a dotted `path`, raising if any segment — including the
-    leaf — is missing. The shared path check for overrides and probes."""
-    node = tree
+# ---------------------------------------------------- path navigation ----
+# The library is an object tree with a single map layer — the catalogs (`platforms` /
+# `drivetrains` / `sources`). `_leaf` walks a dotted path across it, dict-keying a map and
+# getattr-ing an object, so no glom-style machinery is needed.
+
+def _leaf(root, path: str) -> tuple[object, str]:
+    """Return `(parent, leaf_name)` for a dotted `path`, raising if any segment — including the
+    leaf — is missing. Shared by overrides (to set) and probes (to validate the path)."""
     *parents, leaf = path.split(".")
+    node = root
     for segment in parents:
-        if not isinstance(node, dict) or segment not in node:
-            raise ValueError(f"path {path!r} is not a config leaf — "
-                             "check the dotted path against assumptions.yaml")
-        node = node[segment]
-    if not isinstance(node, dict) or leaf not in node:
-        raise ValueError(f"path {path!r} is not a config leaf — "
-                         "check the dotted path against assumptions.yaml")
+        node = _get(node, segment, path)
+    _get(node, leaf, path)                              # the leaf must exist too
     return node, leaf
 
 
-def _build_case(name: str, spec: dict, library: schema.Library) -> Case:
-    """Compose one Case from its `cases:` entry against the built library."""
-    return Case(
-        name=name,
-        platform=library.platforms[spec["platform"]],
-        drivetrain=library.drivetrains[spec["drivetrain"]],
-        sources=[library.sources[s] for s in spec.get("sources", [])],
-        strategy=spec["strategy"],
-        shared=library.shared,
-    )
+def _get(node, key: str, path: str):
+    """One step of navigation: a map is dict-keyed, an object is getattr-ed."""
+    try:
+        return node[key] if isinstance(node, Mapping) else getattr(node, key)
+    except (KeyError, AttributeError):
+        raise ValueError(f"path {path!r}: no {key!r} here — "
+                         "check the dotted path against assumptions.yaml") from None
+
+
+def _set(node, key: str, value) -> None:
+    if isinstance(node, Mapping):
+        node[key] = value
+    else:
+        setattr(node, key, value)
+
+
+def _catalog_get(catalog: dict, key: str, kind: str, case_name: str):
+    """Fetch a component from its catalog by name, with a message that names the case and the
+    known keys when the name is a typo."""
+    try:
+        return catalog[key]
+    except KeyError:
+        raise ValueError(f"case {case_name!r}: unknown {kind} {key!r}; "
+                         f"known: {list(catalog)}") from None

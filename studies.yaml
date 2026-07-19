@@ -11,9 +11,9 @@
 #           this band (assumptions' if not overridden); `dist` doubles as grid spacing (unif ->
 #           linear, loguniform -> geometric). A bare scalar == range: {value: scalar}.
 #
-# Study meta: optimize_by (measure the lever optimizes, default lcot), minimize (argmin vs argmax,
-# default true), decompose (Sobol targets; omitted -> optimize_by), saltelli_sample_n, second_order,
-# infeasible_value, cases (omitted -> every case, in catalog order).
+# Study meta: cases (required — the member cases, by name), optimize_by (measure the lever
+# optimizes, default lcot), minimize (argmin vs argmax, default true), decompose (Sobol targets;
+# omitted -> optimize_by), saltelli_sample_n, second_order, infeasible_value.
 
 # ============================================================= cases ====
 # The composition catalog: which library parts (from assumptions.yaml) each ship concept combines.
@@ -68,11 +68,11 @@ studies:
 
   # --- fleet: all cases, speed lever, distance condition, no sampling -> a tidy comparison table.
   fleet:
+    cases: [fossil, e-methanol, lfp, iron-air, nuclear-direct, nuclear-int-el, nuclear-cont, tender]
     optimize_by: lcot
     params:
       shared.op_v_kn: {probe: {kind: optimize, n: 18}, range: {lo: 5.0, hi: 22.0}}
       shared.d_km:    {probe: {kind: sweep,    n: 36}, range: {lo: 500.0, hi: 18000.0}}
-    # cases omitted -> every case, in catalog order
 
   # --- validation: a single sampled param, nothing else varying -> S1 ~ ST ~ 1 -----------
   lfp-price-check:
