@@ -3,16 +3,18 @@ carried by an at-sea nuclear tender over a tether."""
 
 from __future__ import annotations
 
-import schema
-import helpers
-import sources
-from units import KM_PER_NM, KMH_PER_KNOT
+import numpy as np
 
-from ._shared import (_resolve_demand, _fixed_costs, _lcot, _row, _infeasible,
+import schema
+from common import helpers
+from model import costing
+from common.units import KM_PER_NM, KMH_PER_KNOT
+
+from ._shared import (_resolve_demand, _fixed_costs, _lcot, _finalize,
                       legs_per_year, carried)
 
 
-def tether_charge(case: schema.Case, point: dict) -> dict:
+def tether_charge(case: schema.Case) -> dict:
     """Nuclear-tender case: a battery ship whose ocean crossing is carried by a
     nuclear tender over a tether. Three segments — coastal-out (battery, refilled at sea by
     the tender), tethered open ocean (tender propels directly), coastal-in (battery, refilled
@@ -30,20 +32,23 @@ def tether_charge(case: schema.Case, point: dict) -> dict:
     `availability`. Billed energy is what a leg consumes in expectation — the reserve and
     the detach buffer are never billed as throughput.
     """
-    pl, dt = case.platform, case.drivetrain
-    economics, margins, route = case.params.economics, case.params.margins, case.params.route
-    d_km, op_v_kn = point.get("d_km", route.d_km), point.get("op_v_kn", route.op_v_kn)
-    design_v_kn = point.get("design_v_kn", route.design_v_kn)
-    detach_frac = point.get("detach_frac", route.detach_frac) or 0.0   # unset route -> no detach weather
+    pl, dt, params = case.platform, case.drivetrain, case.params
+    economics, margins = params.economics, params.margins
+    d_km, op_v_kn = params.d_km, params.op_v_kn
+    design_v_kn = params.design_v_kn
     # expects exactly one battery + one tender reactor source
-    battery = next(s for s in case.sources if isinstance(s, sources.BatterySource))
-    tender = next(s for s in case.sources if isinstance(s, sources.TenderReactor))
+    battery = next(s for s in case.sources if isinstance(s, schema.BatterySource))
+    tender = next(s for s in case.sources if isinstance(s, schema.TenderReactor))
+    detach_frac = tender.tether.detach_frac     # expected fraction of tethered time the cable is dropped
 
     # --- route plan at the operating speed -------------------------------------
-    coastal_km = route.standoff_nm * KM_PER_NM          # one identical to/from-tender sub-leg
+    coastal_km = tender.tether.standoff_nm * KM_PER_NM  # one identical to/from-tender sub-leg
     tethered_km = d_km - 2 * coastal_km
-    if tethered_km <= 0 or op_v_kn > tender.tether.cable_v_cap_kn or detach_frac >= 1.0:
-        return _infeasible(op_v_kn, d_km)
+    # no open-ocean leg, speed over the cable cap, or a route detached all the time -> infeasible.
+    # Combined with the cargo check below into one end-of-function mask (computed anyway, hidden
+    # where it bites); a masked cell's arithmetic may divide by zero -> handled under errstate.
+    feasible_route = ((tethered_km > 0) & (op_v_kn <= tender.tether.cable_v_cap_kn)
+                      & (detach_frac < 1.0))
     kmh = op_v_kn * KMH_PER_KNOT
     sail_h = d_km / kmh
     coastal_h = coastal_km / kmh
@@ -57,18 +62,18 @@ def tether_charge(case: schema.Case, point: dict) -> dict:
 
     # --- size the pack: max(coastal sub-leg + reserve, detach buffer) ------------
     coastal_kwh = bus_kw * coastal_h
-    detach_buffer_kwh = bus_kw * (route.detach_duration_h or 0.0)   # unset -> no detach buffer
+    detach_duration_h = tender.tether.detach_duration_h
+    detach_buffer_kwh = bus_kw * detach_duration_h   # 0 when no detach event is configured
     # energy reserve on the coastal sub-leg only; the detach buffer is itself a weather reserve
-    deliverable_kwh = max(coastal_kwh * (1 + margins.energy_reserve), detach_buffer_kwh)
-    installed_kwh, slots, mass_t = battery.size(
-        deliverable_kwh, bus_kw, pl.slot_limits.container_max_gross_t)
+    deliverable_kwh = np.maximum(coastal_kwh * (1 + margins.energy_reserve), detach_buffer_kwh)
+    installed_kwh, slots, mass_t = costing.battery_size(
+        battery, deliverable_kwh, bus_kw, pl.slot_limits.container_max_gross_t)
 
     # --- annual legs + revenue cargo (pack slots + mass displace cargo) ---------
     legs = legs_per_year(op_v_kn, d_km, dt.operations.port_hours, dt.operations.availability)
     cargo = carried(pl, dt.overhead.slots, slots, mass_t,
-                    route.load_factor, route.load_factor_imbalance)
-    if cargo <= 0:
-        return _infeasible(op_v_kn, d_km)
+                    params.load_factor, params.load_factor_imbalance)
+    mask = feasible_route & (cargo > 0)     # pack swamps the ship -> also infeasible
 
     # --- energy per leg: expected consumption, not pack capacity ----------------
     # the grid fills the pack at port (spent on coastal-out); the tender fills it mid-ocean
@@ -84,15 +89,15 @@ def tether_charge(case: schema.Case, point: dict) -> dict:
     tender_bus_kw = bus_kw + charge_kw
     tender_bus_kwh = tender_bus_kw * attached_h
     # detached hours are non-delivering time for the tender, on top of the between-ship wait
-    tender_usd_per_kwh, reactor_kw = tender.levelize(
-        tender_bus_kw, attached_h, route.idle_h + detach_h, economics.discount_rate)
+    tender_usd_per_kwh, reactor_kw = costing.tender_levelize(
+        tender, tender_bus_kw, attached_h, tender.idle_h + detach_h, economics.discount_rate)
     tender_cost_leg = tender_bus_kwh * tender_usd_per_kwh
 
     # --- capital + fixed O&M (ship only; the tender's CAPEX is inside its $/kWh) -
     discount_rate = economics.discount_rate
     # motor sized to the FIXED design speed (cheap, off the slow-steam sweep)
     motor_kw = helpers.prop_power_kw(pl.resistance, design_v_kn, demand.propulsion_factor) * (1 + margins.sea)
-    battery_life = battery.life_yr(legs)
+    battery_life = costing.battery_life_yr(battery, legs)
     fixed = _fixed_costs(pl, dt, economics, legs, discount_rate,
                          powerplant=dt.capex.converter_usd_per_kw * motor_kw
                          * helpers.crf(discount_rate, dt.capex.life_yr),
@@ -102,8 +107,8 @@ def tether_charge(case: schema.Case, point: dict) -> dict:
     annual_energy = (grid_cost_leg + tender_cost_leg) * legs
     lcot = _lcot(annual_fixed, annual_energy, legs, d_km, cargo)
 
-    return _row(lcot, op_v_kn, d_km, cargo, legs, annual_fixed, annual_energy,
-                battery_slots=slots, battery_kwh=installed_kwh, motor_kw=motor_kw,
-                tender_reactor_kw=reactor_kw, tender_usd_per_kwh=tender_usd_per_kwh,
-                ships_per_tender=(sail_h + dt.operations.port_hours) / (tethered_h + route.idle_h),
-                **fixed)
+    return _finalize(mask, lcot, op_v_kn, d_km, cargo, legs, annual_fixed, annual_energy,
+                     battery_slots=slots, battery_kwh=installed_kwh, motor_kw=motor_kw,
+                     tender_reactor_kw=reactor_kw, tender_usd_per_kwh=tender_usd_per_kwh,
+                     ships_per_tender=(sail_h + dt.operations.port_hours) / (tethered_h + tender.idle_h),
+                     **fixed)

@@ -1,16 +1,19 @@
 """
 strategies — the per-case strategy functions, one module each.
 
-A strategy is a plain function `(case, point) -> dict`: reads the case's fixed setup + one
-`point` (parameter-space coordinates the optimizer passes in, e.g. `{"d_km", "op_v_kn"}`),
-segments the route, decides which source supplies what, sizes the stores, and returns a row
-dict — `lcot` (all the optimizer reads) plus extra numbers for the artifact. Config is frozen
-dataclasses; the point in and row out are plain dicts (rows go straight to the artifact).
+A strategy is a plain function `(case) -> dict`: reads the case's setup, segments the route,
+decides which source supplies what, sizes the stores, and returns a row dict — `lcot` plus
+extra numbers for the artifact. It reads varied parameters straight off the config leaves
+(`shared.op_v_kn`, `shared.d_km`, …), which `ingest` has replaced with array values on named
+axes; the arithmetic broadcasts, so one call evaluates a whole block. A leaf may equally be a
+scalar (one point — the debugging path). Feasibility is a boolean mask applied at the end
+(see `_shared._finalize`), not an early return, so an infeasible cell doesn't abort a block.
 
-The optimizer does `getattr(strategies, case.strategy)`, so each strategy is re-exported here
+`evaluate` does `getattr(strategies, case.strategy)`, so each strategy is re-exported here
 by name. One strategy per structurally-distinct case-type; cases differing only in parameters
-share one (fossil/e-methanol; LFP/iron-air). Each orchestrates the source cost methods on its
-EnergySource (`size` / `life_yr` / `usd_per_kwh` / `levelize`, defined in sources.py):
+share one (fossil/e-methanol; LFP/iron-air). Each orchestrates the source cost functions for its
+EnergySource (`battery_size` / `battery_life_yr` / `fuel_usd_per_kwh` / `tender_levelize` /
+`containerized_reactor_size`, defined in `model/costing.py`):
   - fuel_burn                   — fossil / e-methanol: mechanical drivetrain, thin commodity fuel.
   - port_swap_battery           — LFP / iron-air: electric, pack carries a whole leg, swapped at port.
   - tether_charge               — nuclear tender: battery ship, crossing carried by an at-sea reactor.

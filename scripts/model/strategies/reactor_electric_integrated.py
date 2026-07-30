@@ -4,24 +4,24 @@ reactor + generator + motor, all integrated onto the drivetrain."""
 from __future__ import annotations
 
 import schema
-import helpers
-import sources
-from units import KMH_PER_KNOT
+from common import helpers
+from model import costing
+from common.units import KMH_PER_KNOT
 
-from ._shared import (_resolve_demand, _fixed_costs, _lcot, _row, _infeasible,
+from ._shared import (_resolve_demand, _fixed_costs, _lcot, _finalize,
                       legs_per_year, carried)
 
 
-def reactor_electric_integrated(case: schema.Case, point: dict) -> dict:
+def reactor_electric_integrated(case: schema.Case) -> dict:
     """Integrated-reactor ELECTRIC-drive ship (nuclear-int-el): reactor + generator + motor,
     all integrated (CAPEX on the Drivetrain, reactor+generator and motor amortized on their
     own lives). Energy is fission fuel (thermal $/kWh) or nothing. Both stages sized to the
     operating speed (the reactor caps speed anyway).
     """
-    pl, dt = case.platform, case.drivetrain
-    economics, margins, route = case.params.economics, case.params.margins, case.params.route
-    d_km, op_v_kn = point.get("d_km", route.d_km), point.get("op_v_kn", route.op_v_kn)
-    fuels = [s for s in case.sources if isinstance(s, sources.FuelSource)]
+    pl, dt, params = case.platform, case.drivetrain, case.params
+    economics, margins = params.economics, params.margins
+    d_km, op_v_kn = params.d_km, params.op_v_kn
+    fuels = [s for s in case.sources if isinstance(s, schema.FuelSource)]
     fuel = fuels[0] if fuels else None
 
     sail_h = d_km / (op_v_kn * KMH_PER_KNOT)
@@ -32,12 +32,11 @@ def reactor_electric_integrated(case: schema.Case, point: dict) -> dict:
 
     legs = legs_per_year(op_v_kn, d_km, dt.operations.port_hours, dt.operations.availability)
     cargo = carried(pl, dt.overhead.slots, 0.0, 0.0,
-                    route.load_factor, route.load_factor_imbalance)
-    if cargo <= 0:
-        return _infeasible(op_v_kn, d_km)
+                    params.load_factor, params.load_factor_imbalance)
+    mask = cargo > 0        # reactor overhead swamps the ship -> infeasible
 
     # --- energy: thermal fuel over the leg (zero if fueled-for-life) -------------
-    fuel_cost_leg = fuel_kwh_leg * fuel.usd_per_kwh() if fuel is not None else 0.0
+    fuel_cost_leg = fuel_kwh_leg * costing.fuel_usd_per_kwh(fuel) if fuel is not None else 0.0
 
     discount_rate = economics.discount_rate
     # reactor+generator sized to the operating-speed bus, motor to the shaft power; separate lives
@@ -52,6 +51,6 @@ def reactor_electric_integrated(case: schema.Case, point: dict) -> dict:
     annual_energy = fuel_cost_leg * legs
     lcot = _lcot(annual_fixed, annual_energy, legs, d_km, cargo)
 
-    return _row(lcot, op_v_kn, d_km, cargo, legs, annual_fixed, annual_energy,
-                reactor_elec_kw=reactor_elec_kw, motor_kw=motor_shaft_kw,
-                fuel_kwh_leg=fuel_kwh_leg, **fixed)
+    return _finalize(mask, lcot, op_v_kn, d_km, cargo, legs, annual_fixed, annual_energy,
+                     reactor_elec_kw=reactor_elec_kw, motor_kw=motor_shaft_kw,
+                     fuel_kwh_leg=fuel_kwh_leg, **fixed)

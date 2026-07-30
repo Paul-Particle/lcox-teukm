@@ -4,7 +4,7 @@ Provides the FCA color palette, the discrete `colorway`, the `fca_template`
 layout, and the continuous `fca_colormap`.
 
 Usage:
-    from style import fca_template, fca_colormap, fca_colorway
+    from viz.style import fca_template, fca_colormap, fca_colorway
     fig.update_layout(template=fca_template)              # house look
     fig.update_traces(marker=dict(colorscale=fca_colormap))  # continuous scale
 
@@ -147,8 +147,8 @@ def fca_logo():
 
     Returns ``{"source": <base64 PNG data URI>, "aspect": width / height}`` for
     ``fig.add_layout_image(...)``. fca_logo.png is rasterised from fca_logo.svg:
-        magick -background none -density 600 scripts/assets/fca_logo.svg \\
-            -resize x300 -depth 8 -strip scripts/assets/fca_logo.png
+        magick -background none -density 600 scripts/viz/assets/fca_logo.svg \\
+            -resize x300 -depth 8 -strip scripts/viz/assets/fca_logo.png
     """
     if not _LOGO_PATH.exists():
         return None
@@ -624,18 +624,20 @@ def apply_logo(fig, fig_width: int, fig_height: int,
 
 
 def apply_header(fig, *, title: str, subtitle: str,
-                 fig_width: int, fig_height: int, margin_b: int) -> dict:
+                 fig_width: int, fig_height: int, margin_b: int,
+                 margin_l: int = None, margin_r: int = None) -> dict:
     """Apply the full FCA header chrome to `fig`: dot-aligned title, the subtitle line beneath it,
-    the leading brand dot, and the bottom-right monogram. Also pins the figure size and bottom
-    margin (the dot/logo geometry depends on them); the left/right/top margins come from the
-    template. Set the template and everything else (axes, legend, traces) on `fig` first, then call
-    this. Returns the header `geom` in case the caller needs it."""
-    margin_l = fca_template.layout.margin.l
-    margin_r = fca_template.layout.margin.r
+    the leading brand dot, and the bottom-right monogram. Also pins the figure size and margins
+    (the dot/logo geometry depends on them). `margin_l`/`margin_r` default to the template but can
+    be overridden (e.g. wider left for horizontal-bar labels) — the header geometry follows so the
+    dot stays aligned. Set the template and everything else on `fig` first, then call this."""
+    margin_l = fca_template.layout.margin.l if margin_l is None else margin_l
+    margin_r = fca_template.layout.margin.r if margin_r is None else margin_r
     margin_t = fca_template.layout.margin.t
     geom = header_geometry(fig_width, fig_height, margin_l, margin_r, margin_t)
     fig.update_layout(title=dict(text=title, x=geom["title_x"]),
-                      width=fig_width, height=fig_height, margin=dict(b=margin_b))
+                      width=fig_width, height=fig_height,
+                      margin=dict(b=margin_b, l=margin_l, r=margin_r))
     fig.add_annotation(
         text=subtitle, xref="paper", yref="paper",
         x=0, xanchor="left", xshift=geom["header_x_shift"],

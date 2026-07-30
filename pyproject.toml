@@ -3,6 +3,8 @@ name = "lcox-teukm"
 version = "0.1.0"
 requires-python = ">=3.11"
 dependencies = [
+    "h5netcdf>=1.3",
+    "h5py>=3.11",
     "kaleido>=1.3.0",
     "numpy>=2.4.6",
     "openpyxl>=3.1",
@@ -10,5 +12,19 @@ dependencies = [
     "plotly>=6.8.0",
     "pyarrow>=24.0.0",
     "pyyaml>=6.0.3",
-    "ruamel-yaml>=0.18",
+    "salib>=1.5",
+    "xarray>=2025.1",
 ]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+# scripts/ IS the source root: it holds both top-level modules (run, config, schema, compose,
+# evaluate, analyze, store, pipeline) and subpackages (common, model, viz, mrv). Remap scripts/ to
+# the wheel root and include every module, so both the editable install (`uv sync`, which puts
+# scripts/ on sys.path — what makes `import config` / `from common.paths import ...` resolve
+# everywhere, at runtime and for pyright/serena) and a built wheel carry the whole tree.
+[tool.hatch.build.targets.wheel]
+sources = ["scripts"]
+include = ["scripts/**/*.py"]
